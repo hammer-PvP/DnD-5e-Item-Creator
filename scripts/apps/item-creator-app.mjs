@@ -1,7 +1,9 @@
 import { ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, STEPS } from "../constants.mjs";
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
+import { ItemCreatorTemplateBrowserApp } from "./template-browser-app.mjs";
+import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 
-const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
+const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
 function valuesOf(value) {
   if (value instanceof Set) return [...value];
@@ -90,7 +92,8 @@ function weaponSourceData(document) {
       bonus: versatile.bonus ?? "",
       damageType: versatileTypes[0] ?? damageTypes[0] ?? ""
     },
-    ammunitionType: system.ammunition?.type ?? ""
+    ammunitionType: system.ammunition?.type ?? "",
+    additionalDamage: []
   };
 }
 
@@ -105,6 +108,34 @@ function displayDamage(data, damageTypeLabel) {
   return `${dice}${bonus ? ` + ${bonus}` : ""}${damageTypeLabel ? ` ${damageTypeLabel}` : ""}`;
 }
 
+function damageDiceOptions(selected) {
+  return [4, 6, 8, 10, 12, 20].map(value => ({
+    value,
+    label: `d${value}`,
+    selected: Number(selected) === value
+  }));
+}
+
+function abilityModifierOptions(selected) {
+  return [
+    { value: "attack", label: "Attack Ability", selected: selected === "attack" },
+    { value: "spellcasting", label: "Spellcasting Ability", selected: selected === "spellcasting" },
+    ...Object.entries(CONFIG.DND5E.abilities ?? {}).map(([value, entry]) => ({
+      value,
+      label: localizedLabel(entry, value),
+      selected: selected === value
+    }))
+  ];
+}
+
+function additionalDamageLabel(row) {
+  const type = localizedLabel(CONFIG.DND5E.damageTypes?.[row.damageType], row.damageType || "Untyped");
+  const ability = row.useAbilityModifier
+    ? abilityModifierOptions(row.ability).find(option => option.selected)?.label ?? "Ability Modifier"
+    : "";
+  return `${row.number}d${row.denomination}${ability ? ` + ${ability}` : ""} ${type}`;
+}
+
 export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   constructor(options = {}) {
     super(options);
@@ -114,14 +145,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedWeaponDocument = null;
     this.itemName = "";
     this.selectedIcon = "";
-    this.templateSearch = "";
     this.templateCategory = "all";
-    this.iconSearch = "";
-    this.iconBrowserOpen = false;
     this.loadingWeapon = false;
     this.customized = {};
     this.overrides = {};
     this.restoreScrollTop = null;
+    this.templateBrowserApp = null;
+    this.iconBrowserApp = null;
   }
 
   static DEFAULT_OPTIONS = {
@@ -137,14 +167,19 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   };
 
   async _prepareContext() {
-    await ItemCreatorSourceRegistry.instance.loadWeapons();
+    const registry = ItemCreatorSourceRegistry.instance;
+    await registry.loadWeapons();
 
-    if (this.selectedWeaponUuid && !ItemCreatorSourceRegistry.instance.findWeapon(this.selectedWeaponUuid)) {
-      this.#clearTemplate();
-    }
+    if (this.selectedWeaponUuid && !registry.findWeapon(this.selectedWeaponUuid)) this.#clearTemplate();
 
     const typeComplete = Boolean(this.selectedType);
-    const baseComplete = Boolean(this.selectedWeaponUuid && this.itemName.trim());
+    const source = weaponSourceData(this.selectedWeaponDocument);
+    const effective = source ? this.#effectiveValues(source) : null;
+    const additionalDamageValid = !this.customized.additionalDamage
+      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
+        Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
+        && (!row.useAbilityModifier || Boolean(row.ability))));
+    const baseComplete = Boolean(this.selectedWeaponUuid && this.itemName.trim() && additionalDamageValid);
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
@@ -152,14 +187,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       locked: !step.available || (step.id === "baseItem" && !typeComplete)
     }));
 
-    const source = weaponSourceData(this.selectedWeaponDocument);
-    const effective = source ? this.#effectiveValues(source) : null;
-    const selectedOption = this.selectedWeaponUuid
-      ? ItemCreatorSourceRegistry.instance.findWeapon(this.selectedWeaponUuid)
-      : null;
-
+    const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
     const templateCounts = new Map();
-    for (const option of ItemCreatorSourceRegistry.instance.weaponOptions) {
+    for (const option of registry.weaponOptions) {
       templateCounts.set(option.weaponType, (templateCounts.get(option.weaponType) ?? 0) + 1);
     }
 
@@ -175,10 +205,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         selected: this.templateCategory === value
       }))];
 
-    const templateOptions = ItemCreatorSourceRegistry.instance.weaponOptions.map(option => ({
+    const templateOptions = registry.weaponOptions.map(option => ({
       ...option,
       selected: option.uuid === this.selectedWeaponUuid,
-      optionLabel: `${option.name} — ${option.sourceLabel}`
+      optionLabel: `${option.name} — ${option.sourceLabel} / ${option.packLabel}`
     }));
 
     const propertyKeys = CONFIG.DND5E.validProperties?.weapon ?? new Set();
@@ -208,6 +238,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const customization = field => Boolean(this.customized[field]);
     const customFieldCount = Object.values(this.customized).filter(Boolean).length;
+    const additionalDamageRows = (effective?.additionalDamage ?? []).map((row, index) => ({
+      ...row,
+      index: index + 1,
+      dieOptions: damageDiceOptions(row.denomination),
+      damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, row.damageType),
+      abilityModifierOptions: abilityModifierOptions(row.ability),
+      summary: additionalDamageLabel(row)
+    }));
 
     return {
       stage: MODULE_STAGE,
@@ -216,17 +254,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       steps,
       itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
       selectedType: this.selectedType,
-      weaponCount: ItemCreatorSourceRegistry.instance.weaponOptions.length,
+      weaponCount: registry.weaponOptions.length,
       templateOptions,
       templateCategoryOptions,
-      templateSearch: this.templateSearch,
       templateCategory: this.templateCategory,
       selectedWeapon,
       selectedWeaponUuid: this.selectedWeaponUuid,
       itemName: this.itemName,
-      iconOptions: ItemCreatorSourceRegistry.instance.iconOptions,
-      iconSearch: this.iconSearch,
-      iconBrowserOpen: this.iconBrowserOpen,
       iconCustomized: customization("icon"),
       customFieldCount,
       loadingWeapon: this.loadingWeapon,
@@ -258,19 +292,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       rangeUnitOptions: configOptions(CONFIG.DND5E.movementUnits, effective?.range?.units),
       weightUnitOptions: configOptions(CONFIG.DND5E.weightUnits, effective?.weight?.units),
       currencyOptions: configOptions(CONFIG.DND5E.currencies, effective?.price?.denomination),
-      damageDiceOptions: [4, 6, 8, 10, 12, 20].map(value => ({
-        value,
-        label: `d${value}`,
-        selected: Number(effective?.baseDamage?.denomination) === value
-      })),
-      versatileDiceOptions: [4, 6, 8, 10, 12, 20].map(value => ({
-        value,
-        label: `d${value}`,
-        selected: Number(effective?.versatile?.denomination) === value
-      })),
+      damageDiceOptions: damageDiceOptions(effective?.baseDamage?.denomination),
+      versatileDiceOptions: damageDiceOptions(effective?.versatile?.denomination),
       propertyOptions,
       hasVersatile: effective?.properties?.includes("ver") ?? false,
-      hasAmmunition: effective?.properties?.includes("amm") ?? false
+      hasAmmunition: effective?.properties?.includes("amm") ?? false,
+      additionalDamageRows,
+      additionalDamageValid,
+      additionalDamageCount: additionalDamageRows.length
     };
   }
 
@@ -280,7 +309,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-action="step"]').forEach(button => button.addEventListener("click", event => this.#changeStep(event)));
     root.querySelector('[data-action="continue"]')?.addEventListener("click", event => this.#continue(event));
     root.querySelector('[data-action="back"]')?.addEventListener("click", event => this.#back(event));
-    root.querySelector('[data-template-search]')?.addEventListener("input", event => this.#filterTemplates(event));
+    root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
     root.querySelector('[name="itemName"]')?.addEventListener("input", event => this.#updateItemName(event));
@@ -290,13 +319,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       input.addEventListener(eventName, event => this.#updateOverride(event));
     });
     root.querySelectorAll('[data-property-key]').forEach(input => input.addEventListener("change", event => this.#updateProperty(event)));
-    root.querySelector('[data-action="toggle-icon-browser"]')?.addEventListener("click", event => this.#toggleIconBrowser(event));
-    root.querySelector('[data-icon-search]')?.addEventListener("input", event => this.#filterIcons(event));
-    root.querySelectorAll('[data-action="select-icon"]').forEach(button => button.addEventListener("click", event => this.#selectIcon(event)));
+    root.querySelector('[data-action="open-icon-browser"]')?.addEventListener("click", event => this.#openIconBrowser(event));
+    root.querySelector('[data-action="add-additional-damage"]')?.addEventListener("click", event => this.#addAdditionalDamage(event));
+    root.querySelectorAll('[data-action="remove-additional-damage"]').forEach(button => button.addEventListener("click", event => this.#removeAdditionalDamage(event)));
+    root.querySelectorAll('[data-extra-damage-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateAdditionalDamage(event));
+    });
 
     this.#applyTemplateFilter();
-    this.#applyIconFilter(this.iconSearch);
-
     if (Number.isFinite(this.restoreScrollTop)) {
       const top = this.restoreScrollTop;
       this.restoreScrollTop = null;
@@ -370,11 +401,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #filterTemplates(event) {
-    if (event.currentTarget.matches("[data-template-search]")) {
-      this.templateSearch = String(event.currentTarget.value ?? "").trim().toLowerCase();
-    } else {
-      this.templateCategory = String(event.currentTarget.value ?? "all");
-    }
+    this.templateCategory = String(event.currentTarget.value ?? "all");
     this.#applyTemplateFilter();
   }
 
@@ -383,10 +410,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!select) return;
     let visible = 0;
     for (const option of select.querySelectorAll("option[data-template-option]")) {
-      const matchesSearch = !this.templateSearch || String(option.dataset.search ?? "").includes(this.templateSearch);
       const matchesCategory = this.templateCategory === "all" || option.dataset.category === this.templateCategory;
       const keepSelected = option.value === this.selectedWeaponUuid;
-      const show = (matchesSearch && matchesCategory) || keepSelected;
+      const show = matchesCategory || keepSelected;
       option.hidden = !show;
       option.disabled = !show;
       if (show) visible += 1;
@@ -396,33 +422,82 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   async #selectTemplate(event) {
-    if (this.loadingWeapon) return;
     const uuid = event.currentTarget.value;
-    if (!uuid) {
-      this.#clearTemplate();
-      this.#renderPreservingScroll();
+    const accepted = await this.#requestTemplateChange(uuid, { resetScroll: false });
+    if (!accepted) this.#renderPreservingScroll();
+  }
+
+  async #openTemplateBrowser(event) {
+    event.preventDefault();
+    if (this.templateBrowserApp?.element?.isConnected) {
+      this.templateBrowserApp.bringToFront?.();
       return;
     }
+    this.#setBrowserBlock(true);
+    this.templateBrowserApp = new ItemCreatorTemplateBrowserApp({
+      selectedUuid: this.selectedWeaponUuid,
+      onSelect: uuid => this.#requestTemplateChange(uuid, { resetScroll: true }),
+      onClosed: app => {
+        if (this.templateBrowserApp === app) this.templateBrowserApp = null;
+        this.#setBrowserBlock(false);
+      }
+    });
+    this.templateBrowserApp.render({ force: true });
+  }
 
+  async #requestTemplateChange(uuid, { resetScroll = false } = {}) {
+    if (this.loadingWeapon) return false;
+    if (uuid === this.selectedWeaponUuid) return true;
+
+    if (this.selectedWeaponUuid && this.#hasTemplateChanges()) {
+      const confirmed = await DialogV2.confirm({
+        window: { title: uuid ? "Change Base Template" : "Clear Base Template", modal: true },
+        content: `<p>${uuid ? "Changing" : "Clearing"} the base template will discard the custom Item name, all Base Item overrides, additional damage entries, and the custom icon.</p>`,
+        yes: { label: uuid ? "Change Template" : "Clear Template", icon: "fa-solid fa-rotate" },
+        no: { label: "Keep Current Template", icon: "fa-solid fa-xmark" }
+      });
+      if (!confirmed) return false;
+    }
+
+    if (!uuid) {
+      this.#clearTemplate();
+      this.templateCategory = "all";
+      this.restoreScrollTop = resetScroll ? 0 : this.#captureScroll();
+      this.render({ force: true });
+      return true;
+    }
+
+    const priorScroll = this.#captureScroll();
     this.loadingWeapon = true;
     try {
-      const document = await ItemCreatorSourceRegistry.instance.getWeaponDocument(uuid);
+      const registry = ItemCreatorSourceRegistry.instance;
+      const document = await registry.getWeaponDocument(uuid);
       if (!document) throw new Error("The selected template is no longer available.");
+      const option = registry.findWeapon(uuid);
       this.selectedWeaponUuid = uuid;
       this.selectedWeaponDocument = document;
       this.itemName = document.name;
       this.selectedIcon = document.img || "icons/svg/sword.svg";
+      this.templateCategory = option?.weaponType || "all";
       this.customized = {};
       this.overrides = {};
-      this.iconBrowserOpen = false;
-      this.iconSearch = "";
     } catch (error) {
       console.error(`${MODULE_ID} | Unable to select weapon template.`, error);
       ui.notifications.error("Item Creator could not load the selected weapon template.");
+      return false;
     } finally {
       this.loadingWeapon = false;
-      this.#renderPreservingScroll();
     }
+
+    this.restoreScrollTop = resetScroll ? 0 : priorScroll;
+    this.render({ force: true });
+    return true;
+  }
+
+  #hasTemplateChanges() {
+    if (!this.selectedWeaponDocument) return false;
+    return this.itemName.trim() !== String(this.selectedWeaponDocument.name ?? "").trim()
+      || Object.values(this.customized).some(Boolean);
   }
 
   #clearTemplate() {
@@ -432,8 +507,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedIcon = "";
     this.customized = {};
     this.overrides = {};
-    this.iconBrowserOpen = false;
-    this.iconSearch = "";
   }
 
   #updateItemName(event) {
@@ -453,9 +526,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       else {
         delete this.overrides.icon;
         this.selectedIcon = this.selectedWeaponDocument.img || "icons/svg/sword.svg";
-        this.iconBrowserOpen = false;
-        this.iconSearch = "";
+        this.iconBrowserApp?.close?.();
+        this.iconBrowserApp = null;
       }
+    } else if (field === "additionalDamage") {
+      if (enabled) this.overrides.additionalDamage = [this.#newAdditionalDamage()];
+      else delete this.overrides.additionalDamage;
     } else if (enabled) {
       const source = this.#sourceValues();
       this.overrides[field] = clone(source?.[field]);
@@ -480,16 +556,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const parent = event.currentTarget.dataset.overrideParent;
     if (!field || (parent ? !this.customized[parent] : !this.customized[field])) return;
     let value = event.currentTarget.value;
-    if (event.currentTarget.dataset.valueType === "number") {
-      value = value === "" ? 0 : Number(value);
-    }
+    if (event.currentTarget.dataset.valueType === "number") value = value === "" ? 0 : Number(value);
 
     if (part) {
       this.overrides[field] ??= {};
       this.overrides[field][part] = value;
-    } else {
-      this.overrides[field] = value;
-    }
+    } else this.overrides[field] = value;
   }
 
   #updateProperty(event) {
@@ -501,7 +573,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     else properties.delete(property);
     this.overrides.properties = [...properties];
 
-    // Dependent-state cleanup for properties that expose additional fields.
     if (property === "ver") {
       if (checked) {
         const source = this.#sourceValues();
@@ -521,32 +592,93 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
-  #toggleIconBrowser(event) {
+  async #openIconBrowser(event) {
     event.preventDefault();
     if (!this.selectedWeaponUuid || !this.customized.icon) return;
-    this.iconBrowserOpen = !this.iconBrowserOpen;
+    if (this.iconBrowserApp?.element?.isConnected) {
+      this.iconBrowserApp.bringToFront?.();
+      return;
+    }
+    this.#setBrowserBlock(true);
+    this.iconBrowserApp = new ItemCreatorIconBrowserApp({
+      itemType: "weapon",
+      selectedIcon: this.selectedIcon,
+      onSelect: img => {
+        this.selectedIcon = img;
+        this.overrides.icon = img;
+        this.#renderPreservingScroll();
+      },
+      onClosed: app => {
+        if (this.iconBrowserApp === app) this.iconBrowserApp = null;
+        this.#setBrowserBlock(false);
+      }
+    });
+    this.iconBrowserApp.render({ force: true });
+  }
+
+  #setBrowserBlock(active) {
+    const element = this.element;
+    if (!(element instanceof HTMLElement)) return;
+    element.inert = Boolean(active);
+    element.classList.toggle("ic-child-browser-open", Boolean(active));
+    if (active) element.setAttribute("aria-busy", "true");
+    else element.removeAttribute("aria-busy");
+  }
+
+  #newAdditionalDamage() {
+    const firstType = CONFIG.DND5E.damageTypes?.fire ? "fire" : Object.keys(CONFIG.DND5E.damageTypes ?? {})[0] ?? "";
+    return {
+      id: foundry.utils.randomID(),
+      number: 1,
+      denomination: 6,
+      damageType: firstType,
+      useAbilityModifier: false,
+      ability: ""
+    };
+  }
+
+  #addAdditionalDamage(event) {
+    event.preventDefault();
+    if (!this.customized.additionalDamage) return;
+    this.overrides.additionalDamage ??= [];
+    this.overrides.additionalDamage.push(this.#newAdditionalDamage());
     this.#renderPreservingScroll();
   }
 
-  #filterIcons(event) {
-    this.iconSearch = String(event.currentTarget.value ?? "").trim().toLowerCase();
-    this.#applyIconFilter(this.iconSearch);
+  #removeAdditionalDamage(event) {
+    event.preventDefault();
+    if (!this.customized.additionalDamage) return;
+    const id = event.currentTarget.dataset.damageId;
+    this.overrides.additionalDamage = (this.overrides.additionalDamage ?? []).filter(row => row.id !== id);
+    if (!this.overrides.additionalDamage.length) this.overrides.additionalDamage.push(this.#newAdditionalDamage());
+    this.#renderPreservingScroll();
   }
 
-  #applyIconFilter(query) {
-    for (const card of this.element?.querySelectorAll("[data-icon-card]") ?? []) {
-      card.hidden = Boolean(query && !String(card.dataset.search ?? "").includes(query));
+  #updateAdditionalDamage(event) {
+    if (!this.customized.additionalDamage) return;
+    const id = event.currentTarget.dataset.damageId;
+    const part = event.currentTarget.dataset.extraDamageInput;
+    const row = (this.overrides.additionalDamage ?? []).find(entry => entry.id === id);
+    if (!row || !part) return;
+
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    row[part] = value;
+
+    if (part === "useAbilityModifier") {
+      row.ability = value ? (row.ability || "attack") : "";
+      this.#renderPreservingScroll();
     }
   }
 
-  #selectIcon(event) {
-    event.preventDefault();
-    if (!this.customized.icon) return;
-    const img = event.currentTarget.dataset.img;
-    if (!img) return;
-    this.selectedIcon = img;
-    this.overrides.icon = img;
-    this.iconBrowserOpen = false;
-    this.#renderPreservingScroll();
+  async close(options = {}) {
+    await this.templateBrowserApp?.close?.();
+    await this.iconBrowserApp?.close?.();
+    this.templateBrowserApp = null;
+    this.iconBrowserApp = null;
+    this.#setBrowserBlock(false);
+    return super.close(options);
   }
 }

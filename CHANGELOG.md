@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.1b — Alpha
+
+- Replaced the main Template text-search field with a prominent `Browse Weapon Templates` button.
+- Added a separate modal Weapon Template Browser with search, Weapon Type filter, Compendium filter, source-priority grouping, preview, Cancel, and `Select Base Item`.
+- Preserved the manual Weapon Type and Template dropdowns for fast selection without opening the browser.
+- Added confirmation before replacing a template when the current Base Item contains a changed name or enabled overrides.
+- Rebuilt icon customization as a reusable modal `Icon Selection` browser filtered to the current Item type.
+- Added compact, uniformly framed square icon cells, source filtering, search, preview, Cancel, and `Use Selected Icon`.
+- Added optional Additional Damage configuration directly below Base Damage.
+- Added support for multiple typed damage parts, each with dice count, die denomination, D&D5e damage type, and optional Attack Ability, Spellcasting Ability, or explicit ability modifier.
+- Added cascading cleanup for Additional Damage and per-row ability modifiers.
+- Added an Active Source Priority list to Content Sources settings with Up/Down controls.
+- Applied configured compendium priority to manual Template options, Template Browser groups, and Icon Selection results.
+- Preserved named, collapsible source groups and global Expand All / Collapse All controls.
+- Kept Content Sources exclusively in Foundry Module Settings.
+- Updated manifest and documentation for tag `v0.0.1b`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.1a — Alpha
 
 - Replaced the Base Item compendium browser with a template-driven creation form.

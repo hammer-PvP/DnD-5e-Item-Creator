@@ -114,6 +114,16 @@ function isBaseWeapon(entry) {
     && !attunement;
 }
 
+function normalizeSettings(stored) {
+  const defaults = defaultSourceSettings();
+  const value = stored && typeof stored === "object" ? stored : defaults;
+  return {
+    initialized: Boolean(value.initialized),
+    enabledPacks: Array.isArray(value.enabledPacks) ? [...new Set(value.enabledPacks.map(String))] : [],
+    packOrder: Array.isArray(value.packOrder) ? [...new Set(value.packOrder.map(String))] : []
+  };
+}
+
 export class ItemCreatorSourceRegistry {
   static #instance;
 
@@ -124,10 +134,12 @@ export class ItemCreatorSourceRegistry {
 
   constructor() {
     this.weaponSourceGroups = [];
+    this.weaponPackGroups = [];
     this.weaponOptions = [];
     this.weaponByUuid = new Map();
     this.iconOptions = [];
     this.packSummaries = [];
+    this.activePackSummaries = [];
     this.loaded = false;
     this.signature = "";
   }
@@ -136,22 +148,46 @@ export class ItemCreatorSourceRegistry {
     this.loaded = false;
     this.signature = "";
     this.packSummaries = [];
+    this.activePackSummaries = [];
   }
 
   get sourceSettings() {
-    const stored = game.settings.get(MODULE_ID, "sourceSettings") ?? {};
-    return foundry.utils.mergeObject(defaultSourceSettings(), stored, { inplace: false });
+    return normalizeSettings(game.settings.get(MODULE_ID, "sourceSettings"));
   }
 
-  isEnabled(collection) {
-    const settings = this.sourceSettings;
+  isEnabled(collection, settings = this.sourceSettings) {
     if (!settings.initialized) return true;
     return settings.enabledPacks.includes(collection);
   }
 
+  priorityFor(collection, settings = this.sourceSettings) {
+    const index = settings.packOrder.indexOf(collection);
+    return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+  }
+
+  orderedPackSummaries(summaries, settings = this.sourceSettings) {
+    return [...summaries].sort((a, b) => {
+      const aPriority = this.priorityFor(a.collection, settings);
+      const bPriority = this.priorityFor(b.collection, settings);
+      if (aPriority !== bPriority) return aPriority - bPriority;
+      return a.sourceOrder - b.sourceOrder
+        || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
+        || a.label.localeCompare(b.label, game.i18n.lang);
+    });
+  }
+
   async discoverWeaponPacks({ force = false } = {}) {
-    if (this.packSummaries.length && !force) return this.packSummaries;
+    if (this.packSummaries.length && !force) {
+      const settings = this.sourceSettings;
+      return this.orderedPackSummaries(this.packSummaries.map(summary => ({
+        ...summary,
+        enabled: this.isEnabled(summary.collection, settings),
+        priority: this.priorityFor(summary.collection, settings)
+      })), settings);
+    }
+
     const summaries = [];
+    const settings = this.sourceSettings;
 
     for (const pack of game.packs) {
       if (pack.documentName !== "Item") continue;
@@ -176,30 +212,33 @@ export class ItemCreatorSourceRegistry {
         sourceId: sourceId(pack, resolvedSourceLabel),
         sourceOrder: sourceSortOrder(resolvedSourceLabel),
         weaponCount,
-        enabled: this.isEnabled(pack.collection),
+        enabled: this.isEnabled(pack.collection, settings),
+        priority: this.priorityFor(pack.collection, settings),
         search: `${label} ${resolvedSourceLabel} ${resolvedPackageTitle}`.toLowerCase()
       });
     }
 
-    summaries.sort((a, b) => a.sourceOrder - b.sourceOrder
-      || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
-      || a.label.localeCompare(b.label, game.i18n.lang));
     this.packSummaries = summaries;
-    return summaries;
+    return this.orderedPackSummaries(summaries, settings);
   }
 
   async loadWeapons({ force = false } = {}) {
     const settings = this.sourceSettings;
-    const signature = `${settings.initialized}:${[...settings.enabledPacks].sort().join("|")}`;
+    const signature = `${settings.initialized}:${settings.enabledPacks.join("|")}:${settings.packOrder.join("|")}`;
     if (this.loaded && !force && signature === this.signature) return this;
 
     this.weaponSourceGroups = [];
+    this.weaponPackGroups = [];
     this.weaponOptions = [];
     this.weaponByUuid.clear();
     this.iconOptions = [];
 
-    const packs = (await this.discoverWeaponPacks({ force }))
-      .filter(summary => this.isEnabled(summary.collection));
+    const packs = this.orderedPackSummaries(
+      (await this.discoverWeaponPacks({ force })).filter(summary => this.isEnabled(summary.collection, settings)),
+      settings
+    ).map((summary, priority) => ({ ...summary, priority }));
+    this.activePackSummaries = packs;
+
     const iconPaths = new Set();
     const sourceGroups = new Map();
 
@@ -229,23 +268,26 @@ export class ItemCreatorSourceRegistry {
           packLabel: summary.label,
           sourceLabel: summary.sourceLabel,
           packageTitle: summary.packageTitle,
-          search: `${entry.name ?? ""} ${summary.label} ${summary.sourceLabel}`.toLowerCase(),
+          priority: summary.priority,
+          search: `${entry.name ?? ""} ${summary.label} ${summary.sourceLabel} ${summary.packageTitle}`.toLowerCase(),
           system: entry.system ?? {}
         };
 
-        // Every Weapon document may contribute an icon, including magical and special-source weapons.
         if (!iconPaths.has(option.img)) {
           iconPaths.add(option.img);
           this.iconOptions.push({
             img: option.img,
             name: option.name,
             uuid,
+            collection: summary.collection,
+            packLabel: summary.label,
+            sourceLabel: summary.sourceLabel,
+            priority: summary.priority,
             source: `${summary.sourceLabel} — ${summary.label}`,
-            search: `${option.name} ${summary.sourceLabel} ${summary.label}`.toLowerCase()
+            search: `${option.name} ${summary.sourceLabel} ${summary.label} ${summary.packageTitle}`.toLowerCase()
           });
         }
 
-        // Base Item intentionally starts from a non-magical template.
         if (!isBaseWeapon(entry)) continue;
         this.weaponByUuid.set(uuid, option);
         this.weaponOptions.push(option);
@@ -255,39 +297,53 @@ export class ItemCreatorSourceRegistry {
       items.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
       if (!items.length) continue;
 
+      this.weaponPackGroups.push({
+        collection: summary.collection,
+        label: summary.label,
+        sourceLabel: summary.sourceLabel,
+        packageTitle: summary.packageTitle,
+        priority: summary.priority,
+        weaponCount: items.length,
+        items
+      });
+
       let group = sourceGroups.get(summary.sourceId);
       if (!group) {
         group = {
           id: summary.sourceId,
           label: summary.sourceLabel,
-          order: summary.sourceOrder,
+          order: summary.priority,
           weaponCount: 0,
           packCount: 0,
           packs: []
         };
         sourceGroups.set(summary.sourceId, group);
       }
+      group.order = Math.min(group.order, summary.priority);
       group.weaponCount += items.length;
       group.packCount += 1;
       group.packs.push({
         collection: summary.collection,
         label: summary.label,
+        priority: summary.priority,
         weaponCount: items.length,
         items
       });
     }
 
+    this.weaponPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
     this.weaponSourceGroups = [...sourceGroups.values()]
       .map(group => ({
         ...group,
-        packs: group.packs.sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
+        packs: group.packs.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang))
       }))
       .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
 
-    this.weaponOptions.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)
-      || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
+    this.weaponOptions.sort((a, b) => a.priority - b.priority
+      || a.name.localeCompare(b.name, game.i18n.lang)
       || a.packLabel.localeCompare(b.packLabel, game.i18n.lang));
-    this.iconOptions.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
+    this.iconOptions.sort((a, b) => a.priority - b.priority
+      || a.name.localeCompare(b.name, game.i18n.lang));
     this.loaded = true;
     this.signature = signature;
     return this;

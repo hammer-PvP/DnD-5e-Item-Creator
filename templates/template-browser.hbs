@@ -1,0 +1,110 @@
+<section class="ic-browser-shell">
+  <header class="ic-browser-header">
+    <i class="fa-solid fa-books"></i>
+    <div>
+      <span class="ic-kicker">Base Item Selection</span>
+      <h1>Weapon Template Browser</h1>
+      <p>Browse non-magical Weapon documents from the compendiums enabled in Item Creator settings.</p>
+    </div>
+  </header>
+
+  <div class="ic-browser-toolbar">
+    <label class="ic-grow">
+      <span>Search</span>
+      <input type="search" data-browser-search value="{{search}}" placeholder="Search weapon names or sources…" autocomplete="off">
+    </label>
+    <label>
+      <span>Weapon Type</span>
+      <select data-browser-weapon-type>
+        {{#each weaponTypeOptions}}
+        <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+    </label>
+    <label>
+      <span>Compendium</span>
+      <select data-browser-source>
+        {{#each sourceOptions}}
+        <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+    </label>
+  </div>
+
+  <div class="ic-browser-count">
+    <span>Visible templates</span>
+    <strong><span data-browser-visible-count>{{totalCount}}</span> / {{totalCount}}</strong>
+  </div>
+
+  <div class="ic-browser-body">
+    <div class="ic-browser-results">
+      {{#each groups}}
+      <section class="ic-browser-source-group" data-template-group data-collection="{{collection}}">
+        <header>
+          <div>
+            <strong>{{sourceLabel}}</strong>
+            <small>{{label}}</small>
+          </div>
+          <em>Priority {{position}}</em>
+        </header>
+        <div class="ic-browser-template-list">
+          {{#each items}}
+          <button type="button"
+                  class="ic-browser-template-card {{#if selected}}selected{{/if}}"
+                  data-action="select-template-card"
+                  data-template-card
+                  data-uuid="{{uuid}}"
+                  data-search="{{search}}"
+                  data-weapon-type="{{weaponType}}">
+            <img src="{{img}}" alt="">
+            <span>
+              <strong>{{name}}</strong>
+              <small>{{categoryLabel}} · {{damageSummary}}</small>
+            </span>
+            {{#if selected}}<i class="fa-solid fa-circle-check"></i>{{/if}}
+          </button>
+          {{/each}}
+        </div>
+      </section>
+      {{else}}
+      <div class="ic-empty-state">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <strong>No weapon templates are available</strong>
+        <p>Enable at least one compatible Item compendium in Item Creator Content Sources.</p>
+      </div>
+      {{/each}}
+    </div>
+
+    <aside class="ic-browser-preview">
+      {{#if selectedPreview}}
+      <div class="ic-browser-preview-identity">
+        <img src="{{selectedPreview.img}}" alt="{{selectedPreview.name}}">
+        <div>
+          <span class="ic-kicker">Selected Template</span>
+          <h2>{{selectedPreview.name}}</h2>
+          <p>{{selectedPreview.sourceLabel}} — {{selectedPreview.packLabel}}</p>
+        </div>
+      </div>
+      <dl>
+        <div><dt>Weapon Type</dt><dd>{{selectedPreview.categoryLabel}}</dd></div>
+        <div><dt>Base Damage</dt><dd>{{selectedPreview.damageSummary}}</dd></div>
+        <div><dt>Mastery</dt><dd>{{selectedPreview.masteryLabel}}</dd></div>
+        <div><dt>Source Package</dt><dd>{{selectedPreview.packageTitle}}</dd></div>
+      </dl>
+      {{else}}
+      <div class="ic-empty-preview">
+        <i class="fa-solid fa-khanda"></i>
+        <h3>Select a template</h3>
+        <p>Review its core values before loading it into the Base Item form.</p>
+      </div>
+      {{/if}}
+    </aside>
+  </div>
+
+  <footer class="ic-browser-footer">
+    <button type="button" data-action="cancel-template-browser"><i class="fa-solid fa-xmark"></i> Cancel</button>
+    <button type="button" class="ic-primary-confirm" data-action="confirm-template-browser" {{#unless selectedPreview}}disabled{{/unless}}>
+      <i class="fa-solid fa-check"></i> Select Base Item
+    </button>
+  </footer>
+</section>

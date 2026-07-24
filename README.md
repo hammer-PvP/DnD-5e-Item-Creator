@@ -1,28 +1,30 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.0.1a Alpha  
+**Version:** 0.0.1b Alpha  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, and icons.
 
-## v0.0.1a Alpha
+## v0.0.1b Alpha
 
 This Alpha intentionally does **not** create or modify Items. It establishes and validates:
 
 - a GM-only, full-width **Item Creator** button in the Items Directory;
 - an ApplicationV2 interface matching the Character Builder visual family;
-- a left-side creation menu;
 - `Weapon` as the only available Item type;
-- a template-driven `Base Item` stage instead of a compendium browser;
-- template search, weapon-type filtering, and a compact template dropdown;
-- automatic loading of the template name, icon, category, attack configuration, damage, properties, range, Mastery, weight, price, and quantity;
-- checkbox-gated customization for each core weapon field;
-- immediate inheritance restoration and dependent-state cleanup when a customization checkbox is disabled;
-- a compact square icon browser unlocked only through `Customize Icon`;
-- preservation of the Base Item scroll position during template and field updates;
-- Content Sources available only through Foundry's Module Settings;
-- source groups named `SRD 5.1`, `SRD 5.2 Modern`, `Player's Handbook 2024`, `Dungeon Master's Guide`, `Monster Manual`, or the installed package title;
-- collapsible source groups and a global Collapse All / Expand All control in Content Sources settings.
+- a template-driven `Base Item` stage with checkbox-gated inherited fields;
+- a prominent **Browse Weapon Templates** button that opens a modal, priority-aware Template Browser;
+- manual Weapon Type and Template dropdowns as a fast alternative to the browser;
+- compact Template preview, search, compendium filtering, weapon-type filtering, Cancel, and Select Base Item controls;
+- a reusable modal **Icon Selection** browser unlocked by `Customize Icon`;
+- square, fully contained icon cells, search, compendium filtering, preview, Cancel, and Use Selected Icon controls;
+- optional multiple additional-damage parts on the same future Attack Activity;
+- die count, die denomination, D&D5e damage type, and an optional ability modifier per additional-damage part;
+- source priority controls in Module Settings, with enabled compendiums reordered by Up/Down arrows;
+- priority-aware Template dropdowns, Template Browser results, and Icon Selection results;
+- named and collapsible source groups in Module Settings;
+- cascading cleanup when any optional customization is disabled;
+- scroll preservation during normal edits and explicit reset only for confirmed template replacement or sidebar step changes.
 
 ## Installation
 
@@ -43,5 +45,5 @@ The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.0.1a Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1a/item-creator.zip`
+- v0.0.1b Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1b/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

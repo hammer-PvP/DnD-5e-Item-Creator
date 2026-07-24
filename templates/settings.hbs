@@ -4,12 +4,12 @@
     <div>
       <span class="ic-kicker">GM Configuration</span>
       <h1>Content Sources</h1>
-      <p>Choose the installed Item compendiums used for templates, reference documents, and icon discovery.</p>
+      <p>Enable compatible Item compendiums and arrange their priority for template, browser, and icon results.</p>
     </div>
   </header>
 
   <div class="ic-settings-toolbar">
-    <input type="search" data-source-search placeholder="Search sources or compendiums…" autocomplete="off">
+    <input type="search" data-source-search value="{{search}}" placeholder="Search sources or compendiums…" autocomplete="off">
     <div>
       <button type="button" data-action="toggle-all-source-groups"><i class="fa-solid {{#if allCollapsed}}fa-angles-down{{else}}fa-angles-up{{/if}}"></i> {{#if allCollapsed}}Expand All{{else}}Collapse All{{/if}}</button>
       <button type="button" data-action="select-all"><i class="fa-solid fa-check-double"></i> Select All</button>
@@ -19,40 +19,77 @@
 
   <div class="ic-settings-summary">
     <span>Enabled compendiums</span>
-    <strong><span data-enabled-count>{{enabledCount}}</span> / {{packCount}}</strong>
+    <strong>{{enabledCount}} / {{packCount}}</strong>
   </div>
 
   <div class="ic-source-list">
-    {{#each sourceGroups}}
-    <section class="ic-settings-source-group {{#if collapsed}}collapsed{{/if}}" data-source-group data-source-id="{{id}}">
-      <button type="button" class="ic-settings-source-toggle" data-action="toggle-source-group" data-source-id="{{id}}" aria-expanded="{{#unless collapsed}}true{{else}}false{{/unless}}">
-        <span>
-          <strong>{{label}}</strong>
-          <small>{{weaponCount}} weapons · {{packs.length}} compendiums</small>
-        </span>
-        <i class="fa-solid {{#if collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
-      </button>
-      <div class="ic-settings-source-content">
-        {{#each packs}}
-        <label class="ic-source-row" data-source-row data-search="{{search}}">
-          <input type="checkbox" name="enabledPacks" value="{{collection}}" {{#if enabled}}checked{{/if}}>
+    <section class="ic-priority-panel">
+      <header>
+        <div>
+          <span class="ic-kicker">Navigation Order</span>
+          <h2>Active Source Priority</h2>
+          <p>Higher rows appear first in Template Browser, manual Template lists, and Icon Selection.</p>
+        </div>
+      </header>
+      <div class="ic-priority-list">
+        {{#each priorityPacks}}
+        <div class="ic-priority-row" data-priority-collection="{{collection}}">
+          <strong class="ic-priority-number">{{position}}</strong>
           <i class="fa-solid fa-book"></i>
           <span>
             <strong>{{label}}</strong>
-            <small>{{packageTitle}}</small>
+            <small>{{sourceLabel}} · {{packageTitle}}</small>
           </span>
           <em>{{weaponCount}} weapons</em>
-        </label>
+          <div class="ic-priority-actions">
+            <button type="button" data-action="move-priority" data-collection="{{collection}}" data-direction="up" aria-label="Move source up" {{#unless canMoveUp}}disabled{{/unless}}><i class="fa-solid fa-chevron-up"></i></button>
+            <button type="button" data-action="move-priority" data-collection="{{collection}}" data-direction="down" aria-label="Move source down" {{#unless canMoveDown}}disabled{{/unless}}><i class="fa-solid fa-chevron-down"></i></button>
+          </div>
+        </div>
+        {{else}}
+        <div class="ic-priority-empty"><i class="fa-solid fa-triangle-exclamation"></i> Enable a compendium below to add it to the priority list.</div>
         {{/each}}
       </div>
     </section>
-    {{else}}
-    <div class="ic-empty-state">
-      <i class="fa-solid fa-triangle-exclamation"></i>
-      <strong>No weapon compendiums were found</strong>
-      <p>Activate a system or module package that contains Item documents of type Weapon.</p>
-    </div>
-    {{/each}}
+
+    <section class="ic-available-sources">
+      <header>
+        <span class="ic-kicker">Available Content</span>
+        <h2>Compendium Selection</h2>
+      </header>
+
+      {{#each sourceGroups}}
+      <section class="ic-settings-source-group {{#if collapsed}}collapsed{{/if}}" data-source-group data-source-id="{{id}}">
+        <button type="button" class="ic-settings-source-toggle" data-action="toggle-source-group" data-source-id="{{id}}" aria-expanded="{{#unless collapsed}}true{{else}}false{{/unless}}">
+          <span>
+            <strong>{{label}}</strong>
+            <small>{{weaponCount}} weapons · {{packs.length}} compendiums · {{enabledCount}} enabled</small>
+          </span>
+          <i class="fa-solid {{#if collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+        </button>
+        <div class="ic-settings-source-content">
+          {{#each packs}}
+          <label class="ic-source-row" data-source-row data-search="{{search}}">
+            <input type="checkbox" name="enabledPacks" value="{{collection}}" {{#if enabled}}checked{{/if}}>
+            <i class="fa-solid fa-book"></i>
+            <span>
+              <strong>{{label}}</strong>
+              <small>{{packageTitle}}</small>
+            </span>
+            {{#if priorityPosition}}<b>Priority {{priorityPosition}}</b>{{/if}}
+            <em>{{weaponCount}} weapons</em>
+          </label>
+          {{/each}}
+        </div>
+      </section>
+      {{else}}
+      <div class="ic-empty-state">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <strong>No weapon compendiums were found</strong>
+        <p>Activate a system or module package that contains Item documents of type Weapon.</p>
+      </div>
+      {{/each}}
+    </section>
   </div>
 
   <footer class="ic-settings-footer">
