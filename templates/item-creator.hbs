@@ -23,14 +23,11 @@
     <section class="ic-draft-summary">
       <h3>Current Draft</h3>
       <p><strong>Type:</strong> {{#if selectedType}}Weapon{{else}}—{{/if}}</p>
-      <p><strong>Base:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      <p><strong>Template:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
+      <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       <p><strong>Status:</strong> Alpha preview only</p>
     </section>
-
-    <button type="button" class="ic-settings-button" data-action="open-settings">
-      <i class="fa-solid fa-books"></i>
-      <span>Content Sources</span>
-    </button>
   </aside>
 
   <main class="ic-main">
@@ -62,8 +59,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.1 Alpha scope</strong>
-          <p>This build validates the entry point, visual foundation, active compendium discovery, base weapon selection, and icon browsing. It does not create or modify Items.</p>
+          <strong>v0.0.1a Alpha scope</strong>
+          <p>This build validates the template-driven Base Item form and checkbox-gated core weapon customization. It does not create or modify Items.</p>
         </div>
       </aside>
     </section>
@@ -82,115 +79,272 @@
         <div>
           <span class="ic-kicker">Weapon Creation</span>
           <h2>Base Item</h2>
-          <p>Select a non-magical base weapon from the active compendiums. The source document provides its initial structure, mastery, and icon.</p>
+          <p>Choose a non-magical weapon template, then enable only the core fields you want to customize. Disabled fields continue to inherit their template values.</p>
         </div>
-        <button type="button" class="ic-compact-button" data-action="open-settings">
-          <i class="fa-solid fa-sliders"></i> Sources
-        </button>
       </header>
 
-      <div class="ic-browser-layout">
-        <section class="ic-browser-panel">
-          <div class="ic-browser-heading">
-            <div>
-              <h3>Base Weapons</h3>
-              <small>{{weaponCount}} indexed weapon documents</small>
-            </div>
+      <section class="ic-template-panel">
+        <header>
+          <div>
+            <span class="ic-kicker">Template</span>
+            <h3>Choose a Starting Model</h3>
           </div>
-          <input type="search" data-weapon-search value="{{weaponSearch}}" placeholder="Search active weapon sources…" autocomplete="off">
+          <small><strong data-template-count>{{weaponCount}}</strong> matching templates</small>
+        </header>
 
-          <div class="ic-weapon-groups">
-            {{#each weaponGroups}}
-            <section class="ic-source-group" data-weapon-group>
-              <header>
-                <strong>{{packageLabel}}</strong>
-                <small>{{label}}</small>
-              </header>
-              <div>
-                {{#each items}}
-                <button type="button" class="ic-weapon-card {{#if (eq uuid ../../selectedWeaponUuid)}}selected{{/if}}"
-                        data-action="select-weapon" data-uuid="{{uuid}}" data-search="{{search}}" data-weapon-card>
-                  <img src="{{img}}" alt="">
-                  <span><strong>{{name}}</strong><small>{{../label}}</small></span>
-                  {{#if (eq uuid ../../selectedWeaponUuid)}}<i class="fa-solid fa-circle-check"></i>{{/if}}
-                </button>
-                {{/each}}
-              </div>
-            </section>
-            {{else}}
-            <div class="ic-empty-state">
-              <i class="fa-solid fa-books"></i>
-              <strong>No active weapon sources</strong>
-              <p>Open Content Sources and enable at least one Item compendium containing Weapon documents.</p>
-            </div>
-            {{/each}}
-          </div>
-        </section>
+        <div class="ic-template-controls">
+          <label>
+            <span>Template Filter</span>
+            <input type="search" data-template-search value="{{templateSearch}}" placeholder="Search weapon templates…" autocomplete="off">
+          </label>
+          <label>
+            <span>Weapon Type</span>
+            <select data-template-category>
+              {{#each templateCategoryOptions}}
+              <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+              {{/each}}
+            </select>
+          </label>
+          <label class="ic-template-select-field">
+            <span>Template</span>
+            <select data-template-select {{#unless templateOptions.length}}disabled{{/unless}}>
+              <option value="">Select a weapon template…</option>
+              {{#each templateOptions}}
+              <option value="{{uuid}}" data-template-option data-search="{{search}}" data-category="{{weaponType}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+              {{/each}}
+            </select>
+          </label>
+        </div>
 
-        <section class="ic-preview-panel">
-          {{#if selectedWeapon}}
-          <header class="ic-preview-header">
-            <button type="button" class="ic-icon-button" data-action="toggle-icon-browser"
-                    title="Choose an icon from active weapon sources" aria-label="Choose an icon from active weapon sources">
+        <p class="ic-template-hint"><i class="fa-solid fa-gear"></i> Content Sources are managed only in Foundry's Module Settings.</p>
+      </section>
+
+      {{#if selectedWeapon}}
+      <div class="ic-base-form-layout">
+        <section class="ic-identity-panel">
+          <header>
+            <span class="ic-kicker">Identity</span>
+            <h3>Item Identity</h3>
+          </header>
+
+          <div class="ic-template-summary">
+            <button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="toggle-icon-browser"
+                    title="{{#if iconCustomized}}Choose an icon from active weapon sources{{else}}Enable Customize Icon to choose another image{{/if}}"
+                    aria-label="{{#if iconCustomized}}Choose an icon from active weapon sources{{else}}Inherited template icon{{/if}}"
+                    {{#unless iconCustomized}}disabled{{/unless}}>
               <img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}">
-              <span aria-hidden="true"><i class="fa-solid fa-images"></i></span>
+              <span aria-hidden="true"><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span>
             </button>
             <div>
-              <span class="ic-kicker">Selected Base Weapon</span>
-              <h3>{{selectedWeapon.name}}</h3>
-              <p>{{selectedWeapon.source}}</p>
+              <strong>{{selectedWeapon.name}}</strong>
+              <small>{{selectedWeapon.sourceLabel}}</small>
+              <small>{{selectedWeapon.packLabel}}</small>
             </div>
-          </header>
+          </div>
 
           <label class="ic-field">
             <span>Item Name</span>
             <input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off">
           </label>
 
-          <div class="ic-data-grid">
-            <div><span>Category</span><strong>{{selectedWeapon.category}}</strong></div>
-            <div><span>Base Damage</span><strong>{{selectedWeapon.damage}}</strong></div>
-            <div><span>Source Mastery</span><strong>{{selectedWeapon.mastery}}</strong></div>
-            <div><span>Weight</span><strong>{{selectedWeapon.weight}}</strong></div>
-            <div><span>Price</span><strong>{{selectedWeapon.price}} {{selectedWeapon.priceDenomination}}</strong></div>
-            <div><span>Icon Source</span><strong>{{#if iconCustomized}}Custom{{else}}Inherited{{/if}}</strong></div>
-          </div>
+          <label class="ic-identity-toggle">
+            <input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}>
+            <span>
+              <strong>Customize Icon</strong>
+              <small>Unchecked keeps the image inherited from the selected template.</small>
+            </span>
+          </label>
 
-          <section class="ic-inheritance-note">
-            <i class="fa-solid fa-link"></i>
-            <div>
-              <strong>Source inheritance</strong>
-              <p>Weapon Mastery remains inherited from this document until the future “Customize Weapon Mastery” checkbox is enabled.</p>
-            </div>
-          </section>
+          <dl class="ic-template-metadata">
+            <div><dt>Template Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div>
+            <div><dt>Current Base Damage</dt><dd>{{selectedWeapon.damageSummary}}</dd></div>
+          </dl>
+        </section>
 
-          {{#if iconBrowserOpen}}
-          <section class="ic-icon-browser">
-            <header>
-              <div><h3>Active Weapon Icons</h3><small>Deduplicated from enabled compendiums</small></div>
-              <button type="button" class="ic-compact-button" data-action="toggle-icon-browser"><i class="fa-solid fa-xmark"></i> Close</button>
-            </header>
-            <input type="search" data-icon-search value="{{iconSearch}}" placeholder="Search icons by source item…" autocomplete="off">
-            <div class="ic-icon-grid">
-              {{#each iconOptions}}
-              <button type="button" class="ic-icon-card {{#if (eq img ../selectedIcon)}}selected{{/if}}"
-                      data-action="select-icon" data-img="{{img}}" data-search="{{search}}" data-icon-card title="{{name}} — {{source}}">
-                <img src="{{img}}" alt="">
-                <span>{{name}}</span>
-              </button>
-              {{/each}}
-            </div>
-          </section>
-          {{/if}}
-          {{else}}
-          <div class="ic-empty-preview">
-            <i class="fa-solid fa-khanda"></i>
-            <h3>Select a base weapon</h3>
-            <p>The selected source document will be inspected here before later creation stages are unlocked.</p>
+        <section class="ic-core-panel">
+          <header>
+            <span class="ic-kicker">Core Weapon Configuration</span>
+            <h3>Inherited Fields</h3>
+            <p>Mark a checkbox to replace that template value. Unmarking it immediately discards the custom value and restores inheritance.</p>
+          </header>
+
+          <div class="ic-core-grid">
+            <section class="ic-override-card {{#if custom.weaponType}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="weaponType" {{#if custom.weaponType}}checked{{/if}}>
+                <span><strong>Customize Weapon Category</strong><small>Simple, Martial, Natural, Improvised, or Siege.</small></span>
+              </label>
+              <select data-override-input="weaponType" {{#unless custom.weaponType}}disabled{{/unless}}>
+                {{#each weaponTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card {{#if custom.attackType}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="attackType" {{#if custom.attackType}}checked{{/if}}>
+                <span><strong>Customize Attack Type</strong><small>Controls whether the weapon attacks in melee or at range.</small></span>
+              </label>
+              <select data-override-input="attackType" {{#unless custom.attackType}}disabled{{/unless}}>
+                {{#each attackTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card {{#if custom.attackAbility}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="attackAbility" {{#if custom.attackAbility}}checked{{/if}}>
+                <span><strong>Customize Attack Ability</strong><small>Allows Dexterity or another ability without adding Finesse.</small></span>
+              </label>
+              <select data-override-input="attackAbility" {{#unless custom.attackAbility}}disabled{{/unless}}>
+                {{#each abilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card {{#if custom.proficiency}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="proficiency" {{#if custom.proficiency}}checked{{/if}}>
+                <span><strong>Customize Proficiency Handling</strong><small>Automatic follows the Actor's matching weapon proficiency.</small></span>
+              </label>
+              <select data-override-input="proficiency" {{#unless custom.proficiency}}disabled{{/unless}}>
+                {{#each proficiencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card ic-span-two {{#if custom.baseDamage}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="baseDamage" {{#if custom.baseDamage}}checked{{/if}}>
+                <span><strong>Customize Base Damage</strong><small>Changes the weapon's normal damage dice and flat bonus.</small></span>
+              </label>
+              <div class="ic-inline-fields ic-damage-fields">
+                <label><span>Dice</span><input type="number" min="0" max="20" step="1" value="{{effective.baseDamage.number}}" data-override-input="baseDamage" data-override-part="number" data-value-type="number" {{#unless custom.baseDamage}}disabled{{/unless}}></label>
+                <label><span>Die</span><select data-override-input="baseDamage" data-override-part="denomination" data-value-type="number" {{#unless custom.baseDamage}}disabled{{/unless}}>{{#each damageDiceOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label class="ic-grow"><span>Flat Bonus</span><input type="text" value="{{effective.baseDamage.bonus}}" placeholder="0 or a formula" data-override-input="baseDamage" data-override-part="bonus" {{#unless custom.baseDamage}}disabled{{/unless}}></label>
+              </div>
+            </section>
+
+            <section class="ic-override-card {{#if custom.damageType}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="damageType" {{#if custom.damageType}}checked{{/if}}>
+                <span><strong>Customize Base Damage Type</strong><small>Choose any damage type supported by D&D5e.</small></span>
+              </label>
+              <select data-override-input="damageType" {{#unless custom.damageType}}disabled{{/unless}}>
+                {{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card {{#if custom.mastery}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="mastery" {{#if custom.mastery}}checked{{/if}}>
+                <span><strong>Customize Weapon Mastery</strong><small>Unchecked preserves the Mastery from the template.</small></span>
+              </label>
+              <select data-override-input="mastery" {{#unless custom.mastery}}disabled{{/unless}}>
+                {{#each masteryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+              </select>
+            </section>
+
+            <section class="ic-override-card ic-span-two {{#if custom.range}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="range" {{#if custom.range}}checked{{/if}}>
+                <span><strong>Customize Range and Reach</strong><small>Normal range, long range, melee reach, and measurement unit.</small></span>
+              </label>
+              <div class="ic-inline-fields ic-range-fields">
+                <label><span>Normal</span><input type="number" min="0" step="1" value="{{effective.range.value}}" data-override-input="range" data-override-part="value" data-value-type="number" {{#unless custom.range}}disabled{{/unless}}></label>
+                <label><span>Long</span><input type="number" min="0" step="1" value="{{effective.range.long}}" data-override-input="range" data-override-part="long" data-value-type="number" {{#unless custom.range}}disabled{{/unless}}></label>
+                <label><span>Reach</span><input type="number" min="0" step="1" value="{{effective.range.reach}}" data-override-input="range" data-override-part="reach" data-value-type="number" {{#unless custom.range}}disabled{{/unless}}></label>
+                <label><span>Unit</span><select data-override-input="range" data-override-part="units" {{#unless custom.range}}disabled{{/unless}}>{{#each rangeUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              </div>
+            </section>
+
+            <section class="ic-override-card ic-span-two {{#if custom.properties}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="properties" {{#if custom.properties}}checked{{/if}}>
+                <span><strong>Customize Weapon Properties</strong><small>Physical properties only. Magical configuration belongs to Enhancements.</small></span>
+              </label>
+              <div class="ic-property-grid">
+                {{#each propertyOptions}}
+                <label class="ic-property-option {{#if selected}}selected{{/if}}">
+                  <input type="checkbox" data-property-key="{{value}}" {{#if selected}}checked{{/if}} {{#unless ../custom.properties}}disabled{{/unless}}>
+                  <span>{{label}}</span>
+                </label>
+                {{/each}}
+              </div>
+
+              {{#if hasVersatile}}
+              <div class="ic-dependent-fields">
+                <strong>Versatile Damage</strong>
+                <div class="ic-inline-fields ic-damage-fields">
+                  <label><span>Dice</span><input type="number" min="0" max="20" step="1" value="{{effective.versatile.number}}" data-override-input="versatile" data-override-parent="properties" data-override-part="number" data-value-type="number" {{#unless custom.properties}}disabled{{/unless}}></label>
+                  <label><span>Die</span><select data-override-input="versatile" data-override-parent="properties" data-override-part="denomination" data-value-type="number" {{#unless custom.properties}}disabled{{/unless}}>{{#each versatileDiceOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Damage Type</span><select data-override-input="versatile" data-override-parent="properties" data-override-part="damageType" {{#unless custom.properties}}disabled{{/unless}}>{{#each versatileDamageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-grow"><span>Flat Bonus</span><input type="text" value="{{effective.versatile.bonus}}" data-override-input="versatile" data-override-parent="properties" data-override-part="bonus" {{#unless custom.properties}}disabled{{/unless}}></label>
+                </div>
+              </div>
+              {{/if}}
+
+              {{#if hasAmmunition}}
+              <div class="ic-dependent-fields">
+                <label class="ic-field"><span>Ammunition Type</span><input type="text" value="{{effective.ammunitionType}}" data-override-input="ammunitionType" data-override-parent="properties" {{#unless custom.properties}}disabled{{/unless}}></label>
+              </div>
+              {{/if}}
+            </section>
+
+            <section class="ic-override-card {{#if custom.weight}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="weight" {{#if custom.weight}}checked{{/if}}>
+                <span><strong>Customize Weight</strong><small>Physical weight of one item.</small></span>
+              </label>
+              <div class="ic-inline-fields">
+                <label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.weight.value}}" data-override-input="weight" data-override-part="value" data-value-type="number" {{#unless custom.weight}}disabled{{/unless}}></label>
+                <label><span>Unit</span><select data-override-input="weight" data-override-part="units" {{#unless custom.weight}}disabled{{/unless}}>{{#each weightUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              </div>
+            </section>
+
+            <section class="ic-override-card {{#if custom.price}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="price" {{#if custom.price}}checked{{/if}}>
+                <span><strong>Customize Price</strong><small>Base market value and currency denomination.</small></span>
+              </label>
+              <div class="ic-inline-fields">
+                <label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.price.value}}" data-override-input="price" data-override-part="value" data-value-type="number" {{#unless custom.price}}disabled{{/unless}}></label>
+                <label><span>Currency</span><select data-override-input="price" data-override-part="denomination" {{#unless custom.price}}disabled{{/unless}}>{{#each currencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              </div>
+            </section>
+
+            <section class="ic-override-card {{#if custom.quantity}}enabled{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="quantity" {{#if custom.quantity}}checked{{/if}}>
+                <span><strong>Customize Initial Quantity</strong><small>The number placed in the created Item stack.</small></span>
+              </label>
+              <input type="number" min="0" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}>
+            </section>
           </div>
-          {{/if}}
         </section>
       </div>
+
+      {{#if iconBrowserOpen}}
+      <section class="ic-icon-browser">
+        <header>
+          <div><h3>Active Weapon Icons</h3><small>Deduplicated from the compendiums enabled in Module Settings</small></div>
+          <button type="button" class="ic-compact-button" data-action="toggle-icon-browser"><i class="fa-solid fa-xmark"></i> Close</button>
+        </header>
+        <input type="search" data-icon-search value="{{iconSearch}}" placeholder="Search icons by source item…" autocomplete="off">
+        <div class="ic-icon-grid">
+          {{#each iconOptions}}
+          <button type="button" class="ic-icon-card {{#if (eq img ../selectedWeapon.img)}}selected{{/if}}"
+                  data-action="select-icon" data-img="{{img}}" data-search="{{search}}" data-icon-card title="{{name}} — {{source}}">
+            <img src="{{img}}" alt="">
+            <span class="ic-visually-hidden">{{name}} — {{source}}</span>
+          </button>
+          {{/each}}
+        </div>
+      </section>
+      {{/if}}
+      {{else}}
+      <div class="ic-empty-state ic-template-empty">
+        <i class="fa-solid fa-khanda"></i>
+        <strong>Choose a weapon template</strong>
+        <p>The selected template will load its name, icon, category, damage, properties, range, Mastery, weight, price, and other core values into the form.</p>
+      </div>
+      {{/if}}
     </section>
 
     <footer class="ic-navigation">

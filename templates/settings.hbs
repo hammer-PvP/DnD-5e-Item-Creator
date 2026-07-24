@@ -4,34 +4,48 @@
     <div>
       <span class="ic-kicker">GM Configuration</span>
       <h1>Content Sources</h1>
-      <p>Choose the installed Item compendiums used for base weapons and icon discovery.</p>
+      <p>Choose the installed Item compendiums used for templates, reference documents, and icon discovery.</p>
     </div>
   </header>
 
   <div class="ic-settings-toolbar">
-    <input type="search" data-source-search placeholder="Search packages or compendiums…" autocomplete="off">
+    <input type="search" data-source-search placeholder="Search sources or compendiums…" autocomplete="off">
     <div>
+      <button type="button" data-action="toggle-all-source-groups"><i class="fa-solid {{#if allCollapsed}}fa-angles-down{{else}}fa-angles-up{{/if}}"></i> {{#if allCollapsed}}Expand All{{else}}Collapse All{{/if}}</button>
       <button type="button" data-action="select-all"><i class="fa-solid fa-check-double"></i> Select All</button>
       <button type="button" data-action="clear-all"><i class="fa-solid fa-xmark"></i> Clear</button>
     </div>
   </div>
 
   <div class="ic-settings-summary">
-    <span>Enabled sources</span>
+    <span>Enabled compendiums</span>
     <strong><span data-enabled-count>{{enabledCount}}</span> / {{packCount}}</strong>
   </div>
 
   <div class="ic-source-list">
-    {{#each packs}}
-    <label class="ic-source-row" data-source-row data-search="{{search}}">
-      <input type="checkbox" name="enabledPacks" value="{{collection}}" {{checked enabled}}>
-      <i class="fa-solid fa-book"></i>
-      <span>
-        <strong>{{packageLabel}}</strong>
-        <small>{{label}}</small>
-      </span>
-      <em>{{weaponCount}} weapons</em>
-    </label>
+    {{#each sourceGroups}}
+    <section class="ic-settings-source-group {{#if collapsed}}collapsed{{/if}}" data-source-group data-source-id="{{id}}">
+      <button type="button" class="ic-settings-source-toggle" data-action="toggle-source-group" data-source-id="{{id}}" aria-expanded="{{#unless collapsed}}true{{else}}false{{/unless}}">
+        <span>
+          <strong>{{label}}</strong>
+          <small>{{weaponCount}} weapons · {{packs.length}} compendiums</small>
+        </span>
+        <i class="fa-solid {{#if collapsed}}fa-chevron-down{{else}}fa-chevron-up{{/if}}"></i>
+      </button>
+      <div class="ic-settings-source-content">
+        {{#each packs}}
+        <label class="ic-source-row" data-source-row data-search="{{search}}">
+          <input type="checkbox" name="enabledPacks" value="{{collection}}" {{#if enabled}}checked{{/if}}>
+          <i class="fa-solid fa-book"></i>
+          <span>
+            <strong>{{label}}</strong>
+            <small>{{packageTitle}}</small>
+          </span>
+          <em>{{weaponCount}} weapons</em>
+        </label>
+        {{/each}}
+      </div>
+    </section>
     {{else}}
     <div class="ic-empty-state">
       <i class="fa-solid fa-triangle-exclamation"></i>

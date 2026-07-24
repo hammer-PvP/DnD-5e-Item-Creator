@@ -4,6 +4,11 @@ import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
 export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(ApplicationV2) {
+  constructor(options = {}) {
+    super(options);
+    this.collapsedSources = new Set();
+  }
+
   static DEFAULT_OPTIONS = {
     id: "item-creator-settings",
     classes: ["item-creator", "ic-settings-app", "standard-form"],
@@ -18,10 +23,43 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
 
   async _prepareContext() {
     const packs = await ItemCreatorSourceRegistry.instance.discoverWeaponPacks({ force: true });
+    const groupsById = new Map();
+    for (const pack of packs) {
+      let group = groupsById.get(pack.sourceId);
+      if (!group) {
+        group = {
+          id: pack.sourceId,
+          label: pack.sourceLabel,
+          order: pack.sourceOrder,
+          packs: [],
+          weaponCount: 0,
+          enabledCount: 0
+        };
+        groupsById.set(pack.sourceId, group);
+      }
+      group.packs.push(pack);
+      group.weaponCount += pack.weaponCount;
+      if (pack.enabled) group.enabledCount += 1;
+    }
+
+    const sourceGroups = [...groupsById.values()]
+      .map(group => ({
+        ...group,
+        collapsed: this.collapsedSources.has(group.id),
+        packs: group.packs.sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
+      }))
+      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
+
+    const validIds = new Set(sourceGroups.map(group => group.id));
+    for (const id of [...this.collapsedSources]) {
+      if (!validIds.has(id)) this.collapsedSources.delete(id);
+    }
+
     return {
-      packs,
+      sourceGroups,
       packCount: packs.length,
-      enabledCount: packs.filter(pack => pack.enabled).length
+      enabledCount: packs.filter(pack => pack.enabled).length,
+      allCollapsed: Boolean(sourceGroups.length) && sourceGroups.every(group => this.collapsedSources.has(group.id))
     };
   }
 
@@ -32,6 +70,8 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
     root.querySelector('[data-action="clear-all"]')?.addEventListener("click", event => this.#setAll(event, false));
     root.querySelector('[data-source-search]')?.addEventListener("input", event => this.#filter(event));
     root.querySelector('[data-action="save"]')?.addEventListener("click", event => this.#save(event));
+    root.querySelector('[data-action="toggle-all-source-groups"]')?.addEventListener("click", event => this.#toggleAll(event));
+    root.querySelectorAll('[data-action="toggle-source-group"]').forEach(button => button.addEventListener("click", event => this.#toggleGroup(event)));
     root.querySelectorAll('[name="enabledPacks"]').forEach(input => input.addEventListener("change", () => this.#refreshCount()));
     this.#refreshCount();
   }
@@ -44,10 +84,35 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
     this.#refreshCount();
   }
 
+  #toggleGroup(event) {
+    event.preventDefault();
+    const sourceId = event.currentTarget.dataset.sourceId;
+    if (!sourceId) return;
+    if (this.collapsedSources.has(sourceId)) this.collapsedSources.delete(sourceId);
+    else this.collapsedSources.add(sourceId);
+    this.render({ force: true });
+  }
+
+  #toggleAll(event) {
+    event.preventDefault();
+    const ids = [...this.element.querySelectorAll('[data-source-group]')].map(group => group.dataset.sourceId).filter(Boolean);
+    const allCollapsed = Boolean(ids.length) && ids.every(id => this.collapsedSources.has(id));
+    if (allCollapsed) this.collapsedSources.clear();
+    else this.collapsedSources = new Set(ids);
+    this.render({ force: true });
+  }
+
   #filter(event) {
     const query = String(event.currentTarget.value ?? "").trim().toLowerCase();
-    for (const row of this.element.querySelectorAll("[data-source-row]")) {
-      row.hidden = Boolean(query && !String(row.dataset.search ?? "").includes(query));
+    for (const group of this.element.querySelectorAll("[data-source-group]")) {
+      let visible = 0;
+      for (const row of group.querySelectorAll("[data-source-row]")) {
+        const show = !query || String(row.dataset.search ?? "").includes(query);
+        row.hidden = !show;
+        if (show) visible += 1;
+      }
+      group.hidden = visible === 0;
+      group.classList.toggle("ic-search-expanded", Boolean(query && visible));
     }
   }
 

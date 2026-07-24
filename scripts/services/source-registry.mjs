@@ -9,21 +9,84 @@ const PACK_INDEX_FIELDS = [
   "system.type.subtype",
   "system.type.baseItem",
   "system.mastery",
+  "system.proficient",
+  "system.ammunition.type",
   "system.damage",
   "system.range",
   "system.properties",
   "system.price",
   "system.weight",
+  "system.quantity",
   "system.rarity",
   "system.magicalBonus",
-  "system.attunement"
+  "system.attunement",
+  "system.activities"
 ];
 
-function packageLabel(pack) {
+const OFFICIAL_SOURCE_LABELS = Object.freeze([
+  { test: /(^|\b)srd\s*5[.]1(\b|$)/i, label: "SRD 5.1" },
+  { test: /(^|\b)srd\s*5[.]2(\b|$)/i, label: "SRD 5.2 Modern" },
+  { test: /(dnd[-_ ]players[-_ ]handbook|player'?s handbook)/i, label: "Player's Handbook 2024" },
+  { test: /(dnd[-_ ]dungeon[-_ ]masters[-_ ]guide|dungeon master'?s guide)/i, label: "Dungeon Master's Guide" },
+  { test: /(dnd[-_ ]monster[-_ ]manual|monster manual)/i, label: "Monster Manual" }
+]);
+
+function packageId(pack) {
   const metadata = pack.metadata ?? {};
-  const packageId = metadata.packageName ?? metadata.package ?? pack.collection.split(".")[0];
-  if (metadata.packageType === "system" || packageId === game.system.id) return game.system.title;
-  return game.modules.get(packageId)?.title ?? packageId;
+  return metadata.packageName ?? metadata.package ?? pack.collection.split(".")[0];
+}
+
+function packageTitle(pack) {
+  const id = packageId(pack);
+  if (pack.metadata?.packageType === "system" || id === game.system.id) return game.system.title;
+  return game.modules.get(id)?.title ?? id;
+}
+
+function sourceBook(pack) {
+  const flags = pack.metadata?.flags ?? {};
+  return flags?.dnd5e?.sourceBook
+    ?? flags?.sourceBook
+    ?? pack.metadata?.sourceBook
+    ?? "";
+}
+
+function normalizedOfficialSourceLabel(...values) {
+  const combined = values.filter(Boolean).join(" ");
+  for (const source of OFFICIAL_SOURCE_LABELS) {
+    if (source.test.test(combined)) return source.label;
+  }
+  return "";
+}
+
+function sourceLabel(pack) {
+  const id = packageId(pack);
+  const book = String(sourceBook(pack) ?? "").trim();
+  const title = String(packageTitle(pack) ?? "").trim();
+  const official = normalizedOfficialSourceLabel(book, id, title);
+  if (official) return official;
+  if (book) return book;
+  if (pack.metadata?.packageType === "system" || id === game.system.id) {
+    const packName = String(pack.metadata?.name ?? pack.collection.split(".").slice(1).join(".") ?? "");
+    if (/24$/i.test(packName)) return "SRD 5.2 Modern";
+    return "SRD 5.1";
+  }
+  return title.replace(/^Dungeons\s*&\s*Dragons\s+/i, "") || id;
+}
+
+function sourceId(pack, label) {
+  const id = `${packageId(pack)}-${label}`.toLowerCase();
+  return id.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function sourceSortOrder(label) {
+  const priorities = new Map([
+    ["SRD 5.1", 10],
+    ["SRD 5.2 Modern", 20],
+    ["Player's Handbook 2024", 30],
+    ["Dungeon Master's Guide", 40],
+    ["Monster Manual", 50]
+  ]);
+  return priorities.get(label) ?? 100;
 }
 
 function packLabel(pack) {
@@ -40,9 +103,15 @@ function propertyValues(properties) {
 }
 
 function isBaseWeapon(entry) {
-  const properties = propertyValues(entry.system?.properties);
-  const magicalBonus = String(entry.system?.magicalBonus ?? "").trim();
-  return !properties.includes("mgc") && (!magicalBonus || Number(magicalBonus) === 0);
+  const system = entry.system ?? {};
+  const properties = propertyValues(system.properties);
+  const magicalBonus = String(system.magicalBonus ?? "").trim();
+  const rarity = String(system.rarity ?? "").trim();
+  const attunement = String(system.attunement ?? "").trim();
+  return !properties.includes("mgc")
+    && (!magicalBonus || Number(magicalBonus) === 0)
+    && !rarity
+    && !attunement;
 }
 
 export class ItemCreatorSourceRegistry {
@@ -54,7 +123,8 @@ export class ItemCreatorSourceRegistry {
   }
 
   constructor() {
-    this.weaponGroups = [];
+    this.weaponSourceGroups = [];
+    this.weaponOptions = [];
     this.weaponByUuid = new Map();
     this.iconOptions = [];
     this.packSummaries = [];
@@ -65,6 +135,7 @@ export class ItemCreatorSourceRegistry {
   invalidate() {
     this.loaded = false;
     this.signature = "";
+    this.packSummaries = [];
   }
 
   get sourceSettings() {
@@ -93,17 +164,25 @@ export class ItemCreatorSourceRegistry {
       }
       const weaponCount = index.filter(entry => entry.type === "weapon").length;
       if (!weaponCount) continue;
+      const label = packLabel(pack);
+      const resolvedSourceLabel = sourceLabel(pack);
+      const resolvedPackageTitle = packageTitle(pack);
       summaries.push({
         collection: pack.collection,
-        label: packLabel(pack),
-        packageLabel: packageLabel(pack),
+        label,
+        packageId: packageId(pack),
+        packageTitle: resolvedPackageTitle,
+        sourceLabel: resolvedSourceLabel,
+        sourceId: sourceId(pack, resolvedSourceLabel),
+        sourceOrder: sourceSortOrder(resolvedSourceLabel),
         weaponCount,
         enabled: this.isEnabled(pack.collection),
-        search: `${packLabel(pack)} ${packageLabel(pack)}`.toLowerCase()
+        search: `${label} ${resolvedSourceLabel} ${resolvedPackageTitle}`.toLowerCase()
       });
     }
 
-    summaries.sort((a, b) => a.packageLabel.localeCompare(b.packageLabel, game.i18n.lang)
+    summaries.sort((a, b) => a.sourceOrder - b.sourceOrder
+      || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
       || a.label.localeCompare(b.label, game.i18n.lang));
     this.packSummaries = summaries;
     return summaries;
@@ -114,13 +193,15 @@ export class ItemCreatorSourceRegistry {
     const signature = `${settings.initialized}:${[...settings.enabledPacks].sort().join("|")}`;
     if (this.loaded && !force && signature === this.signature) return this;
 
-    this.weaponGroups = [];
+    this.weaponSourceGroups = [];
+    this.weaponOptions = [];
     this.weaponByUuid.clear();
     this.iconOptions = [];
 
     const packs = (await this.discoverWeaponPacks({ force }))
       .filter(summary => this.isEnabled(summary.collection));
     const iconPaths = new Set();
+    const sourceGroups = new Map();
 
     for (const summary of packs) {
       const pack = game.packs.get(summary.collection);
@@ -143,34 +224,69 @@ export class ItemCreatorSourceRegistry {
           name: entry.name,
           img: entry.img || "icons/svg/sword.svg",
           type: entry.type,
+          weaponType: entry.system?.type?.value ?? "",
           collection: pack.collection,
           packLabel: summary.label,
-          packageLabel: summary.packageLabel,
-          search: String(entry.name ?? "").toLowerCase(),
+          sourceLabel: summary.sourceLabel,
+          packageTitle: summary.packageTitle,
+          search: `${entry.name ?? ""} ${summary.label} ${summary.sourceLabel}`.toLowerCase(),
           system: entry.system ?? {}
         };
 
-        // Every Weapon document can contribute its image, including magical or special-source weapons.
+        // Every Weapon document may contribute an icon, including magical and special-source weapons.
         if (!iconPaths.has(option.img)) {
           iconPaths.add(option.img);
           this.iconOptions.push({
             img: option.img,
             name: option.name,
             uuid,
-            source: `${summary.packageLabel} — ${summary.label}`,
-            search: `${option.name} ${summary.packageLabel} ${summary.label}`.toLowerCase()
+            source: `${summary.sourceLabel} — ${summary.label}`,
+            search: `${option.name} ${summary.sourceLabel} ${summary.label}`.toLowerCase()
           });
         }
 
-        // Base Item is intentionally mundane. Magical weapons remain available to the icon library only.
+        // Base Item intentionally starts from a non-magical template.
         if (!isBaseWeapon(entry)) continue;
         this.weaponByUuid.set(uuid, option);
+        this.weaponOptions.push(option);
         items.push(option);
       }
+
       items.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
-      if (items.length) this.weaponGroups.push({ ...summary, items });
+      if (!items.length) continue;
+
+      let group = sourceGroups.get(summary.sourceId);
+      if (!group) {
+        group = {
+          id: summary.sourceId,
+          label: summary.sourceLabel,
+          order: summary.sourceOrder,
+          weaponCount: 0,
+          packCount: 0,
+          packs: []
+        };
+        sourceGroups.set(summary.sourceId, group);
+      }
+      group.weaponCount += items.length;
+      group.packCount += 1;
+      group.packs.push({
+        collection: summary.collection,
+        label: summary.label,
+        weaponCount: items.length,
+        items
+      });
     }
 
+    this.weaponSourceGroups = [...sourceGroups.values()]
+      .map(group => ({
+        ...group,
+        packs: group.packs.sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
+      }))
+      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
+
+    this.weaponOptions.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)
+      || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
+      || a.packLabel.localeCompare(b.packLabel, game.i18n.lang));
     this.iconOptions.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
     this.loaded = true;
     this.signature = signature;

@@ -1,5 +1,5 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.0.1-alpha";
+export const MODULE_VERSION = "0.0.1a";
 export const MODULE_STAGE = "Alpha";
 
 export const ITEM_TYPES = Object.freeze([
