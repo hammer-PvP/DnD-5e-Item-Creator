@@ -35,3 +35,10 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 ## Scope discipline
 
 The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Enhancements, Granted Effects, Description, and Review will be implemented in later builds after the Base Item flow is validated.
+
+## GitHub Releases
+
+- Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
+- v0.0.1 Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1-alpha/item-creator.zip`
+- Every new build must update the versioned download URL to match its exact Git tag.
+

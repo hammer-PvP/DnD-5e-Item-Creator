@@ -2,6 +2,7 @@
 
 ## 0.0.1-alpha
 
+- Changed the install package URL to the version-specific GitHub Release tag (`v0.0.1-alpha`).
 - Added GM-only Item Creator entry button to the Items Directory.
 - Added initial ApplicationV2 shell and Character Builder-aligned visual identity.
 - Added Item Type selection with Weapon available and future types locked.
