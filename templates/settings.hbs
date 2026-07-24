@@ -1,0 +1,48 @@
+<section class="ic-settings-shell">
+  <header class="ic-settings-header">
+    <i class="fa-solid fa-books"></i>
+    <div>
+      <span class="ic-kicker">GM Configuration</span>
+      <h1>Content Sources</h1>
+      <p>Choose the installed Item compendiums used for base weapons and icon discovery.</p>
+    </div>
+  </header>
+
+  <div class="ic-settings-toolbar">
+    <input type="search" data-source-search placeholder="Search packages or compendiums…" autocomplete="off">
+    <div>
+      <button type="button" data-action="select-all"><i class="fa-solid fa-check-double"></i> Select All</button>
+      <button type="button" data-action="clear-all"><i class="fa-solid fa-xmark"></i> Clear</button>
+    </div>
+  </div>
+
+  <div class="ic-settings-summary">
+    <span>Enabled sources</span>
+    <strong><span data-enabled-count>{{enabledCount}}</span> / {{packCount}}</strong>
+  </div>
+
+  <div class="ic-source-list">
+    {{#each packs}}
+    <label class="ic-source-row" data-source-row data-search="{{search}}">
+      <input type="checkbox" name="enabledPacks" value="{{collection}}" {{checked enabled}}>
+      <i class="fa-solid fa-book"></i>
+      <span>
+        <strong>{{packageLabel}}</strong>
+        <small>{{label}}</small>
+      </span>
+      <em>{{weaponCount}} weapons</em>
+    </label>
+    {{else}}
+    <div class="ic-empty-state">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      <strong>No weapon compendiums were found</strong>
+      <p>Activate a system or module package that contains Item documents of type Weapon.</p>
+    </div>
+    {{/each}}
+  </div>
+
+  <footer class="ic-settings-footer">
+    <button type="button" data-action="cancel"><i class="fa-solid fa-xmark"></i> Cancel</button>
+    <button type="button" class="ic-primary-confirm" data-action="save"><i class="fa-solid fa-floppy-disk"></i> Save Sources</button>
+  </footer>
+</section>

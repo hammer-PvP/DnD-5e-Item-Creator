@@ -1,0 +1,204 @@
+<div class="ic-shell">
+  <aside class="ic-sidebar">
+    <header class="ic-app-header">
+      <i class="fa-solid fa-hammer"></i>
+      <div>
+        <h1>Item Creator</h1>
+        <p>v{{version}} · {{stage}}</p>
+      </div>
+    </header>
+
+    <nav class="ic-steps" aria-label="Item creation steps">
+      {{#each steps}}
+      <button type="button"
+              class="ic-step {{#if active}}active{{/if}} {{#if complete}}complete{{/if}} {{#if locked}}locked{{/if}}"
+              data-action="step" data-step="{{id}}" data-locked="{{locked}}" {{#if locked}}disabled{{/if}}>
+        <i class="fa-solid {{#if complete}}fa-circle-check{{else if locked}}fa-lock{{else}}{{icon}}{{/if}}"></i>
+        <span>{{label}}</span>
+        {{#unless available}}<small>Coming Later</small>{{/unless}}
+      </button>
+      {{/each}}
+    </nav>
+
+    <section class="ic-draft-summary">
+      <h3>Current Draft</h3>
+      <p><strong>Type:</strong> {{#if selectedType}}Weapon{{else}}—{{/if}}</p>
+      <p><strong>Base:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      <p><strong>Status:</strong> Alpha preview only</p>
+    </section>
+
+    <button type="button" class="ic-settings-button" data-action="open-settings">
+      <i class="fa-solid fa-books"></i>
+      <span>Content Sources</span>
+    </button>
+  </aside>
+
+  <main class="ic-main">
+    {{#if (eq step "itemType")}}
+    <section class="ic-step-content">
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Assisted Item Creation</span>
+          <h2>Choose Item Type</h2>
+          <p>Weapon is the first supported creation flow. Other document types will be added after Weapon is complete and validated.</p>
+        </div>
+      </header>
+
+      <div class="ic-type-grid">
+        {{#each itemTypes}}
+        <button type="button"
+                class="ic-type-card {{#if selected}}selected{{/if}} {{#unless available}}unavailable{{/unless}}"
+                data-action="select-type" data-type="{{id}}" data-available="{{available}}" {{#unless available}}disabled{{/unless}}>
+          <i class="fa-solid {{icon}}"></i>
+          <span>
+            <strong>{{label}}</strong>
+            <small>{{#if available}}Available{{else}}Coming Later{{/if}}</small>
+          </span>
+          {{#if selected}}<i class="fa-solid fa-circle-check ic-card-status"></i>{{/if}}
+        </button>
+        {{/each}}
+      </div>
+
+      <aside class="ic-alpha-note">
+        <i class="fa-solid fa-flask"></i>
+        <div>
+          <strong>v0.0.1 Alpha scope</strong>
+          <p>This build validates the entry point, visual foundation, active compendium discovery, base weapon selection, and icon browsing. It does not create or modify Items.</p>
+        </div>
+      </aside>
+    </section>
+
+    <footer class="ic-navigation">
+      <span></span>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless canOpenBaseItem}}disabled{{/unless}}>
+        <span>Continue</span><i class="fa-solid fa-chevron-right"></i>
+      </button>
+    </footer>
+    {{/if}}
+
+    {{#if (eq step "baseItem")}}
+    <section class="ic-step-content ic-base-step">
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Weapon Creation</span>
+          <h2>Base Item</h2>
+          <p>Select a non-magical base weapon from the active compendiums. The source document provides its initial structure, mastery, and icon.</p>
+        </div>
+        <button type="button" class="ic-compact-button" data-action="open-settings">
+          <i class="fa-solid fa-sliders"></i> Sources
+        </button>
+      </header>
+
+      <div class="ic-browser-layout">
+        <section class="ic-browser-panel">
+          <div class="ic-browser-heading">
+            <div>
+              <h3>Base Weapons</h3>
+              <small>{{weaponCount}} indexed weapon documents</small>
+            </div>
+          </div>
+          <input type="search" data-weapon-search value="{{weaponSearch}}" placeholder="Search active weapon sources…" autocomplete="off">
+
+          <div class="ic-weapon-groups">
+            {{#each weaponGroups}}
+            <section class="ic-source-group" data-weapon-group>
+              <header>
+                <strong>{{packageLabel}}</strong>
+                <small>{{label}}</small>
+              </header>
+              <div>
+                {{#each items}}
+                <button type="button" class="ic-weapon-card {{#if (eq uuid ../../selectedWeaponUuid)}}selected{{/if}}"
+                        data-action="select-weapon" data-uuid="{{uuid}}" data-search="{{search}}" data-weapon-card>
+                  <img src="{{img}}" alt="">
+                  <span><strong>{{name}}</strong><small>{{../label}}</small></span>
+                  {{#if (eq uuid ../../selectedWeaponUuid)}}<i class="fa-solid fa-circle-check"></i>{{/if}}
+                </button>
+                {{/each}}
+              </div>
+            </section>
+            {{else}}
+            <div class="ic-empty-state">
+              <i class="fa-solid fa-books"></i>
+              <strong>No active weapon sources</strong>
+              <p>Open Content Sources and enable at least one Item compendium containing Weapon documents.</p>
+            </div>
+            {{/each}}
+          </div>
+        </section>
+
+        <section class="ic-preview-panel">
+          {{#if selectedWeapon}}
+          <header class="ic-preview-header">
+            <button type="button" class="ic-icon-button" data-action="toggle-icon-browser"
+                    title="Choose an icon from active weapon sources" aria-label="Choose an icon from active weapon sources">
+              <img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}">
+              <span aria-hidden="true"><i class="fa-solid fa-images"></i></span>
+            </button>
+            <div>
+              <span class="ic-kicker">Selected Base Weapon</span>
+              <h3>{{selectedWeapon.name}}</h3>
+              <p>{{selectedWeapon.source}}</p>
+            </div>
+          </header>
+
+          <label class="ic-field">
+            <span>Item Name</span>
+            <input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off">
+          </label>
+
+          <div class="ic-data-grid">
+            <div><span>Category</span><strong>{{selectedWeapon.category}}</strong></div>
+            <div><span>Base Damage</span><strong>{{selectedWeapon.damage}}</strong></div>
+            <div><span>Source Mastery</span><strong>{{selectedWeapon.mastery}}</strong></div>
+            <div><span>Weight</span><strong>{{selectedWeapon.weight}}</strong></div>
+            <div><span>Price</span><strong>{{selectedWeapon.price}} {{selectedWeapon.priceDenomination}}</strong></div>
+            <div><span>Icon Source</span><strong>{{#if iconCustomized}}Custom{{else}}Inherited{{/if}}</strong></div>
+          </div>
+
+          <section class="ic-inheritance-note">
+            <i class="fa-solid fa-link"></i>
+            <div>
+              <strong>Source inheritance</strong>
+              <p>Weapon Mastery remains inherited from this document until the future “Customize Weapon Mastery” checkbox is enabled.</p>
+            </div>
+          </section>
+
+          {{#if iconBrowserOpen}}
+          <section class="ic-icon-browser">
+            <header>
+              <div><h3>Active Weapon Icons</h3><small>Deduplicated from enabled compendiums</small></div>
+              <button type="button" class="ic-compact-button" data-action="toggle-icon-browser"><i class="fa-solid fa-xmark"></i> Close</button>
+            </header>
+            <input type="search" data-icon-search value="{{iconSearch}}" placeholder="Search icons by source item…" autocomplete="off">
+            <div class="ic-icon-grid">
+              {{#each iconOptions}}
+              <button type="button" class="ic-icon-card {{#if (eq img ../selectedIcon)}}selected{{/if}}"
+                      data-action="select-icon" data-img="{{img}}" data-search="{{search}}" data-icon-card title="{{name}} — {{source}}">
+                <img src="{{img}}" alt="">
+                <span>{{name}}</span>
+              </button>
+              {{/each}}
+            </div>
+          </section>
+          {{/if}}
+          {{else}}
+          <div class="ic-empty-preview">
+            <i class="fa-solid fa-khanda"></i>
+            <h3>Select a base weapon</h3>
+            <p>The selected source document will be inspected here before later creation stages are unlocked.</p>
+          </div>
+          {{/if}}
+        </section>
+      </div>
+    </section>
+
+    <footer class="ic-navigation">
+      <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
+      <button type="button" class="ic-primary-continue" disabled title="Enhancements will be implemented in a later Alpha">
+        <span>Enhancements</span><i class="fa-solid fa-lock"></i>
+      </button>
+    </footer>
+    {{/if}}
+  </main>
+</div>

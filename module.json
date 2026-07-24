@@ -1,0 +1,53 @@
+{
+  "id": "dnd5e-item-creator",
+  "title": "Item Creator (DnD 5e)",
+  "description": "GM-assisted creation of custom D&D5e items using installed compendiums as source references.",
+  "version": "0.0.1-alpha",
+  "authors": [
+    {
+      "name": "Raphael Andrade"
+    },
+    {
+      "name": "OpenAI",
+      "flags": {
+        "contribution": "Initial alpha implementation"
+      }
+    }
+  ],
+  "compatibility": {
+    "minimum": "14",
+    "verified": "14.364",
+    "maximum": "14"
+  },
+  "relationships": {
+    "systems": [
+      {
+        "id": "dnd5e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "5.3.3",
+          "verified": "5.3.3",
+          "maximum": "5.3.3"
+        }
+      }
+    ]
+  },
+  "esmodules": [
+    "scripts/main.mjs"
+  ],
+  "styles": [
+    "styles/item-creator.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "license": "LICENSE",
+  "readme": "README.md",
+  "url": "https://github.com/hammer-PvP/DnD-5e-Item-Creator",
+  "manifest": "https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json",
+  "download": "https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/item-creator.zip"
+}

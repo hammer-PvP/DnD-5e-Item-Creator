@@ -1,0 +1,6 @@
+{
+  "ITEMCREATOR.Title": "Item Creator",
+  "ITEMCREATOR.Settings.ContentSources.Name": "Content Sources",
+  "ITEMCREATOR.Settings.ContentSources.Label": "Configure Content Sources",
+  "ITEMCREATOR.Settings.ContentSources.Hint": "Choose which installed Item compendiums Item Creator can use for base weapons and icons."
+}
