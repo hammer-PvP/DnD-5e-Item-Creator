@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.3 — Beta
+
+- Rebuilt the customized Description editor through Foundry's native `HTMLProseMirrorElement.create` lifecycle instead of relying on declarative custom-element initialization inside the Item Creator template.
+- Removed the invisible interaction mask affecting the rich-text surface and forced the initialized editable body to remain visible, selectable, focusable, scrollable, and above non-interactive editor layers.
+- Added reliable handling for the native editor `open` lifecycle, delayed internal DOM creation, and Shadow DOM or light-DOM editing surfaces.
+- Preserved the complete original Template HTML as the starting text and retained all native Foundry formatting tools for flavor text.
+- Added an automatic English `Item Properties` description builder for enabled Base Item damage additions, Enhancements, advanced combat behaviors, and all Granted Effects.
+- Organized generated Item Properties into compact two-column groups by activation condition: Weapon Properties, While Owned, While Equipped, and While Equipped and Attuned.
+- Added responsive one-column fallback for narrow Item sheets and chat cards.
+- Added a compact Item Properties summary to `system.description.chat`, alongside the existing Granted Spellcasting summary.
+- Kept generated sections idempotent so Review and Save rebuilds never duplicate Item Properties or Granted Spellcasting text.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.3`.
+
 ## 0.1.2 — Beta
 
 - Fixed the native ProseMirror editing surface so Template and custom Description text remains legible against the Item Creator dark background, including a visible caret and inherited Foundry text variables.

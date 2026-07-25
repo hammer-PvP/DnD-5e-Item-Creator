@@ -2044,3 +2044,114 @@ body.ic-protected-active { overflow: hidden; }
   grid-template-rows: 1fr !important;
 }
 .ic-native-chat-preview .card-header.description > .summary > .fa-chevron-down { display: none; }
+
+
+/* v0.1.3 — native Description editor surface and generated property grids */
+.ic-description-editor-shell {
+  position: relative;
+  isolation: isolate;
+  min-height: 376px;
+  overflow: visible;
+}
+
+.ic-description-editor-shell > prose-mirror,
+.ic-description-editor-shell .ic-description-editor {
+  position: relative !important;
+  z-index: 2 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  min-height: 376px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.ic-description-editor-shell :is(.editor, .editor-container) {
+  position: relative !important;
+  z-index: 2 !important;
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-direction: column !important;
+  min-height: 330px !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+.ic-description-editor-shell :is(.editor-content, .ProseMirror, [contenteditable="true"]) {
+  position: relative !important;
+  z-index: 3 !important;
+  display: block !important;
+  flex: 1 1 auto !important;
+  box-sizing: border-box !important;
+  width: 100% !important;
+  min-height: 320px !important;
+  padding: 16px !important;
+  overflow: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  user-select: text !important;
+  color: #f1eadc !important;
+  -webkit-text-fill-color: currentColor !important;
+  caret-color: #fff !important;
+  background: #111114 !important;
+}
+
+.ic-description-editor-shell :is(.editor-content, .ProseMirror, [contenteditable="true"])::selection,
+.ic-description-editor-shell :is(.editor-content, .ProseMirror, [contenteditable="true"]) *::selection {
+  color: #fff;
+  background: rgba(85, 135, 220, .72);
+}
+
+.ic-description-editor-shell :is(.editor-content, .ProseMirror, [contenteditable="true"]):focus {
+  outline: 1px solid rgba(209, 176, 107, .45) !important;
+  outline-offset: -1px;
+}
+
+.item-creator-generated.item-creator-item-properties {
+  margin-top: 1rem;
+}
+
+.item-creator-generated .item-creator-property-group {
+  margin-top: .75rem;
+}
+
+.item-creator-generated .item-creator-property-grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: .35rem;
+}
+
+.item-creator-generated .item-creator-property-grid td {
+  width: 50%;
+  padding: .45rem .55rem;
+  vertical-align: top;
+  border: 1px solid rgba(125, 108, 78, .45);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .12);
+}
+
+.item-creator-generated .item-creator-property-grid strong {
+  display: block;
+  margin-bottom: .12rem;
+}
+
+.item-creator-generated .item-creator-property-grid small {
+  display: block;
+  line-height: 1.35;
+  opacity: .85;
+}
+
+@media (max-width: 620px) {
+  .item-creator-generated .item-creator-property-grid,
+  .item-creator-generated .item-creator-property-grid tbody,
+  .item-creator-generated .item-creator-property-grid tr,
+  .item-creator-generated .item-creator-property-grid td {
+    display: block;
+    width: 100%;
+  }
+  .item-creator-generated .item-creator-property-grid td + td { margin-top: .35rem; }
+}

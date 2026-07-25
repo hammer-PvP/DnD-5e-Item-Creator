@@ -118,14 +118,23 @@ function clone(value) {
   return foundry.utils.deepClone(value);
 }
 
+function queryEditorSurface(editor) {
+  if (!editor) return null;
+  const selector = '.ProseMirror, .editor-content[contenteditable="true"], [contenteditable="true"]';
+  return editor.shadowRoot?.querySelector?.(selector) ?? editor.querySelector?.(selector) ?? null;
+}
+
 function readDescriptionEditorValue(editor) {
   if (!editor) return null;
 
-  const editable = editor.querySelector?.('.ProseMirror, [contenteditable="true"]');
+  const editable = queryEditorSurface(editor);
   if (editable) return editable.innerHTML;
 
-  const namedInput = editor.querySelector?.('[name="system.description.value"]');
-  if (namedInput && typeof namedInput.value === "string") return namedInput.value;
+  const roots = [editor.shadowRoot, editor].filter(Boolean);
+  for (const root of roots) {
+    const namedInput = root.querySelector?.('[name="system.description.value"]');
+    if (namedInput && typeof namedInput.value === "string") return namedInput.value;
+  }
 
   if (typeof editor.value === "string") return editor.value;
 
@@ -896,7 +905,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
     root.querySelector('[data-description-toggle]')?.addEventListener("change", event => this.#toggleDescriptionCustomization(event));
-    const descriptionEditor = root.querySelector('[data-description-editor]');
+    const descriptionEditor = this.#mountDescriptionEditor(root);
     descriptionEditor?.addEventListener("input", event => this.#updateDescription(event));
     descriptionEditor?.addEventListener("change", event => this.#updateDescription(event));
     descriptionEditor?.addEventListener("focusout", event => this.#updateDescription(event));
@@ -916,6 +925,73 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (content) content.scrollTop = top;
       });
     }
+  }
+
+
+  #mountDescriptionEditor(root) {
+    const host = root.querySelector?.("[data-description-editor-host]");
+    if (!host || !this.descriptionCustomized) return null;
+
+    const EditorElement = foundry.applications?.elements?.HTMLProseMirrorElement;
+    let editor;
+    if (EditorElement?.create) {
+      editor = EditorElement.create({
+        name: "system.description.value",
+        value: String(this.customDescription ?? this.templateDescriptionRaw ?? "")
+      });
+    } else {
+      editor = document.createElement("prose-mirror");
+      editor.setAttribute("name", "system.description.value");
+      editor.setAttribute("value", String(this.customDescription ?? this.templateDescriptionRaw ?? ""));
+    }
+
+    editor.classList.add("sized", "ic-description-editor");
+    editor.setAttribute("compact", "");
+    editor.dataset.descriptionEditor = "";
+    if (this.selectedWeaponDocument?.uuid) editor.setAttribute("document-uuid", this.selectedWeaponDocument.uuid);
+    host.replaceChildren(editor);
+
+    const expose = () => this.#exposeDescriptionEditorSurface(editor);
+    editor.addEventListener("open", expose, { once: true });
+    requestAnimationFrame(expose);
+    setTimeout(expose, 50);
+    setTimeout(expose, 250);
+
+    const observerTarget = editor.shadowRoot ?? editor;
+    const observer = new MutationObserver(() => expose());
+    observer.observe(observerTarget, { childList: true, subtree: true });
+    editor.addEventListener("close", () => observer.disconnect(), { once: true });
+    return editor;
+  }
+
+  #exposeDescriptionEditorSurface(editor) {
+    if (!editor) return;
+    const roots = [editor.shadowRoot, editor].filter(Boolean);
+    const containers = [];
+    for (const root of roots) {
+      containers.push(...root.querySelectorAll?.(".editor, .editor-container, .editor-content, .ProseMirror") ?? []);
+    }
+    for (const node of containers) {
+      node.style.setProperty("visibility", "visible", "important");
+      node.style.setProperty("opacity", "1", "important");
+      node.style.setProperty("pointer-events", "auto", "important");
+    }
+
+    const surface = queryEditorSurface(editor);
+    if (!surface) return;
+    surface.style.setProperty("display", "block", "important");
+    surface.style.setProperty("position", "relative", "important");
+    surface.style.setProperty("z-index", "3", "important");
+    surface.style.setProperty("min-height", "320px", "important");
+    surface.style.setProperty("width", "100%", "important");
+    surface.style.setProperty("visibility", "visible", "important");
+    surface.style.setProperty("opacity", "1", "important");
+    surface.style.setProperty("pointer-events", "auto", "important");
+    surface.style.setProperty("color", "#f1eadc", "important");
+    surface.style.setProperty("-webkit-text-fill-color", "currentColor", "important");
+    surface.style.setProperty("caret-color", "#ffffff", "important");
+    surface.style.setProperty("background", "#111114", "important");
+    surface.setAttribute("aria-label", "Editable item description");
   }
 
   #builderDraft(effective = this.#effectiveValues()) {

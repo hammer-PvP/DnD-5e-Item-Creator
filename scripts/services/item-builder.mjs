@@ -574,6 +574,221 @@ function appendGeneratedSection(existing, section) {
   return `${base}${base ? "\n" : ""}${section}`;
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function configLabel(config, key, fallback = key) {
+  const entry = config?.[key];
+  const label = typeof entry === "string" ? entry : entry?.label;
+  return label ? game.i18n.localize(label) : fallback;
+}
+
+function signedValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value ?? "");
+  return numeric > 0 ? `+${numeric}` : String(numeric);
+}
+
+function titleCase(value) {
+  return String(value ?? "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
+
+function availabilityTitle(availability) {
+  return {
+    weapon: "Weapon Properties",
+    owned: "While Owned",
+    equipped: "While Equipped",
+    equippedAttuned: "While Equipped and Attuned"
+  }[availability] ?? "While Active";
+}
+
+function availabilityChatSuffix(availability) {
+  return {
+    weapon: "",
+    owned: " while owned",
+    equipped: " while equipped",
+    equippedAttuned: " while equipped and attuned"
+  }[availability] ?? " while active";
+}
+
+function abilityLabel(key) {
+  return key === "all" ? "All" : configLabel(CONFIG.DND5E.abilities, key, titleCase(key));
+}
+
+function skillLabel(key) {
+  return key === "all" ? "All Skills" : configLabel(CONFIG.DND5E.skills, key, titleCase(key));
+}
+
+function damageTypeLabel(key) {
+  return configLabel(CONFIG.DND5E.damageTypes, key, titleCase(key));
+}
+
+function conditionLabel(key) {
+  return configLabel(CONFIG.DND5E.conditionTypes, key, titleCase(key));
+}
+
+function movementLabel(key) {
+  return configLabel(CONFIG.DND5E.movementTypes, key, titleCase(key));
+}
+
+function senseLabel(key) {
+  const source = CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes;
+  return configLabel(source, key, titleCase(key));
+}
+
+function formatRows(rows, formatter) {
+  return (rows ?? []).map(formatter).filter(Boolean).join("; ");
+}
+
+function itemPropertyEntries(draft) {
+  const entries = [];
+  const add = (label, value, availability = "weapon") => {
+    const text = String(value ?? "").trim();
+    if (text) entries.push({ label, value: text, availability });
+  };
+  const enhancements = draft.enhancements ?? {};
+  const enhancementValues = draft.enhancementValues ?? {};
+  const effects = draft.grantedEffects ?? {};
+  const effectValues = draft.grantedEffectValues ?? {};
+
+  if (draft.customized?.additionalDamage) {
+    const text = formatRows(draft.overrides?.additionalDamage, row => {
+      const ability = row.useAbilityModifier
+        ? row.ability === "attack" ? " + attack ability modifier"
+          : row.ability === "spellcasting" ? " + spellcasting ability modifier"
+            : ` + ${abilityLabel(row.ability)} modifier`
+        : "";
+      return `${Number(row.number) || 0}d${Number(row.denomination) || 0}${ability} ${damageTypeLabel(row.damageType)}`;
+    });
+    add("Additional Damage", text ? `${text} on a hit` : "");
+  }
+
+  if (enhancements.magicalWeapon) {
+    const setting = enhancementValues.magicalWeapon ?? {};
+    const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
+    const attunement = setting.attunement === "required" ? "; requires attunement" : "";
+    add("Magical Weapon", `${rarity || "Magical"}${attunement}`);
+  }
+  if (enhancements.weaponEnhancement) add("Weapon Enhancement", `${signedValue(enhancementValues.weaponEnhancement?.bonus)} to attack and damage rolls`);
+  if (enhancements.attackBonus) add("Attack Roll Bonus", `${signedValue(enhancementValues.attackBonus?.bonus)} to attack rolls`);
+  if (enhancements.damageBonus) add("Damage Roll Bonus", `${signedValue(enhancementValues.damageBonus?.bonus)} to damage rolls`);
+  if (enhancements.criticalThreshold) {
+    const setting = enhancementValues.criticalThreshold ?? {};
+    const threshold = Number(setting.mode === "custom" ? setting.custom : setting.mode) || 20;
+    add("Critical Hit Range", threshold === 20 ? "Critical hit on a 20" : `Critical hit on ${threshold}–20`);
+  }
+  if (enhancements.extraCriticalDamage) {
+    const setting = enhancementValues.extraCriticalDamage ?? {};
+    add("Extra Critical Damage", `${Number(setting.number) || 1}d${Number(setting.denomination) || 8} ${damageTypeLabel(setting.damageType)}`);
+  }
+  if (enhancements.ignoreResistance) {
+    const labels = (enhancementValues.ignoreResistance?.damageTypes ?? []).map(damageTypeLabel);
+    add("Ignore Resistance", labels.length ? `${labels.join(", ")} damage ignores resistance, but not immunity` : "");
+  }
+  if (enhancements.conditionalAdvantage) {
+    const setting = enhancementValues.conditionalAdvantage ?? {};
+    const condition = setting.mode === "custom" ? setting.customText : {
+      targetUndead: "the target is Undead",
+      targetFiend: "the target is a Fiend",
+      targetBloodied: "the target is below half its Hit Points",
+      wielderDimLight: "the wielder is in dim light",
+      targetNotActed: "the target has not acted in this combat"
+    }[setting.supportedCondition];
+    add("Conditional Advantage", condition ? `Advantage on attacks with this weapon when ${condition}` : "");
+  }
+
+  if (effects.armorClassBonus) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
+  if (effects.savingThrowBonus) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
+    ? `${signedValue(row.bonus)} to all saving throws`
+    : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowBonus?.availability);
+  if (effects.savingThrowAdvantage) add("Saving Throw Advantage", formatRows(effectValues.savingThrowAdvantage?.entries, row => row.target === "all"
+    ? "Advantage on all saving throws"
+    : `Advantage on ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowAdvantage?.availability);
+  if (effects.abilityScoreAdjustment) add("Ability Scores", formatRows(effectValues.abilityScoreAdjustment?.entries, row => {
+    const ability = abilityLabel(row.ability);
+    if (row.operation === "fixed") return `${ability} set to ${row.value}`;
+    if (row.operation === "minimum") return `${ability} minimum ${row.value}`;
+    return `${ability} ${signedValue(row.value)}`;
+  }), effectValues.abilityScoreAdjustment?.availability);
+  if (effects.abilityCheckBonus) add("Ability Checks", formatRows(effectValues.abilityCheckBonus?.entries, row => row.target === "all"
+    ? `${signedValue(row.bonus)} to all ability checks`
+    : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} checks`), effectValues.abilityCheckBonus?.availability);
+  if (effects.skillBonus) add("Skill Checks", formatRows(effectValues.skillBonus?.entries, row => row.target === "all"
+    ? `${signedValue(row.bonus)} to all skill checks`
+    : `${skillLabel(row.target)} ${signedValue(row.bonus)}`), effectValues.skillBonus?.availability);
+  if (effects.skillProficiency) add("Skill Training", formatRows(effectValues.skillProficiency?.entries, row => `${row.level === "expertise" ? "Expertise" : "Proficiency"} in ${skillLabel(row.skill)}`), effectValues.skillProficiency?.availability);
+  if (effects.abilityCheckAdvantage) add("Check Advantage", formatRows(effectValues.abilityCheckAdvantage?.entries, row => {
+    if (row.target === "all") return "Advantage on all ability checks";
+    if (row.target?.startsWith("ability:")) return `Advantage on ${abilityLabel(row.target.slice(8))} checks`;
+    if (row.target?.startsWith("skill:")) return `Advantage on ${skillLabel(row.target.slice(6))} checks`;
+    return "";
+  }), effectValues.abilityCheckAdvantage?.availability);
+
+  for (const [key, label] of [["damageResistance", "Damage Resistance"], ["damageImmunity", "Damage Immunity"], ["damageVulnerability", "Damage Vulnerability"]]) {
+    if (!effects[key]) continue;
+    add(label, (effectValues[key]?.damageTypes ?? []).map(damageTypeLabel).join(", "), effectValues[key]?.availability);
+  }
+  if (effects.conditionImmunity) add("Condition Immunity", (effectValues.conditionImmunity?.conditions ?? []).map(conditionLabel).join(", "), effectValues.conditionImmunity?.availability);
+  if (effects.initiativeBonus) add("Initiative", `${signedValue(effectValues.initiativeBonus?.bonus)} to initiative`, effectValues.initiativeBonus?.availability);
+  if (effects.initiativeAdvantage) add("Initiative Advantage", "Advantage on initiative rolls", effectValues.initiativeAdvantage?.availability);
+  if (effects.proficiencyBonusModifier) add("Proficiency Bonus", `${signedValue(effectValues.proficiencyBonusModifier?.bonus)} to the global Proficiency Bonus`, effectValues.proficiencyBonusModifier?.availability);
+  if (effects.maximumHitPointsBonus) add("Maximum Hit Points", `${signedValue(effectValues.maximumHitPointsBonus?.bonus)} maximum Hit Points`, effectValues.maximumHitPointsBonus?.availability);
+  if (effects.movementBonus) add("Movement", formatRows(effectValues.movementBonus?.entries, row => `${movementLabel(row.type)} speed ${signedValue(row.bonus)} ${row.units ?? "ft"}`), effectValues.movementBonus?.availability);
+  if (effects.grantMovementType) add("Granted Movement", formatRows(effectValues.grantMovementType?.entries, row => `${movementLabel(row.type)} speed minimum ${row.speed} ${row.units ?? "ft"}${row.hover ? " with hover" : ""}`), effectValues.grantMovementType?.availability);
+  if (effects.grantedSense) add("Senses", formatRows(effectValues.grantedSense?.entries, row => {
+    const operation = row.operation === "add" ? `+${row.range}` : row.operation === "fixed" ? `fixed ${row.range}` : `minimum ${row.range}`;
+    return `${senseLabel(row.sense)} ${operation} ${row.units ?? "ft"}`;
+  }), effectValues.grantedSense?.availability);
+  if (effects.spellAttackBonus) add("Spell Attacks", `${signedValue(effectValues.spellAttackBonus?.bonus)} to spell attack rolls`, effectValues.spellAttackBonus?.availability);
+  if (effects.spellSaveDcBonus) add("Spell Save DC", `${signedValue(effectValues.spellSaveDcBonus?.bonus)} to Spell Save DC`, effectValues.spellSaveDcBonus?.availability);
+  if (effects.passiveScoreBonus) add("Passive Scores", formatRows(effectValues.passiveScoreBonus?.entries, row => `${titleCase(row.score)} ${signedValue(row.bonus)}`), effectValues.passiveScoreBonus?.availability);
+
+  return entries;
+}
+
+function propertyGridHtml(entries) {
+  const cells = entries.map(entry => `<td><strong>${escapeHtml(entry.label)}</strong><small>${escapeHtml(entry.value)}</small></td>`);
+  if (cells.length % 2) cells.push('<td aria-hidden="true"></td>');
+  const rows = [];
+  for (let index = 0; index < cells.length; index += 2) rows.push(`<tr>${cells[index]}${cells[index + 1]}</tr>`);
+  return `<table class="item-creator-property-grid"><tbody>${rows.join("")}</tbody></table>`;
+}
+
+function composeItemPropertiesText(data, draft) {
+  data.system.description ??= {};
+  const entries = itemPropertyEntries(draft);
+  const currentValue = stripGeneratedSection(data.system.description.value, "item-properties");
+  const currentChat = stripGeneratedSection(data.system.description.chat, "item-properties");
+  if (!entries.length) {
+    data.system.description.value = currentValue;
+    data.system.description.chat = currentChat;
+    return;
+  }
+
+  const groupOrder = ["weapon", "owned", "equipped", "equippedAttuned"];
+  const groups = groupOrder.map(availability => ({
+    availability,
+    entries: entries.filter(entry => (entry.availability || "weapon") === availability)
+  })).filter(group => group.entries.length);
+
+  const fullGroups = groups.map(group => `<div class="item-creator-property-group"><h4>${availabilityTitle(group.availability)}</h4>${propertyGridHtml(group.entries)}</div>`).join("");
+  const fullSection = `<section class="item-creator-generated item-creator-item-properties" data-item-creator-generated="item-properties"><h3>Item Properties</h3>${fullGroups}</section>`;
+  const chatItems = entries.map(entry => `<li><strong>${escapeHtml(entry.label)}:</strong> ${escapeHtml(entry.value)}${escapeHtml(availabilityChatSuffix(entry.availability || "weapon"))}.</li>`).join("");
+  const chatSection = `<section class="item-creator-generated item-creator-item-properties" data-item-creator-generated="item-properties"><h3>Item Properties</h3><ul>${chatItems}</ul></section>`;
+
+  data.system.description.value = appendGeneratedSection(currentValue, fullSection);
+  data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
+}
+
 function composeGrantedSpellcastingText(data, draft) {
   if (!draft.enhancements?.grantedSpellcasting) return;
   const spells = draft.enhancementValues?.grantedSpellcasting?.spells ?? [];
@@ -739,7 +954,7 @@ export class ItemCreatorItemBuilder {
       })
     };
 
-    composeRuntimeText(data, draft);
+    composeItemPropertiesText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.

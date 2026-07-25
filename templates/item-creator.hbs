@@ -65,7 +65,7 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.1.2 Beta flow</strong>
+          <strong>v0.1.3 Beta flow</strong>
           <p>This Beta supports the complete Weapon creation flow: Base Item, Enhancements, Granted Effects, Description, Review, and protected creation in the Items Directory.</p>
         </div>
       </aside>
@@ -838,10 +838,7 @@
         </label>
 
         {{#if descriptionCustomized}}
-        <div class="ic-description-editor-shell">
-          <prose-mirror name="system.description.value" value="{{descriptionValue}}" document-uuid="{{selectedWeaponUuid}}"
-                        class="sized ic-description-editor" compact data-description-editor>{{{enrichedDescription}}}</prose-mirror>
-        </div>
+        <div class="ic-description-editor-shell" data-description-editor-host aria-label="Item description editor"></div>
         {{else}}
         <div class="editor editor-content ic-description-preview {{#unless hasTemplateDescription}}empty{{/unless}}">
           {{#if hasTemplateDescription}}
