@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.2a — Alpha
+
+- Enabled the `Granted Effects` stage after a valid Enhancements draft.
+- Added checkbox-gated cards for Armor Class, Saving Throw bonuses and Advantage, Ability Score adjustments, Ability Check bonuses and Advantage, Skill bonuses, Skill Proficiency or Expertise, and passive-score bonuses.
+- Added one-click `All Saving Throws`, `All Ability Checks`, and `All Skills` selections while retaining specific ability or skill targeting.
+- Added Damage Resistance, Damage Immunity, Damage Vulnerability, and Condition Immunity with dynamic D&D5e type lists.
+- Added Initiative bonus and Advantage, Maximum Hit Points bonus, and an explicitly marked advanced global Proficiency Bonus modifier.
+- Added Movement bonuses, granted movement types with optional Hover, and granted senses with minimum, additive, or fixed range operations.
+- Added global Spell Attack Bonus and Spell Save DC Bonus effects.
+- Added manual positive or negative numeric values, multiple independently removable rows, and Owned, Equipped, or Equipped and Attuned availability for every effect family.
+- Added validation and red invalid states for enabled but incomplete Granted Effect cards.
+- Added cascading cleanup when any Granted Effect checkbox is disabled.
+- Added Granted Effect count to Current Draft and protected Template reset cleanup.
+- Kept Description, Review, final Item creation, Active Effect generation, and runtime execution locked for later builds.
+- Updated manifest, documentation, interface scope text, and download URL for tag `v0.0.2a`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.2 — Alpha
 
 - Added a full-width, checkbox-gated `Granted Spellcasting` Enhancement card.

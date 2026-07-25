@@ -194,6 +194,152 @@ function fixedOptions(entries, selected) {
   return entries.map(([value, label]) => ({ value, label, selected: String(selected ?? "") === String(value) }));
 }
 
+
+function effectRow(values = {}) {
+  return { id: foundry.utils.randomID(), ...values };
+}
+
+function effectAvailabilityOptions(selected) {
+  return fixedOptions([
+    ["owned", "Item is Owned"],
+    ["equipped", "Equipped"],
+    ["equippedAttuned", "Equipped and Attuned"]
+  ], selected);
+}
+
+function allAbilityOptions(selected, { allValue = "all", allLabel = "All Abilities" } = {}) {
+  return [
+    { value: allValue, label: allLabel, selected: selected === allValue },
+    ...Object.entries(CONFIG.DND5E.abilities ?? {}).map(([value, entry]) => ({
+      value,
+      label: localizedLabel(entry, value),
+      selected: selected === value
+    }))
+  ];
+}
+
+function allSkillOptions(selected, { allValue = "all", allLabel = "All Skills" } = {}) {
+  return [
+    { value: allValue, label: allLabel, selected: selected === allValue },
+    ...Object.entries(CONFIG.DND5E.skills ?? {}).map(([value, entry]) => ({
+      value,
+      label: localizedLabel(entry, value),
+      selected: selected === value
+    }))
+  ];
+}
+
+function movementTypeOptions(selected) {
+  const source = CONFIG.DND5E.movementTypes ?? {
+    walk: "Walking", fly: "Flying", swim: "Swimming", climb: "Climbing", burrow: "Burrowing"
+  };
+  return Object.entries(source).map(([value, entry]) => ({
+    value,
+    label: localizedLabel(entry, value),
+    selected: selected === value
+  }));
+}
+
+function senseTypeOptions(selected) {
+  const source = CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {
+    darkvision: "Darkvision", blindsight: "Blindsight", tremorsense: "Tremorsense", truesight: "Truesight"
+  };
+  return Object.entries(source).map(([value, entry]) => ({
+    value,
+    label: localizedLabel(entry, value),
+    selected: selected === value
+  }));
+}
+
+function conditionTypeOptions(selectedValues = []) {
+  const selected = new Set(selectedValues ?? []);
+  const source = CONFIG.DND5E.conditionTypes ?? CONFIG.statusEffects?.reduce((acc, effect) => {
+    if (effect?.id) acc[effect.id] = effect.name ?? effect.label ?? effect.id;
+    return acc;
+  }, {}) ?? {};
+  return Object.entries(source).map(([value, entry]) => ({
+    value,
+    label: localizedLabel(entry, value),
+    selected: selected.has(value)
+  })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
+}
+
+function grantedEffectDefaults() {
+  const firstDamageType = Object.keys(CONFIG.DND5E.damageTypes ?? {})[0] ?? "";
+  const firstAbility = Object.keys(CONFIG.DND5E.abilities ?? {})[0] ?? "str";
+  const firstSkill = Object.keys(CONFIG.DND5E.skills ?? {})[0] ?? "prc";
+  const firstMovement = Object.keys(CONFIG.DND5E.movementTypes ?? {})[0] ?? "walk";
+  const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
+  return {
+    armorClassBonus: { bonus: 1, availability: "equipped" },
+    savingThrowBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
+    savingThrowAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
+    abilityScoreAdjustment: { entries: [effectRow({ ability: firstAbility, operation: "add", value: 1 })], availability: "equipped" },
+    abilityCheckBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
+    skillBonus: { entries: [effectRow({ target: firstSkill, bonus: 1 })], availability: "equipped" },
+    skillProficiency: { entries: [effectRow({ skill: firstSkill, level: "proficient" })], availability: "equipped" },
+    abilityCheckAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
+    damageResistance: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
+    damageImmunity: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
+    damageVulnerability: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
+    conditionImmunity: { conditions: [], availability: "equipped" },
+    initiativeBonus: { bonus: 1, availability: "equipped" },
+    initiativeAdvantage: { availability: "equipped" },
+    proficiencyBonusModifier: { bonus: 1, availability: "equipped" },
+    maximumHitPointsBonus: { bonus: 10, availability: "equipped" },
+    movementBonus: { entries: [effectRow({ type: firstMovement, bonus: 10, units: "ft" })], availability: "equipped" },
+    grantMovementType: { entries: [effectRow({ type: "fly", speed: 30, units: "ft", hover: false })], availability: "equipped" },
+    grantedSense: { entries: [effectRow({ sense: firstSense, range: 60, units: "ft", operation: "minimum" })], availability: "equipped" },
+    spellAttackBonus: { bonus: 1, availability: "equipped" },
+    spellSaveDcBonus: { bonus: 1, availability: "equipped" },
+    passiveScoreBonus: { entries: [effectRow({ score: "perception", bonus: 5 })], availability: "equipped" }
+  };
+}
+
+function effectEntryOptions(key, row) {
+  switch (key) {
+    case "savingThrowBonus":
+    case "savingThrowAdvantage":
+      return { targetOptions: allAbilityOptions(row.target, { allLabel: "All Saving Throws" }) };
+    case "abilityScoreAdjustment":
+      return {
+        abilityOptions: configOptions(CONFIG.DND5E.abilities, row.ability),
+        operationOptions: fixedOptions([["add", "Add / Subtract"], ["minimum", "Minimum Score"], ["fixed", "Fixed Score"]], row.operation)
+      };
+    case "abilityCheckBonus":
+      return { targetOptions: allAbilityOptions(row.target, { allLabel: "All Ability Checks" }) };
+    case "skillBonus":
+      return { targetOptions: allSkillOptions(row.target) };
+    case "skillProficiency":
+      return {
+        skillOptions: configOptions(CONFIG.DND5E.skills, row.skill),
+        levelOptions: fixedOptions([["proficient", "Proficient"], ["expertise", "Expertise"]], row.level)
+      };
+    case "abilityCheckAdvantage":
+      return {
+        targetOptions: [
+          { value: "all", label: "All Ability Checks", selected: row.target === "all" },
+          ...Object.entries(CONFIG.DND5E.abilities ?? {}).map(([value, entry]) => ({ value: `ability:${value}`, label: `All ${localizedLabel(entry, value)} Checks`, selected: row.target === `ability:${value}` })),
+          ...Object.entries(CONFIG.DND5E.skills ?? {}).map(([value, entry]) => ({ value: `skill:${value}`, label: localizedLabel(entry, value), selected: row.target === `skill:${value}` }))
+        ]
+      };
+    case "movementBonus":
+      return { typeOptions: movementTypeOptions(row.type), unitOptions: configOptions(CONFIG.DND5E.movementUnits, row.units) };
+    case "grantMovementType":
+      return { typeOptions: movementTypeOptions(row.type), unitOptions: configOptions(CONFIG.DND5E.movementUnits, row.units) };
+    case "grantedSense":
+      return {
+        senseOptions: senseTypeOptions(row.sense),
+        unitOptions: configOptions(CONFIG.DND5E.movementUnits, row.units),
+        operationOptions: fixedOptions([["minimum", "Set Minimum Range"], ["add", "Add to Existing Range"], ["fixed", "Fixed Range"]], row.operation)
+      };
+    case "passiveScoreBonus":
+      return { scoreOptions: fixedOptions([["perception", "Passive Perception"], ["investigation", "Passive Investigation"], ["insight", "Passive Insight"]], row.score) };
+    default:
+      return {};
+  }
+}
+
 export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   constructor(options = {}) {
     super(options);
@@ -213,6 +359,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = {};
     this.enhancements = {};
     this.enhancementValues = enhancementDefaults();
+    this.grantedEffects = {};
+    this.grantedEffectValues = grantedEffectDefaults();
     this.restoreScrollTop = null;
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
@@ -264,6 +412,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const baseComplete = Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
     const enhancementValidation = this.#validateEnhancements();
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
+    const grantedEffectValidation = this.#validateGrantedEffects();
+    const grantedEffectsComplete = enhancementsComplete && grantedEffectValidation.valid;
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
@@ -273,10 +423,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           ? baseComplete
           : step.id === "enhancements"
             ? enhancementsComplete
-            : false,
+            : step.id === "grantedEffects"
+              ? grantedEffectsComplete
+              : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
+        || (step.id === "grantedEffects" && !enhancementsComplete)
     }));
 
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
@@ -418,6 +571,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       };
     });
 
+    const effectValues = this.grantedEffectValues;
+    const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({
+      ...row,
+      index: index + 1,
+      ...effectEntryOptions(key, row)
+    }));
+    const damageEffectOptions = key => Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
+      value,
+      label: localizedLabel(entry, value),
+      selected: (effectValues[key]?.damageTypes ?? []).includes(value)
+    })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
+    const effectAvailability = Object.fromEntries(Object.keys(effectValues).map(key => [key, effectAvailabilityOptions(effectValues[key]?.availability)]));
+    const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
+
     return {
       stage: MODULE_STAGE,
       version: MODULE_VERSION,
@@ -509,7 +676,28 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         ["targetNotActed", "Target has not acted this combat"]
       ], this.enhancementValues.conditionalAdvantage.supportedCondition),
       conditionalIsSupported: this.enhancementValues.conditionalAdvantage.mode === "supported",
-      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage.mode === "supported" ? "Item Creator Runtime" : "Description Only"
+      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage.mode === "supported" ? "Item Creator Runtime" : "Description Only",
+      grantedEffects: this.grantedEffects,
+      grantedEffectValues: effectValues,
+      grantedEffectCount,
+      grantedEffectsComplete,
+      grantedEffectErrors: grantedEffectValidation.errors,
+      effectAvailability,
+      savingThrowBonusRows: prepareEffectRows("savingThrowBonus"),
+      savingThrowAdvantageRows: prepareEffectRows("savingThrowAdvantage"),
+      abilityScoreAdjustmentRows: prepareEffectRows("abilityScoreAdjustment"),
+      abilityCheckBonusRows: prepareEffectRows("abilityCheckBonus"),
+      skillBonusRows: prepareEffectRows("skillBonus"),
+      skillProficiencyRows: prepareEffectRows("skillProficiency"),
+      abilityCheckAdvantageRows: prepareEffectRows("abilityCheckAdvantage"),
+      movementBonusRows: prepareEffectRows("movementBonus"),
+      grantMovementTypeRows: prepareEffectRows("grantMovementType"),
+      grantedSenseRows: prepareEffectRows("grantedSense"),
+      passiveScoreBonusRows: prepareEffectRows("passiveScoreBonus"),
+      damageResistanceOptions: damageEffectOptions("damageResistance"),
+      damageImmunityOptions: damageEffectOptions("damageImmunity"),
+      damageVulnerabilityOptions: damageEffectOptions("damageVulnerability"),
+      conditionImmunityOptions: conditionTypeOptions(effectValues.conditionImmunity.conditions)
     };
   }
 
@@ -543,6 +731,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       input.addEventListener(eventName, event => this.#updateEnhancement(event));
     });
     root.querySelectorAll('[data-resistance-type]').forEach(input => input.addEventListener("change", event => this.#updateResistanceType(event)));
+    root.querySelectorAll('[data-effect-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleGrantedEffect(event)));
+    root.querySelectorAll('[data-effect-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateGrantedEffect(event));
+    });
+    root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
+    root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
+    root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
     root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
@@ -620,11 +816,23 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.restoreScrollTop = null;
       this.step = "enhancements";
       this.render({ force: true });
+      return;
+    }
+    if (this.step === "enhancements" && this.#isBaseComplete() && this.#validateEnhancements().valid) {
+      this.restoreScrollTop = null;
+      this.step = "grantedEffects";
+      this.render({ force: true });
     }
   }
 
   #back(event) {
     event.preventDefault();
+    if (this.step === "grantedEffects") {
+      this.restoreScrollTop = null;
+      this.step = "enhancements";
+      this.render({ force: true });
+      return;
+    }
     if (this.step === "enhancements") {
       this.restoreScrollTop = null;
       this.step = "baseItem";
@@ -740,6 +948,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.customized = {};
       this.overrides = {};
       this.#resetEnhancements();
+      this.#resetGrantedEffects();
 
       const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
       this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
@@ -772,7 +981,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     return this.itemName.trim() !== String(this.selectedWeaponDocument.name ?? "").trim()
       || meaningfulCustomization
-      || Object.values(this.enhancements).some(Boolean);
+      || Object.values(this.enhancements).some(Boolean)
+      || Object.values(this.grantedEffects).some(Boolean);
   }
 
   #clearTemplate() {
@@ -787,6 +997,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.customized = {};
     this.overrides = {};
     this.#resetEnhancements();
+    this.#resetGrantedEffects();
   }
 
   #updateItemName(event) {
@@ -1050,6 +1261,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.enhancementValues = enhancementDefaults();
   }
 
+  #resetGrantedEffects() {
+    this.grantedEffects = {};
+    this.grantedEffectValues = grantedEffectDefaults();
+  }
+
   #validateEnhancements() {
     const errors = {};
     const values = this.enhancementValues;
@@ -1077,6 +1293,129 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (conditional.mode === "custom" && !String(conditional.customText ?? "").trim()) errors.conditionalAdvantage = true;
     }
     return { valid: !Object.keys(errors).length, errors };
+  }
+
+  #validateGrantedEffects() {
+    const errors = {};
+    const values = this.grantedEffectValues;
+    const finite = value => Number.isFinite(Number(value));
+    const hasRows = (key, validator) => {
+      const rows = values[key]?.entries ?? [];
+      return rows.length > 0 && rows.every(validator);
+    };
+    const validAvailability = key => ["owned", "equipped", "equippedAttuned"].includes(values[key]?.availability);
+
+    if (this.grantedEffects.armorClassBonus && !(finite(values.armorClassBonus.bonus) && validAvailability("armorClassBonus"))) errors.armorClassBonus = true;
+    if (this.grantedEffects.savingThrowBonus && !(hasRows("savingThrowBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("savingThrowBonus"))) errors.savingThrowBonus = true;
+    if (this.grantedEffects.savingThrowAdvantage && !(hasRows("savingThrowAdvantage", row => Boolean(row.target)) && validAvailability("savingThrowAdvantage"))) errors.savingThrowAdvantage = true;
+    if (this.grantedEffects.abilityScoreAdjustment && !(hasRows("abilityScoreAdjustment", row => Boolean(row.ability) && ["add", "minimum", "fixed"].includes(row.operation) && finite(row.value)) && validAvailability("abilityScoreAdjustment"))) errors.abilityScoreAdjustment = true;
+    if (this.grantedEffects.abilityCheckBonus && !(hasRows("abilityCheckBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("abilityCheckBonus"))) errors.abilityCheckBonus = true;
+    if (this.grantedEffects.skillBonus && !(hasRows("skillBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("skillBonus"))) errors.skillBonus = true;
+    if (this.grantedEffects.skillProficiency && !(hasRows("skillProficiency", row => Boolean(row.skill) && ["proficient", "expertise"].includes(row.level)) && validAvailability("skillProficiency"))) errors.skillProficiency = true;
+    if (this.grantedEffects.abilityCheckAdvantage && !(hasRows("abilityCheckAdvantage", row => Boolean(row.target)) && validAvailability("abilityCheckAdvantage"))) errors.abilityCheckAdvantage = true;
+    for (const key of ["damageResistance", "damageImmunity", "damageVulnerability"]) {
+      if (this.grantedEffects[key] && (!values[key].damageTypes?.length || !validAvailability(key))) errors[key] = true;
+    }
+    if (this.grantedEffects.conditionImmunity && (!values.conditionImmunity.conditions?.length || !validAvailability("conditionImmunity"))) errors.conditionImmunity = true;
+    if (this.grantedEffects.initiativeBonus && !(finite(values.initiativeBonus.bonus) && validAvailability("initiativeBonus"))) errors.initiativeBonus = true;
+    if (this.grantedEffects.initiativeAdvantage && !validAvailability("initiativeAdvantage")) errors.initiativeAdvantage = true;
+    if (this.grantedEffects.proficiencyBonusModifier && !(finite(values.proficiencyBonusModifier.bonus) && validAvailability("proficiencyBonusModifier"))) errors.proficiencyBonusModifier = true;
+    if (this.grantedEffects.maximumHitPointsBonus && !(finite(values.maximumHitPointsBonus.bonus) && validAvailability("maximumHitPointsBonus"))) errors.maximumHitPointsBonus = true;
+    if (this.grantedEffects.movementBonus && !(hasRows("movementBonus", row => Boolean(row.type) && finite(row.bonus) && Boolean(row.units)) && validAvailability("movementBonus"))) errors.movementBonus = true;
+    if (this.grantedEffects.grantMovementType && !(hasRows("grantMovementType", row => Boolean(row.type) && finite(row.speed) && Number(row.speed) >= 0 && Boolean(row.units)) && validAvailability("grantMovementType"))) errors.grantMovementType = true;
+    if (this.grantedEffects.grantedSense && !(hasRows("grantedSense", row => Boolean(row.sense) && finite(row.range) && Number(row.range) >= 0 && Boolean(row.units) && ["minimum", "add", "fixed"].includes(row.operation)) && validAvailability("grantedSense"))) errors.grantedSense = true;
+    if (this.grantedEffects.spellAttackBonus && !(finite(values.spellAttackBonus.bonus) && validAvailability("spellAttackBonus"))) errors.spellAttackBonus = true;
+    if (this.grantedEffects.spellSaveDcBonus && !(finite(values.spellSaveDcBonus.bonus) && validAvailability("spellSaveDcBonus"))) errors.spellSaveDcBonus = true;
+    if (this.grantedEffects.passiveScoreBonus && !(hasRows("passiveScoreBonus", row => ["perception", "investigation", "insight"].includes(row.score) && finite(row.bonus)) && validAvailability("passiveScoreBonus"))) errors.passiveScoreBonus = true;
+    return { valid: !Object.keys(errors).length, errors };
+  }
+
+  #newGrantedEffectRow(key) {
+    const firstAbility = Object.keys(CONFIG.DND5E.abilities ?? {})[0] ?? "str";
+    const firstSkill = Object.keys(CONFIG.DND5E.skills ?? {})[0] ?? "prc";
+    const firstMovement = Object.keys(CONFIG.DND5E.movementTypes ?? {})[0] ?? "walk";
+    const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
+    switch (key) {
+      case "savingThrowBonus": return effectRow({ target: "all", bonus: 1 });
+      case "savingThrowAdvantage": return effectRow({ target: "all" });
+      case "abilityScoreAdjustment": return effectRow({ ability: firstAbility, operation: "add", value: 1 });
+      case "abilityCheckBonus": return effectRow({ target: "all", bonus: 1 });
+      case "skillBonus": return effectRow({ target: firstSkill, bonus: 1 });
+      case "skillProficiency": return effectRow({ skill: firstSkill, level: "proficient" });
+      case "abilityCheckAdvantage": return effectRow({ target: "all" });
+      case "movementBonus": return effectRow({ type: firstMovement, bonus: 10, units: "ft" });
+      case "grantMovementType": return effectRow({ type: "fly", speed: 30, units: "ft", hover: false });
+      case "grantedSense": return effectRow({ sense: firstSense, range: 60, units: "ft", operation: "minimum" });
+      case "passiveScoreBonus": return effectRow({ score: "perception", bonus: 5 });
+      default: return null;
+    }
+  }
+
+  #toggleGrantedEffect(event) {
+    const key = event.currentTarget.dataset.effectToggle;
+    const defaults = grantedEffectDefaults();
+    if (!key || !(key in defaults)) return;
+    const enabled = event.currentTarget.checked;
+    this.grantedEffects[key] = enabled;
+    if (!enabled) this.grantedEffectValues[key] = clone(defaults[key]);
+    this.#renderPreservingScroll();
+  }
+
+  #updateGrantedEffect(event) {
+    const key = event.currentTarget.dataset.effectInput;
+    const part = event.currentTarget.dataset.effectPart;
+    const rowId = event.currentTarget.dataset.effectRowId;
+    if (!key || !part || !this.grantedEffects[key]) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+
+    if (rowId) {
+      const row = (this.grantedEffectValues[key]?.entries ?? []).find(entry => entry.id === rowId);
+      if (!row) return;
+      row[part] = value;
+    } else {
+      this.grantedEffectValues[key] ??= {};
+      this.grantedEffectValues[key][part] = value;
+    }
+  }
+
+  #updateGrantedEffectMulti(event) {
+    const key = event.currentTarget.dataset.effectMulti;
+    const collection = event.currentTarget.dataset.effectCollection;
+    const value = event.currentTarget.dataset.effectValue;
+    if (!key || !collection || !value || !this.grantedEffects[key]) return;
+    const selected = new Set(this.grantedEffectValues[key]?.[collection] ?? []);
+    if (event.currentTarget.checked) selected.add(value);
+    else selected.delete(value);
+    this.grantedEffectValues[key][collection] = [...selected];
+    this.#renderPreservingScroll();
+  }
+
+  #addGrantedEffectRow(event) {
+    event.preventDefault();
+    const key = event.currentTarget.dataset.effectKey;
+    if (!key || !this.grantedEffects[key]) return;
+    const row = this.#newGrantedEffectRow(key);
+    if (!row) return;
+    this.grantedEffectValues[key].entries ??= [];
+    this.grantedEffectValues[key].entries.push(row);
+    this.#renderPreservingScroll();
+  }
+
+  #removeGrantedEffectRow(event) {
+    event.preventDefault();
+    const key = event.currentTarget.dataset.effectKey;
+    const rowId = event.currentTarget.dataset.effectRowId;
+    if (!key || !rowId || !this.grantedEffects[key]) return;
+    const rows = this.grantedEffectValues[key].entries ?? [];
+    this.grantedEffectValues[key].entries = rows.filter(row => row.id !== rowId);
+    if (!this.grantedEffectValues[key].entries.length) {
+      const replacement = this.#newGrantedEffectRow(key);
+      if (replacement) this.grantedEffectValues[key].entries.push(replacement);
+    }
+    this.#renderPreservingScroll();
   }
 
   #validateGrantedSpell(spell) {
