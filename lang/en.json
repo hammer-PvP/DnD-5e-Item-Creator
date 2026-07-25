@@ -2,5 +2,5 @@
   "ITEMCREATOR.Title": "Item Creator",
   "ITEMCREATOR.Settings.ContentSources.Name": "Content Sources",
   "ITEMCREATOR.Settings.ContentSources.Label": "Configure Content Sources",
-  "ITEMCREATOR.Settings.ContentSources.Hint": "Choose and prioritize installed Item compendiums used for templates, reference documents, and icons."
+  "ITEMCREATOR.Settings.ContentSources.Hint": "Choose and prioritize installed content sources used for templates, reference documents, and icons."
 }

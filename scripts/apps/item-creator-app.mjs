@@ -146,6 +146,31 @@ function additionalDamageLabel(row) {
   return `${row.number}d${row.denomination}${ability ? ` + ${ability}` : ""} ${type}`;
 }
 
+function enhancementDefaults() {
+  const firstDamageType = CONFIG.DND5E.damageTypes?.fire
+    ? "fire"
+    : Object.keys(CONFIG.DND5E.damageTypes ?? {})[0] ?? "";
+  return {
+    magicalWeapon: { rarity: "uncommon", attunement: "" },
+    weaponEnhancement: { bonus: 1 },
+    attackBonus: { bonus: 1 },
+    damageBonus: { bonus: 1 },
+    criticalThreshold: { mode: "19", custom: 19 },
+    extraCriticalDamage: { number: 1, denomination: 8, damageType: firstDamageType },
+    ignoreResistance: { damageTypes: firstDamageType ? [firstDamageType] : [] },
+    conditionalAdvantage: {
+      mode: "supported",
+      appliesTo: "attackRolls",
+      supportedCondition: "targetUndead",
+      customText: ""
+    }
+  };
+}
+
+function fixedOptions(entries, selected) {
+  return entries.map(([value, label]) => ({ value, label, selected: String(selected ?? "") === String(value) }));
+}
+
 export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   constructor(options = {}) {
     super(options);
@@ -163,6 +188,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.loadingWeapon = false;
     this.customized = {};
     this.overrides = {};
+    this.enhancements = {};
+    this.enhancementValues = enhancementDefaults();
     this.restoreScrollTop = null;
     this.templateBrowserOpen = false;
     this.iconBrowserApp = null;
@@ -211,11 +238,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
         && (!row.useAbilityModifier || Boolean(row.ability))));
     const baseComplete = Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
+    const enhancementValidation = this.#validateEnhancements();
+    const enhancementsComplete = baseComplete && enhancementValidation.valid;
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
-      complete: step.id === "itemType" ? typeComplete : step.id === "baseItem" ? baseComplete : false,
-      locked: !step.available || (step.id === "baseItem" && !typeComplete)
+      complete: step.id === "itemType"
+        ? typeComplete
+        : step.id === "baseItem"
+          ? baseComplete
+          : step.id === "enhancements"
+            ? enhancementsComplete
+            : false,
+      locked: !step.available
+        || (step.id === "baseItem" && !typeComplete)
+        || (step.id === "enhancements" && !baseComplete)
     }));
 
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
@@ -365,7 +402,38 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       hasAmmunition: effective?.properties?.includes("amm") ?? false,
       additionalDamageRows,
       additionalDamageValid,
-      additionalDamageCount: additionalDamageRows.length
+      additionalDamageCount: additionalDamageRows.length,
+      enhancement: this.enhancements,
+      enhancementValues: this.enhancementValues,
+      enhancementCount: Object.values(this.enhancements).filter(Boolean).length,
+      enhancementsComplete,
+      enhancementErrors: enhancementValidation.errors,
+      effectiveMagical: Boolean(this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement),
+      rarityOptions: configOptions(CONFIG.DND5E.itemRarity, this.enhancementValues.magicalWeapon.rarity),
+      attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, this.enhancementValues.magicalWeapon.attunement, {
+        blankValue: "",
+        blankLabel: "None"
+      }),
+      enhancementBonusOptions: fixedOptions([[1, "+1"], [2, "+2"], [3, "+3"]], this.enhancementValues.weaponEnhancement.bonus),
+      criticalThresholdOptions: fixedOptions([[20, "20 — Standard"], [19, "19 — Critical on 19–20"], [18, "18 — Critical on 18–20"], ["custom", "Custom"]], this.enhancementValues.criticalThreshold.mode),
+      criticalDamageDiceOptions: damageDiceOptions(this.enhancementValues.extraCriticalDamage.denomination),
+      criticalDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, this.enhancementValues.extraCriticalDamage.damageType),
+      resistanceDamageTypes: Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
+        value,
+        label: localizedLabel(entry, value),
+        selected: this.enhancementValues.ignoreResistance.damageTypes.includes(value)
+      })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)),
+      conditionalModeOptions: fixedOptions([["supported", "Supported Condition"], ["custom", "Custom Rule Text"]], this.enhancementValues.conditionalAdvantage.mode),
+      conditionalAppliesToOptions: fixedOptions([["attackRolls", "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage.appliesTo),
+      supportedConditionOptions: fixedOptions([
+        ["targetUndead", "Target is Undead"],
+        ["targetFiend", "Target is a Fiend"],
+        ["targetBloodied", "Target is below half its Hit Points"],
+        ["wielderDimLight", "Wielder is in dim light"],
+        ["targetNotActed", "Target has not acted this combat"]
+      ], this.enhancementValues.conditionalAdvantage.supportedCondition),
+      conditionalIsSupported: this.enhancementValues.conditionalAdvantage.mode === "supported",
+      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage.mode === "supported" ? "Item Creator Runtime" : "Description Only"
     };
   }
 
@@ -393,6 +461,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
       input.addEventListener(eventName, event => this.#updateAdditionalDamage(event));
     });
+    root.querySelectorAll('[data-enhancement-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleEnhancement(event)));
+    root.querySelectorAll('[data-enhancement-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateEnhancement(event));
+    });
+    root.querySelectorAll('[data-resistance-type]').forEach(input => input.addEventListener("change", event => this.#updateResistanceType(event)));
 
     this.#applyTemplateFilter();
     if (Number.isFinite(this.restoreScrollTop)) {
@@ -455,11 +529,23 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.restoreScrollTop = null;
       this.step = "baseItem";
       this.render({ force: true });
+      return;
+    }
+    if (this.step === "baseItem" && this.#isBaseComplete()) {
+      this.restoreScrollTop = null;
+      this.step = "enhancements";
+      this.render({ force: true });
     }
   }
 
   #back(event) {
     event.preventDefault();
+    if (this.step === "enhancements") {
+      this.restoreScrollTop = null;
+      this.step = "baseItem";
+      this.render({ force: true });
+      return;
+    }
     if (this.step === "baseItem") {
       this.restoreScrollTop = null;
       this.step = "itemType";
@@ -536,7 +622,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.selectedWeaponUuid && this.#hasTemplateChanges()) {
       const confirmed = await DialogV2.confirm({
         window: { title: uuid ? "Change Base Template" : "Clear Base Template", modal: true },
-        content: `<p>${uuid ? "Changing" : "Clearing"} the base template will discard the custom Item name, all Base Item overrides, additional damage entries, and the custom icon.</p>`,
+        content: `<p>${uuid ? "Changing" : "Clearing"} the base template will discard the custom Item name, all Base Item overrides, additional damage entries, the custom icon, and all configured Enhancements.</p>`,
         yes: { label: uuid ? "Change Template" : "Clear Template", icon: "fa-solid fa-rotate" },
         no: { label: "Keep Current Template", icon: "fa-solid fa-xmark" }
       });
@@ -568,6 +654,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.templateCategory = option?.weaponType || document.system?.type?.value || "all";
       this.customized = {};
       this.overrides = {};
+      this.#resetEnhancements();
 
       const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
       this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
@@ -599,7 +686,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return true;
     });
     return this.itemName.trim() !== String(this.selectedWeaponDocument.name ?? "").trim()
-      || meaningfulCustomization;
+      || meaningfulCustomization
+      || Object.values(this.enhancements).some(Boolean);
   }
 
   #clearTemplate() {
@@ -613,6 +701,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedIcon = "";
     this.customized = {};
     this.overrides = {};
+    this.#resetEnhancements();
   }
 
   #updateItemName(event) {
@@ -860,6 +949,76 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.ability = value ? (row.ability || "attack") : "";
       this.#renderPreservingScroll();
     }
+  }
+
+  #isBaseComplete() {
+    const effective = this.#effectiveValues();
+    const additionalDamageValid = !this.customized.additionalDamage
+      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
+        Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
+        && (!row.useAbilityModifier || Boolean(row.ability))));
+    return Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
+  }
+
+  #resetEnhancements() {
+    this.enhancements = {};
+    this.enhancementValues = enhancementDefaults();
+  }
+
+  #validateEnhancements() {
+    const errors = {};
+    const values = this.enhancementValues;
+    if (this.enhancements.magicalWeapon && !values.magicalWeapon.rarity) errors.magicalWeapon = true;
+    if (this.enhancements.weaponEnhancement && ![1, 2, 3].includes(Number(values.weaponEnhancement.bonus))) errors.weaponEnhancement = true;
+    if (this.enhancements.attackBonus && !Number.isFinite(Number(values.attackBonus.bonus))) errors.attackBonus = true;
+    if (this.enhancements.damageBonus && !Number.isFinite(Number(values.damageBonus.bonus))) errors.damageBonus = true;
+    if (this.enhancements.criticalThreshold) {
+      const mode = values.criticalThreshold.mode;
+      const threshold = mode === "custom" ? Number(values.criticalThreshold.custom) : Number(mode);
+      if (!Number.isFinite(threshold) || threshold < 1 || threshold > 20) errors.criticalThreshold = true;
+    }
+    if (this.enhancements.extraCriticalDamage) {
+      const critical = values.extraCriticalDamage;
+      if (!(Number(critical.number) > 0 && Number(critical.denomination) > 0 && critical.damageType)) errors.extraCriticalDamage = true;
+    }
+    if (this.enhancements.ignoreResistance && !values.ignoreResistance.damageTypes.length) errors.ignoreResistance = true;
+    if (this.enhancements.conditionalAdvantage) {
+      const conditional = values.conditionalAdvantage;
+      if (conditional.mode === "supported" && !conditional.supportedCondition) errors.conditionalAdvantage = true;
+      if (conditional.mode === "custom" && !String(conditional.customText ?? "").trim()) errors.conditionalAdvantage = true;
+    }
+    return { valid: !Object.keys(errors).length, errors };
+  }
+
+  #toggleEnhancement(event) {
+    const field = event.currentTarget.dataset.enhancementToggle;
+    if (!field || !(field in enhancementDefaults())) return;
+    const enabled = event.currentTarget.checked;
+    this.enhancements[field] = enabled;
+    if (!enabled) this.enhancementValues[field] = clone(enhancementDefaults()[field]);
+    this.#renderPreservingScroll();
+  }
+
+  #updateEnhancement(event) {
+    const field = event.currentTarget.dataset.enhancementInput;
+    const part = event.currentTarget.dataset.enhancementPart;
+    if (!field || !part || !this.enhancements[field]) return;
+    let value = event.currentTarget.value;
+    if (event.currentTarget.dataset.valueType === "number") value = value === "" ? 0 : Number(value);
+    this.enhancementValues[field] ??= {};
+    this.enhancementValues[field][part] = value;
+    if (field === "criticalThreshold" && part === "mode") this.#renderPreservingScroll();
+    if (field === "conditionalAdvantage" && part === "mode") this.#renderPreservingScroll();
+  }
+
+  #updateResistanceType(event) {
+    if (!this.enhancements.ignoreResistance) return;
+    const damageType = event.currentTarget.dataset.resistanceType;
+    const types = new Set(this.enhancementValues.ignoreResistance.damageTypes ?? []);
+    if (event.currentTarget.checked) types.add(damageType);
+    else types.delete(damageType);
+    this.enhancementValues.ignoreResistance.damageTypes = [...types];
+    this.#renderPreservingScroll();
   }
 
   async close(options = {}) {

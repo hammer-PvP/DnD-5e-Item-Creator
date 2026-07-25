@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.1e — Alpha
+
+- Marked the Base Item stage as the approved foundation and enabled the Enhancements stage in the sidebar and navigation flow.
+- Added eight checkbox-gated Enhancement cards using the same enable, disable, validation, and cascading-cleanup philosophy as Base Item.
+- Added optional Magical Weapon configuration with D&D5e rarity and attunement selections.
+- Added Weapon Enhancement +1, +2, and +3, with the draft treated as magical whenever this option is active.
+- Added independent Additional Attack Bonus and Additional Damage Bonus controls.
+- Added Critical Hit Threshold configuration for 20, 19, 18, or a custom value.
+- Added typed Extra Critical Damage with dice count, die denomination, and D&D5e damage type.
+- Added Ignore Damage Resistance with multiple selectable D&D5e damage types and an explicit Item Creator Runtime support badge; immunity is not bypassed.
+- Added Conditional Advantage with supported runtime conditions or custom descriptive rule text.
+- Added validation and red invalid states for incomplete enabled Enhancement cards.
+- Added immediate cleanup when any Enhancement checkbox is disabled.
+- Added Enhancement count to Current Draft and protected Template replacement cleanup for all Enhancement selections.
+- Kept Granted Effects, Description, Review, and final Item creation locked for later Alpha builds.
+- Updated manifest and documentation for tag `v0.0.1e`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.1d — Alpha
 
 - Simplified Content Sources from per-compendium selection to one row per complete source, such as SRD 5.1, SRD 5.2 Modern, Player's Handbook 2024, Dungeon Master's Guide, and Monster Manual.

@@ -28,6 +28,7 @@
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
+      <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Status:</strong> Alpha preview only</p>
     </section>
   </aside>
@@ -61,8 +62,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.1d Alpha scope</strong>
-          <p>This build separates the selected Template from the physical Base Weapon and simplifies content-source configuration. It does not create or modify Items.</p>
+          <strong>v0.0.1e Alpha scope</strong>
+          <p>This build completes the first interactive Enhancements stage with checkbox-gated magical, offensive, critical, resistance-bypass, and advantage configuration. It does not create or modify Items.</p>
         </div>
       </aside>
     </section>
@@ -404,10 +405,154 @@
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" disabled title="Enhancements will be implemented in a later Alpha">
-        <span>Enhancements</span><i class="fa-solid fa-lock"></i>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless baseComplete}}disabled{{/unless}}>
+        <span>Enhancements</span><i class="fa-solid fa-chevron-right"></i>
       </button>
     </footer>
     {{/if}}
+
+    {{#if (eq step "enhancements")}}
+    <section class="ic-step-content ic-enhancements-step">
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Weapon Creation</span>
+          <h2>Enhancements</h2>
+          <p>Enable only the enhancements this weapon needs. Every card is optional, and disabling a card immediately discards its values without changing the selected Template or Base Weapon.</p>
+        </div>
+      </header>
+
+      <aside class="ic-alpha-note ic-enhancement-note">
+        <i class="fa-solid fa-layer-group"></i>
+        <div>
+          <strong>Template inheritance remains intact</strong>
+          <p>Unchecked cards add no Item Creator override. Existing special properties from the selected Template remain a separate layer for the future controlled merge.</p>
+        </div>
+      </aside>
+
+      <section class="ic-enhancement-group">
+        <header>
+          <span class="ic-kicker">Magical Configuration</span>
+          <h3>Magical Nature and Enhancement</h3>
+        </header>
+        <div class="ic-enhancement-grid">
+          <section class="ic-enhancement-card {{#if enhancement.magicalWeapon}}enabled{{/if}} {{#if enhancementErrors.magicalWeapon}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="magicalWeapon" {{#if enhancement.magicalWeapon}}checked{{/if}}>
+              <span><strong>Magical Weapon</strong><small>Set magical rarity and attunement without requiring a numeric +1, +2, or +3 bonus.</small></span>
+            </label>
+            <div class="ic-enhancement-fields two-columns">
+              <label><span>Rarity</span><select data-enhancement-input="magicalWeapon" data-enhancement-part="rarity" {{#unless enhancement.magicalWeapon}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Attunement</span><select data-enhancement-input="magicalWeapon" data-enhancement-part="attunement" {{#unless enhancement.magicalWeapon}}disabled{{/unless}}>{{#each attunementOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            </div>
+          </section>
+
+          <section class="ic-enhancement-card {{#if enhancement.weaponEnhancement}}enabled{{/if}} {{#if enhancementErrors.weaponEnhancement}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="weaponEnhancement" {{#if enhancement.weaponEnhancement}}checked{{/if}}>
+              <span><strong>Weapon Enhancement</strong><small>Apply the classic matching bonus to Attack Rolls and Damage Rolls. This also makes the draft magical.</small></span>
+            </label>
+            <label class="ic-enhancement-field"><span>Enhancement Bonus</span><select data-enhancement-input="weaponEnhancement" data-enhancement-part="bonus" data-value-type="number" {{#unless enhancement.weaponEnhancement}}disabled{{/unless}}>{{#each enhancementBonusOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            {{#if enhancement.weaponEnhancement}}<small class="ic-mechanical-note"><i class="fa-solid fa-wand-magic-sparkles"></i> The effective draft is treated as magical.</small>{{/if}}
+          </section>
+        </div>
+      </section>
+
+      <section class="ic-enhancement-group">
+        <header>
+          <span class="ic-kicker">Attack and Damage</span>
+          <h3>Offensive Modifiers</h3>
+        </header>
+        <div class="ic-enhancement-grid">
+          <section class="ic-enhancement-card {{#if enhancement.attackBonus}}enabled{{/if}} {{#if enhancementErrors.attackBonus}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="attackBonus" {{#if enhancement.attackBonus}}checked{{/if}}>
+              <span><strong>Additional Attack Bonus</strong><small>Add a numeric bonus only to Attack Rolls made with this weapon.</small></span>
+            </label>
+            <label class="ic-enhancement-field"><span>Attack Bonus</span><input type="number" min="-20" max="20" step="1" value="{{enhancementValues.attackBonus.bonus}}" data-enhancement-input="attackBonus" data-enhancement-part="bonus" data-value-type="number" {{#unless enhancement.attackBonus}}disabled{{/unless}}></label>
+          </section>
+
+          <section class="ic-enhancement-card {{#if enhancement.damageBonus}}enabled{{/if}} {{#if enhancementErrors.damageBonus}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="damageBonus" {{#if enhancement.damageBonus}}checked{{/if}}>
+              <span><strong>Additional Damage Bonus</strong><small>Add a flat numeric bonus to the weapon's normal damage without changing its Attack Roll.</small></span>
+            </label>
+            <label class="ic-enhancement-field"><span>Damage Bonus</span><input type="number" min="-20" max="20" step="1" value="{{enhancementValues.damageBonus.bonus}}" data-enhancement-input="damageBonus" data-enhancement-part="bonus" data-value-type="number" {{#unless enhancement.damageBonus}}disabled{{/unless}}></label>
+          </section>
+
+          <section class="ic-enhancement-card {{#if enhancement.criticalThreshold}}enabled{{/if}} {{#if enhancementErrors.criticalThreshold}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="criticalThreshold" {{#if enhancement.criticalThreshold}}checked{{/if}}>
+              <span><strong>Critical Hit Threshold</strong><small>Choose the final d20 result that begins the weapon's critical range.</small></span>
+            </label>
+            <div class="ic-enhancement-fields {{#if (eq enhancementValues.criticalThreshold.mode "custom")}}two-columns{{/if}}">
+              <label><span>Critical Hit On</span><select data-enhancement-input="criticalThreshold" data-enhancement-part="mode" {{#unless enhancement.criticalThreshold}}disabled{{/unless}}>{{#each criticalThresholdOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{#if (eq enhancementValues.criticalThreshold.mode "custom")}}<label><span>Custom Threshold</span><input type="number" min="1" max="20" step="1" value="{{enhancementValues.criticalThreshold.custom}}" data-enhancement-input="criticalThreshold" data-enhancement-part="custom" data-value-type="number" {{#unless enhancement.criticalThreshold}}disabled{{/unless}}></label>{{/if}}
+            </div>
+          </section>
+
+          <section class="ic-enhancement-card {{#if enhancement.extraCriticalDamage}}enabled{{/if}} {{#if enhancementErrors.extraCriticalDamage}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="extraCriticalDamage" {{#if enhancement.extraCriticalDamage}}checked{{/if}}>
+              <span><strong>Extra Critical Damage</strong><small>Add a separate typed damage die part only when this weapon scores a Critical Hit.</small></span>
+            </label>
+            <div class="ic-enhancement-fields critical-damage-fields">
+              <label><span>Dice</span><input type="number" min="1" max="20" step="1" value="{{enhancementValues.extraCriticalDamage.number}}" data-enhancement-input="extraCriticalDamage" data-enhancement-part="number" data-value-type="number" {{#unless enhancement.extraCriticalDamage}}disabled{{/unless}}></label>
+              <label><span>Die</span><select data-enhancement-input="extraCriticalDamage" data-enhancement-part="denomination" data-value-type="number" {{#unless enhancement.extraCriticalDamage}}disabled{{/unless}}>{{#each criticalDamageDiceOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Damage Type</span><select data-enhancement-input="extraCriticalDamage" data-enhancement-part="damageType" {{#unless enhancement.extraCriticalDamage}}disabled{{/unless}}>{{#each criticalDamageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="ic-enhancement-group">
+        <header>
+          <span class="ic-kicker">Advanced Combat Behavior</span>
+          <h3>Runtime and Conditional Rules</h3>
+        </header>
+        <div class="ic-enhancement-grid">
+          <section class="ic-enhancement-card ic-span-two {{#if enhancement.ignoreResistance}}enabled{{/if}} {{#if enhancementErrors.ignoreResistance}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="ignoreResistance" {{#if enhancement.ignoreResistance}}checked{{/if}}>
+              <span><strong>Ignore Damage Resistance</strong><small>Damage of the selected types from this weapon ignores resistance, but not immunity.</small></span>
+            </label>
+            <span class="ic-support-badge runtime"><i class="fa-solid fa-microchip"></i> Item Creator Runtime</span>
+            <div class="ic-resistance-grid">
+              {{#each resistanceDamageTypes}}
+              <label class="ic-property-option {{#if selected}}selected{{/if}}">
+                <input type="checkbox" data-resistance-type="{{value}}" {{#if selected}}checked{{/if}} {{#unless ../enhancement.ignoreResistance}}disabled{{/unless}}>
+                <span>{{label}}</span>
+              </label>
+              {{/each}}
+            </div>
+          </section>
+
+          <section class="ic-enhancement-card ic-span-two {{#if enhancement.conditionalAdvantage}}enabled{{/if}} {{#if enhancementErrors.conditionalAdvantage}}invalid{{/if}}">
+            <label class="ic-override-heading">
+              <input type="checkbox" data-enhancement-toggle="conditionalAdvantage" {{#if enhancement.conditionalAdvantage}}checked{{/if}}>
+              <span><strong>Conditional Advantage</strong><small>Grant Advantage on Attack Rolls with this weapon under a supported condition, or record a custom descriptive rule.</small></span>
+            </label>
+            <span class="ic-support-badge {{#if conditionalIsSupported}}runtime{{else}}description{{/if}}"><i class="fa-solid {{#if conditionalIsSupported}}fa-microchip{{else}}fa-align-left{{/if}}"></i> {{conditionalSupportLabel}}</span>
+            <div class="ic-enhancement-fields conditional-fields">
+              <label><span>Condition Type</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="mode" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each conditionalModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Applies To</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="appliesTo" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each conditionalAppliesToOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{#if conditionalIsSupported}}
+              <label class="ic-span-two"><span>Supported Condition</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="supportedCondition" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each supportedConditionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{else}}
+              <label class="ic-span-two"><span>Custom Rule Text</span><textarea rows="3" maxlength="500" data-enhancement-input="conditionalAdvantage" data-enhancement-part="customText" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{enhancementValues.conditionalAdvantage.customText}}</textarea></label>
+              {{/if}}
+            </div>
+          </section>
+        </div>
+      </section>
+    </section>
+
+    <footer class="ic-navigation">
+      <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
+      <button type="button" class="ic-primary-continue" disabled title="Granted Effects will be implemented in a later Alpha">
+        <span>Granted Effects</span><i class="fa-solid fa-lock"></i>
+      </button>
+    </footer>
+    {{/if}}
+
   </main>
 </div>
