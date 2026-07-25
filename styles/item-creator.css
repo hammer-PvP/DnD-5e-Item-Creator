@@ -1722,6 +1722,11 @@
 .ic-description-editor-shell {
   padding: 0;
   overflow: hidden;
+  color: #f1eadc;
+  background: #111114;
+  --color-text-primary: #f1eadc;
+  --color-text-dark-primary: #f1eadc;
+  --color-text-dark-secondary: #d8d0c3;
 }
 
 .ic-description-editor-shell prose-mirror,
@@ -1729,6 +1734,28 @@
   display: block;
   min-height: 360px;
   height: 100%;
+  color: inherit;
+  background: #111114;
+}
+
+/* Foundry's ProseMirror body inherits dark-sheet text variables which can make
+   editable content effectively invisible. Set a readable default on the actual
+   editing surface while still allowing inline colors chosen by the GM to win. */
+.ic-description-editor-shell prose-mirror .ProseMirror,
+.ic-description-editor-shell prose-mirror .editor-content,
+.ic-description-editor-shell prose-mirror [contenteditable="true"],
+.ic-description-editor .ProseMirror,
+.ic-description-editor [contenteditable="true"] {
+  box-sizing: border-box;
+  min-height: 320px;
+  color: #f1eadc;
+  caret-color: #ffffff;
+  background: #111114;
+}
+
+.ic-description-editor-shell prose-mirror .ProseMirror:focus,
+.ic-description-editor-shell prose-mirror [contenteditable="true"]:focus {
+  outline: none;
 }
 
 .ic-description-preview.empty {

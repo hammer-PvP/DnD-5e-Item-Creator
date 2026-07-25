@@ -313,6 +313,12 @@ function primaryAttackData(baseWeapon, template) {
   source.damage.parts ??= [];
   source.damage.includeBase = true;
 
+  // A normal weapon Attack Activity must never consume a Spell Slot merely because
+  // the special Template also contains Cast Activities or spell-related metadata.
+  source.consumption ??= {};
+  source.consumption.spellSlot = false;
+  source.consumption.targets = (source.consumption.targets ?? []).filter(target => target?.type !== "spellSlots");
+
   // Preserve special non-base damage configured on the Template attack.
   if (templateAttack) {
     const templateSource = templateAttack.toObject?.() ?? {};
@@ -406,6 +412,183 @@ async function buildCastActivities(parentItem, spells = []) {
     activities.push(source);
   }
   return activities;
+}
+
+
+function escapeHTML(value) {
+  return foundry.utils.escapeHTML(String(value ?? ""));
+}
+
+function ordinalLevel(level) {
+  const numeric = Number(level) || 0;
+  if (numeric === 0) return "cantrip";
+  const mod100 = numeric % 100;
+  const mod10 = numeric % 10;
+  const suffix = mod100 >= 11 && mod100 <= 13 ? "th"
+    : mod10 === 1 ? "st"
+      : mod10 === 2 ? "nd"
+        : mod10 === 3 ? "rd" : "th";
+  return `${numeric}${suffix} level`;
+}
+
+function spellReference(spell) {
+  const name = escapeHTML(spell.name || "Spell");
+  const uuid = String(spell.uuid ?? "").trim();
+  return uuid ? `@UUID[${uuid}]{${name}}` : name;
+}
+
+function availabilityLead(availability) {
+  return {
+    owned: "While you possess this item",
+    equipped: "While this weapon is equipped",
+    equippedAttuned: "While this weapon is equipped and you are attuned to it"
+  }[availability] ?? "While this weapon is equipped";
+}
+
+function useCountPhrase(maxUses) {
+  const count = Math.max(1, Number(maxUses) || 1);
+  if (count === 1) return "once";
+  if (count === 2) return "twice";
+  return `up to ${count} times`;
+}
+
+function recoveryPhrase(recovery) {
+  return recovery === "shortRest" ? "a Short Rest" : "a Long Rest";
+}
+
+function spellcastingSentence(spell) {
+  switch (spell.spellcastingMode) {
+    case "highest":
+      return "Use your highest available spellcasting ability for this spell.";
+    case "int":
+      return "Intelligence is your spellcasting ability for this spell, and you add your proficiency bonus to its spell attack rolls and saving throw DC.";
+    case "wis":
+      return "Wisdom is your spellcasting ability for this spell, and you add your proficiency bonus to its spell attack rolls and saving throw DC.";
+    case "cha":
+      return "Charisma is your spellcasting ability for this spell, and you add your proficiency bonus to its spell attack rolls and saving throw DC.";
+    case "fixed": {
+      const parts = [];
+      if (spell.hasAttack) parts.push(`its spell attack bonus is ${Number(spell.fixedAttackBonus) >= 0 ? "+" : ""}${Number(spell.fixedAttackBonus) || 0}`);
+      if (spell.hasSave) parts.push(`its spell save DC is ${Number(spell.fixedSaveDc) || 0}`);
+      if (!parts.length) return "This spell uses the item's own magic and requires no spell attack roll or saving throw DC.";
+      return `This spell uses the item's own magic; ${parts.join(" and ")}.`;
+    }
+    case "actorDefault":
+    default:
+      return "Use your default spellcasting ability for this spell.";
+  }
+}
+
+function castLevelSentence(spell) {
+  const level = Number(spell.level) || 0;
+  if (level === 0) return "";
+  if (spell.castLevelMode === "fixed") return `The spell is cast at ${ordinalLevel(spell.fixedCastLevel)}.`;
+  if (spell.castLevelMode === "slot") return "The spell is cast at the level of the spell slot expended.";
+  return `The spell is cast at its base level (${ordinalLevel(level)}).`;
+}
+
+function eligibilitySentence(spell) {
+  const level = Number(spell.level) || 0;
+  if (spell.eligibility === "spellLevelAccess") {
+    return level === 0
+      ? "You can use this property only if you have access to cantrips."
+      : `You can use this property only if you have access to spells of ${ordinalLevel(level)} or higher.`;
+  }
+  if (spell.eligibility === "compatibleSlot") {
+    return level === 0 ? "" : `You must have a compatible spell slot of ${ordinalLevel(level)} or higher available.`;
+  }
+  return "You do not need to know the spell or have the Spellcasting feature to cast it through this item.";
+}
+
+function spellbookSentence(spell) {
+  if (!spell.showInSpellbook) return "";
+  if (Number(spell.level) === 0) {
+    return "The cantrip is always available to you and does not count against the number of cantrips you know.";
+  }
+  return "The spell is always available to you through this item and does not count against your spells known or prepared.";
+}
+
+function useSentence(spell) {
+  const level = Number(spell.level) || 0;
+  const slotLevel = Math.max(1, Number(spell.fixedCastLevel) || level || 1);
+  const slotRequirement = `a spell slot of ${ordinalLevel(slotLevel)} or higher`;
+
+  if (spell.useLimit === "limited") {
+    const count = useCountPhrase(spell.maxUses);
+    const rest = recoveryPhrase(spell.recovery);
+    if (spell.consumeSlot && level > 0) {
+      return `You can cast it ${count}. Each casting also requires you to expend ${slotRequirement}. You regain all expended uses when you finish ${rest}.`;
+    }
+    return `You can cast it ${count} without expending a spell slot. You regain all expended uses when you finish ${rest}.`;
+  }
+
+  if (spell.consumeSlot && level > 0) {
+    return `You can cast it by expending ${slotRequirement}; this item imposes no additional limit on the number of times you can cast it.`;
+  }
+  return "You can cast it at will without expending a spell slot.";
+}
+
+function fullGrantedSpellText(spell) {
+  const level = Number(spell.level) || 0;
+  const lead = availabilityLead(spell.availability);
+  const grant = level === 0
+    ? `${lead}, this item grants you the ${spellReference(spell)} cantrip.`
+    : `${lead}, this item grants you access to ${spellReference(spell)}.`;
+  return [
+    grant,
+    spellbookSentence(spell),
+    useSentence(spell),
+    eligibilitySentence(spell),
+    castLevelSentence(spell),
+    spellcastingSentence(spell)
+  ].filter(Boolean).join(" ");
+}
+
+function chatGrantedSpellText(spell) {
+  const availability = {
+    owned: "while owned",
+    equipped: "while equipped",
+    equippedAttuned: "while equipped and attuned"
+  }[spell.availability] ?? "while equipped";
+  const uses = spell.useLimit === "limited"
+    ? `${useCountPhrase(spell.maxUses)} per ${spell.recovery === "shortRest" ? "Short Rest" : "Long Rest"}`
+    : "at will";
+  const slot = spell.consumeSlot && Number(spell.level) > 0 ? "consumes a compatible spell slot" : "does not expend a spell slot";
+  return `${spellReference(spell)} — ${availability}; ${uses}; ${slot}.`;
+}
+
+function stripGeneratedSection(html, key) {
+  const source = String(html ?? "");
+  const host = globalThis.document?.createElement?.("div");
+  if (host) {
+    host.innerHTML = source;
+    host.querySelectorAll(`[data-item-creator-generated="${key}"]`).forEach(node => node.remove());
+    return host.innerHTML.trim();
+  }
+  const escaped = String(key).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return source.replace(new RegExp(`<section[^>]*data-item-creator-generated=["']${escaped}["'][^>]*>[\\s\\S]*?<\\/section>`, "gi"), "").trim();
+}
+
+function appendGeneratedSection(existing, section) {
+  const base = String(existing ?? "").trim();
+  return `${base}${base ? "\n" : ""}${section}`;
+}
+
+function composeGrantedSpellcastingText(data, draft) {
+  if (!draft.enhancements?.grantedSpellcasting) return;
+  const spells = draft.enhancementValues?.grantedSpellcasting?.spells ?? [];
+  if (!spells.length) return;
+
+  data.system.description ??= {};
+  const fullBody = spells.map(spell => `<article class="item-creator-granted-spell"><h4>${spellReference(spell)}</h4><p>${fullGrantedSpellText(spell)}</p></article>`).join("");
+  const chatItems = spells.map(spell => `<li>${chatGrantedSpellText(spell)}</li>`).join("");
+  const fullSection = `<section class="item-creator-generated item-creator-granted-spellcasting" data-item-creator-generated="granted-spellcasting"><h3>Granted Spellcasting</h3>${fullBody}</section>`;
+  const chatSection = `<section class="item-creator-generated item-creator-granted-spellcasting" data-item-creator-generated="granted-spellcasting"><h3>Granted Spellcasting</h3><ul>${chatItems}</ul></section>`;
+
+  const currentValue = stripGeneratedSection(data.system.description.value, "granted-spellcasting");
+  const currentChat = stripGeneratedSection(data.system.description.chat, "granted-spellcasting");
+  data.system.description.value = appendGeneratedSection(currentValue, fullSection);
+  data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
 }
 
 function composeRuntimeText(data, draft) {
@@ -557,6 +740,7 @@ export class ItemCreatorItemBuilder {
     };
 
     composeRuntimeText(data, draft);
+    composeGrantedSpellcastingText(data, draft);
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.
     // Calling prepareData again, or reusing a previously prepared source, causes `_index` redefinition errors.

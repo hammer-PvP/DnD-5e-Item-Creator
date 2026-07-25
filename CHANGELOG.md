@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2 — Beta
+
+- Fixed the native ProseMirror editing surface so Template and custom Description text remains legible against the Item Creator dark background, including a visible caret and inherited Foundry text variables.
+- Preserved GM-selected inline text colors while providing a readable default color for unstyled rich-text content.
+- Added an automatic English `Granted Spellcasting` rules-text builder based on each Spell's availability, use limit, recovery, Spell Slot consumption, casting eligibility, cast level, spellcasting calculation, and spellbook visibility.
+- Added full generated Granted Spellcasting rules to `system.description.value` so the Item sheet and Review explain exactly how every granted Spell works.
+- Added a compact generated Granted Spellcasting summary to `system.description.chat` so linked Item cards in chat expose the Spell name, activation availability, uses, recovery, and Spell Slot behavior.
+- Added support for multiple granted Spells with independent generated text and idempotent generated sections that do not duplicate across Review or Save rebuilds.
+- Added Foundry UUID references for granted Spell names in generated descriptions.
+- Normalized the normal Weapon Attack Activity so it never consumes a Spell Slot or retains `spellSlots` consumption targets inherited from a special Template. Cast Activities retain their independently configured Spell Slot behavior.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.2`.
+
 ## 0.1.1 — Beta
 
 - Fixed the Description editor so enabling `Customize Description` loads the complete original Template HTML into Foundry's native ProseMirror editor.
