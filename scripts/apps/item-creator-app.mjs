@@ -1,9 +1,19 @@
 import { ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, STEPS } from "../constants.mjs";
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
-import { ItemCreatorTemplateBrowserApp } from "./template-browser-app.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
+
+function nativeCompendiumBrowserClass() {
+  return game.dnd5e?.applications?.CompendiumBrowser
+    ?? globalThis.dnd5e?.applications?.CompendiumBrowser
+    ?? null;
+}
+
+function isWeaponItemDocument(document) {
+  const documentName = document?.documentName ?? document?.constructor?.documentName;
+  return documentName === "Item" && document?.type === "weapon";
+}
 
 function valuesOf(value) {
   if (value instanceof Set) return [...value];
@@ -150,7 +160,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.customized = {};
     this.overrides = {};
     this.restoreScrollTop = null;
-    this.templateBrowserApp = null;
+    this.templateBrowserOpen = false;
     this.iconBrowserApp = null;
   }
 
@@ -170,7 +180,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const registry = ItemCreatorSourceRegistry.instance;
     await registry.loadWeapons();
 
-    if (this.selectedWeaponUuid && !registry.findWeapon(this.selectedWeaponUuid)) this.#clearTemplate();
+    if (this.selectedWeaponUuid && !this.selectedWeaponDocument) {
+      try {
+        const document = await fromUuid(this.selectedWeaponUuid);
+        if (isWeaponItemDocument(document)) this.selectedWeaponDocument = document;
+        else this.#clearTemplate();
+      } catch (_error) {
+        this.#clearTemplate();
+      }
+    }
 
     const typeComplete = Boolean(this.selectedType);
     const source = weaponSourceData(this.selectedWeaponDocument);
@@ -188,6 +206,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }));
 
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
+    const selectedSource = this.selectedWeaponDocument
+      ? (selectedOption ?? registry.describeDocument(this.selectedWeaponDocument))
+      : null;
     const templateCounts = new Map();
     for (const option of registry.weaponOptions) {
       templateCounts.set(option.weaponType, (templateCounts.get(option.weaponType) ?? 0) + 1);
@@ -210,6 +231,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       selected: option.uuid === this.selectedWeaponUuid,
       optionLabel: `${option.name} — ${option.sourceLabel} / ${option.packLabel}`
     }));
+    if (this.selectedWeaponDocument && !templateOptions.some(option => option.uuid === this.selectedWeaponUuid)) {
+      templateOptions.unshift({
+        uuid: this.selectedWeaponUuid,
+        name: this.selectedWeaponDocument.name,
+        weaponType: this.selectedWeaponDocument.system?.type?.value ?? "",
+        selected: true,
+        optionLabel: `${this.selectedWeaponDocument.name} — ${selectedSource?.sourceLabel ?? "Compendium"} / ${selectedSource?.packLabel ?? "Items"}`
+      });
+    }
 
     const propertyKeys = CONFIG.DND5E.validProperties?.weapon ?? new Set();
     const propertyOptions = [...propertyKeys]
@@ -229,9 +259,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       name: this.selectedWeaponDocument.name,
       img: this.selectedIcon || this.selectedWeaponDocument.img || "icons/svg/sword.svg",
       sourceImg: this.selectedWeaponDocument.img || "icons/svg/sword.svg",
-      source: selectedOption ? `${selectedOption.sourceLabel} — ${selectedOption.packLabel}` : "Active compendium",
-      sourceLabel: selectedOption?.sourceLabel ?? "Active source",
-      packLabel: selectedOption?.packLabel ?? "Item compendium",
+      source: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Compendium Item",
+      sourceLabel: selectedSource?.sourceLabel ?? "Compendium",
+      packLabel: selectedSource?.packLabel ?? "Items",
       identifier: this.selectedWeaponDocument.system?.identifier ?? "—",
       damageSummary: displayDamage(effective?.baseDamage, damageTypeLabel)
     } : null;
@@ -429,20 +459,37 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async #openTemplateBrowser(event) {
     event.preventDefault();
-    if (this.templateBrowserApp?.element?.isConnected) {
-      this.templateBrowserApp.bringToFront?.();
+    if (this.templateBrowserOpen) return;
+
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error("The native D&D5e Compendium Browser is unavailable.");
       return;
     }
+
+    this.templateBrowserOpen = true;
     this.#setBrowserBlock(true);
-    this.templateBrowserApp = new ItemCreatorTemplateBrowserApp({
-      selectedUuid: this.selectedWeaponUuid,
-      onSelect: uuid => this.#requestTemplateChange(uuid, { resetScroll: true }),
-      onClosed: app => {
-        if (this.templateBrowserApp === app) this.templateBrowserApp = null;
-        this.#setBrowserBlock(false);
-      }
-    });
-    this.templateBrowserApp.render({ force: true });
+    try {
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: "items",
+        hint: "Select a Weapon document to use as the Base Item template.",
+        filters: {
+          locked: {
+            documentClass: "Item",
+            types: new Set(["weapon"])
+          }
+        },
+        window: { modal: true }
+      });
+      if (uuid) await this.#requestTemplateChange(uuid, { resetScroll: true });
+    } catch (error) {
+      console.error(`${MODULE_ID} | Native Compendium Browser failed.`, error);
+      ui.notifications.error("Item Creator could not open the D&D5e Compendium Browser.");
+    } finally {
+      this.templateBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
   }
 
   async #requestTemplateChange(uuid, { resetScroll = false } = {}) {
@@ -471,14 +518,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.loadingWeapon = true;
     try {
       const registry = ItemCreatorSourceRegistry.instance;
-      const document = await registry.getWeaponDocument(uuid);
-      if (!document) throw new Error("The selected template is no longer available.");
+      let document = await registry.getWeaponDocument(uuid);
+      document ??= await fromUuid(uuid);
+      if (!isWeaponItemDocument(document)) {
+        throw new Error("The selected document is not a Weapon Item.");
+      }
       const option = registry.findWeapon(uuid);
       this.selectedWeaponUuid = uuid;
       this.selectedWeaponDocument = document;
       this.itemName = document.name;
       this.selectedIcon = document.img || "icons/svg/sword.svg";
-      this.templateCategory = option?.weaponType || "all";
+      this.templateCategory = option?.weaponType || document.system?.type?.value || "all";
       this.customized = {};
       this.overrides = {};
     } catch (error) {
@@ -674,9 +724,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   async close(options = {}) {
-    await this.templateBrowserApp?.close?.();
     await this.iconBrowserApp?.close?.();
-    this.templateBrowserApp = null;
+    this.templateBrowserOpen = false;
     this.iconBrowserApp = null;
     this.#setBrowserBlock(false);
     return super.close(options);

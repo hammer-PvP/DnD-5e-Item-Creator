@@ -353,6 +353,31 @@ export class ItemCreatorSourceRegistry {
     return this.weaponByUuid.get(uuid) ?? null;
   }
 
+
+  describeDocument(document) {
+    const collection = typeof document?.pack === "string"
+      ? document.pack
+      : document?.pack?.collection ?? document?.compendium?.collection ?? "";
+    const pack = collection ? game.packs.get(collection) : null;
+    if (!pack) {
+      return {
+        collection,
+        label: "World Item",
+        packLabel: "World Item",
+        sourceLabel: "World",
+        packageTitle: game.world?.title ?? "World"
+      };
+    }
+    const resolvedSourceLabel = sourceLabel(pack);
+    return {
+      collection,
+      label: packLabel(pack),
+      packLabel: packLabel(pack),
+      sourceLabel: resolvedSourceLabel,
+      packageTitle: packageTitle(pack)
+    };
+  }
+
   async getWeaponDocument(uuid) {
     if (!uuid || !this.weaponByUuid.has(uuid)) return null;
     try {

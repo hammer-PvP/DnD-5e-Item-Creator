@@ -1027,3 +1027,34 @@
   .ic-icon-selection-preview { display: none; }
 }
 .item-creator.ic-child-browser-open { filter: saturate(.78) brightness(.78); }
+
+/* v0.0.1c — fixed Content Sources viewport and native D&D5e template browsing */
+.ic-settings-app .window-content {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ic-settings-app .ic-settings-shell {
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.ic-settings-app .ic-settings-header,
+.ic-settings-app .ic-settings-toolbar,
+.ic-settings-app .ic-settings-summary,
+.ic-settings-app .ic-settings-footer {
+  flex: 0 0 auto;
+}
+
+.ic-settings-app .ic-source-list {
+  flex: 1 1 auto;
+  height: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}

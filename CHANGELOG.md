@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.0.1c — Alpha
+
+- Replaced the custom Weapon Template Browser with the native D&D5e Compendium Browser.
+- The native browser opens in single-selection mode and is locked to Item documents of type `weapon`.
+- Preserved native D&D5e search, Weapon filters, Mastery, rarity, properties, source filters, result rendering, and compendium behavior.
+- Kept the manual Weapon Type and Template dropdowns as the fast-selection alternative.
+- Added validation that the browser result is an Item document of type Weapon before loading it into the Base Item draft.
+- Allowed native-browser Weapon templates to load even when they are not present in the compact manual template index; only core weapon fields are inherited into Base Item.
+- Removed the obsolete custom Template Browser application and template from the distributed module.
+- Fixed Content Sources so its center section has an independent vertical scrollbar while the header, controls, summary, and footer remain visible.
+- Preserved Content Sources scroll position while enabling sources, changing priority, and expanding or collapsing source groups.
+- Updated manifest and documentation for tag `v0.0.1c`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.1b — Alpha
 
 - Replaced the main Template text-search field with a prominent `Browse Weapon Templates` button.
