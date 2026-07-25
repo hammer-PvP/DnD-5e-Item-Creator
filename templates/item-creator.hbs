@@ -31,6 +31,7 @@
       {{#if enhancement.grantedSpellcasting}}<p><strong>Granted Spells:</strong> {{grantedSpellCount}}</p>{{/if}}
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
+      <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
       <p><strong>Status:</strong> Alpha preview only</p>
     </section>
   </aside>
@@ -64,8 +65,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.2a Alpha scope</strong>
-          <p>This build adds the Granted Effects stage with checkbox-gated defensive, ability, skill, resistance, combat, movement, sense, spellcasting, and passive-score modifiers. It does not create or modify Items.</p>
+          <strong>v0.0.3 Alpha scope</strong>
+          <p>This build groups manual Template and Base Weapon selectors by source priority and adds the Template-driven Description stage with safe metadata cleanup and optional rich-text customization. It does not create or modify Items.</p>
         </div>
       </aside>
     </section>
@@ -121,10 +122,14 @@
           </label>
           <label class="ic-template-select-field">
             <span>Template</span>
-            <select data-template-select {{#unless templateOptions.length}}disabled{{/unless}}>
+            <select data-template-select {{#unless weaponCount}}disabled{{/unless}}>
               <option value="">Select a weapon template…</option>
-              {{#each templateOptions}}
-              <option value="{{uuid}}" data-template-option data-category="{{weaponType}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+              {{#each templateOptionGroups}}
+              <optgroup label="{{label}}">
+                {{#each items}}
+                <option value="{{uuid}}" data-template-option data-category="{{weaponType}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+                {{/each}}
+              </optgroup>
               {{/each}}
             </select>
           </label>
@@ -195,8 +200,12 @@
               </label>
               <select data-base-weapon-select {{#unless baseWeaponCustomized}}disabled{{/unless}} class="{{#if baseWeaponRequired}}{{#unless selectedBaseWeapon}}invalid{{/unless}}{{/if}}">
                 <option value="">Select a base weapon…</option>
-                {{#each baseWeaponOptions}}
-                <option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+                {{#each baseWeaponOptionGroups}}
+                <optgroup label="{{label}}">
+                  {{#each items}}
+                  <option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+                  {{/each}}
+                </optgroup>
                 {{/each}}
               </select>
               {{#if selectedBaseWeapon}}
@@ -796,7 +805,67 @@
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" disabled title="Description will be implemented in a later Alpha"><span>Description</span><i class="fa-solid fa-lock"></i></button>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless grantedEffectsComplete}}disabled{{/unless}}><span>Description</span><i class="fa-solid fa-chevron-right"></i></button>
+    </footer>
+    {{/if}}
+
+    {{#if (eq step "description")}}
+    <section class="ic-step-content ic-description-step">
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Item Presentation</span>
+          <h2>Description</h2>
+          <p>The description is inherited only from the selected Template. The physical Base Weapon never contributes text to this stage.</p>
+        </div>
+      </header>
+
+      <section class="ic-description-card">
+        <header class="ic-description-source">
+          <div>
+            <span class="ic-kicker">Template Description</span>
+            <h3>{{selectedWeapon.name}}</h3>
+            <p>{{descriptionSource}}</p>
+          </div>
+          <span class="ic-support-badge native"><i class="fa-solid fa-filter"></i> Template metadata cleaned</span>
+        </header>
+
+        <label class="ic-description-toggle">
+          <input type="checkbox" data-description-toggle {{#if descriptionCustomized}}checked{{/if}}>
+          <span>
+            <strong>Customize Description</strong>
+            <small>Unchecked preserves the cleaned mechanical description from the Template. The Base Weapon does not modify this text.</small>
+          </span>
+        </label>
+
+        {{#if descriptionCustomized}}
+        <div class="ic-description-editor-shell">
+          <prose-mirror name="description" value="{{descriptionValue}}" document-uuid="{{selectedWeaponUuid}}"
+                        class="sized ic-description-editor" compact data-description-editor>{{{enrichedDescription}}}</prose-mirror>
+        </div>
+        {{else}}
+        <div class="editor editor-content ic-description-preview {{#unless hasTemplateDescription}}empty{{/unless}}">
+          {{#if hasTemplateDescription}}
+          {{{enrichedDescription}}}
+          {{else}}
+          <div class="ic-description-empty">
+            <i class="fa-solid fa-align-left"></i>
+            <strong>This Template has no description.</strong>
+            <p>Enable Customize Description to write the final item text manually.</p>
+          </div>
+          {{/if}}
+        </div>
+        {{/if}}
+
+        <aside class="ic-description-note">
+          <i class="fa-solid fa-circle-info"></i>
+          <p>Rarity, attunement, generic “any weapon” instructions, and other recognized Template metadata are omitted when they appear as leading metadata blocks. Mechanical rules, tables, lists, document links, and narrative text are preserved.</p>
+        </aside>
+      </section>
+    </section>
+
+    <footer class="ic-navigation">
+      <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
+      <button type="button" class="ic-primary-continue" disabled title="Review will be implemented in a later Alpha"><span>Review</span><i class="fa-solid fa-lock"></i></button>
     </footer>
     {{/if}}
 

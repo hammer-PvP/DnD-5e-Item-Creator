@@ -151,6 +151,51 @@ function additionalDamageLabel(row) {
   return `${row.number}d${row.denomination}${ability ? ` + ${ability}` : ""} ${type}`;
 }
 
+function rawTemplateDescription(item) {
+  const description = item?.system?.description;
+  if (typeof description === "string") return description;
+  return String(description?.value ?? "");
+}
+
+function looksLikeTemplateMetadata(text) {
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  return /^(?:magic\s+)?weapon\s*(?:\([^)]*\))?\s*,\s*(?:common|uncommon|rare|very rare|legendary|artifact|varies|rarity varies|unknown)(?:\s*\([^)]*attunement[^)]*\))?\.?$/i.test(normalized)
+    || /^(?:magic\s+)?weapon\s*\((?:any|any [^)]+)\)/i.test(normalized)
+    || /^(?:this )?template (?:can be|is|applies to|may be applied to)\b/i.test(normalized)
+    || /^apply this template to\b/i.test(normalized)
+    || /^choose (?:a|an|any) (?:weapon|sword|axe|bow|crossbow|polearm|melee weapon|ranged weapon)\b/i.test(normalized);
+}
+
+function cleanTemplateDescription(item) {
+  const html = rawTemplateDescription(item).trim();
+  if (!html) return "";
+  const host = globalThis.document?.createElement?.("div");
+  if (!host) return html;
+  host.innerHTML = html;
+  let removed = 0;
+  while (host.firstElementChild && removed < 4) {
+    const node = host.firstElementChild;
+    if (!looksLikeTemplateMetadata(node.textContent)) break;
+    node.remove();
+    removed += 1;
+  }
+  return host.innerHTML.trim();
+}
+
+async function enrichDescription(html, relativeTo) {
+  const editor = foundry.applications?.ux?.TextEditor?.implementation
+    ?? CONFIG.ux?.TextEditor
+    ?? globalThis.TextEditor;
+  if (!editor?.enrichHTML) return html;
+  try {
+    return await editor.enrichHTML(html ?? "", { relativeTo, secrets: true, documents: true });
+  } catch (error) {
+    console.warn(`${MODULE_ID} | Unable to enrich template description.`, error);
+    return html ?? "";
+  }
+}
+
 function spellSourceData(document) {
   if (!document) return null;
   const system = document.system ?? {};
@@ -361,6 +406,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.enhancementValues = enhancementDefaults();
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
+    this.templateDescription = "";
+    this.customDescription = "";
+    this.descriptionCustomized = false;
     this.restoreScrollTop = null;
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
@@ -401,6 +449,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#clearBaseWeapon();
       }
     }
+    if (this.selectedWeaponDocument && !this.templateDescription && !this.descriptionCustomized) {
+      this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
+      this.customDescription = this.templateDescription;
+    }
 
     const typeComplete = Boolean(this.selectedType);
     const source = weaponSourceData(this.selectedBaseWeaponDocument);
@@ -414,6 +466,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
     const grantedEffectValidation = this.#validateGrantedEffects();
     const grantedEffectsComplete = enhancementsComplete && grantedEffectValidation.valid;
+    const descriptionComplete = grantedEffectsComplete;
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
@@ -425,11 +478,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
             ? enhancementsComplete
             : step.id === "grantedEffects"
               ? grantedEffectsComplete
-              : false,
+              : step.id === "description"
+                ? descriptionComplete
+                : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
         || (step.id === "grantedEffects" && !enhancementsComplete)
+        || (step.id === "description" && !grantedEffectsComplete)
     }));
 
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
@@ -441,7 +497,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ? (selectedBaseOption ?? registry.describeDocument(this.selectedBaseWeaponDocument))
       : null;
     const templateCounts = new Map();
-    for (const option of registry.weaponOptions) {
+    for (const option of registry.templateOptions) {
       templateCounts.set(option.weaponType, (templateCounts.get(option.weaponType) ?? 0) + 1);
     }
 
@@ -457,26 +513,36 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         selected: this.templateCategory === value
       }))];
 
-    const templateOptions = registry.weaponOptions.map(option => ({
-      ...option,
-      selected: option.uuid === this.selectedWeaponUuid,
-      optionLabel: `${option.name} — ${option.sourceLabel} / ${option.packLabel}`
+    const templateOptionGroups = registry.templateSourceGroups.map(group => ({
+      label: group.label,
+      items: group.items.map(option => ({
+        ...option,
+        selected: option.uuid === this.selectedWeaponUuid,
+        optionLabel: option.packLabel === group.label ? option.name : `${option.name} — ${option.packLabel}`
+      }))
     }));
-    if (this.selectedWeaponDocument && !templateOptions.some(option => option.uuid === this.selectedWeaponUuid)) {
-      templateOptions.unshift({
-        uuid: this.selectedWeaponUuid,
-        name: this.selectedWeaponDocument.name,
-        weaponType: this.selectedWeaponDocument.system?.type?.value ?? "",
-        selected: true,
-        optionLabel: `${this.selectedWeaponDocument.name} — ${selectedSource?.sourceLabel ?? "Compendium"} / ${selectedSource?.packLabel ?? "Items"}`
+    if (this.selectedWeaponDocument && !registry.findTemplate(this.selectedWeaponUuid)) {
+      templateOptionGroups.unshift({
+        label: selectedSource?.sourceLabel ?? "Selected Source",
+        items: [{
+          uuid: this.selectedWeaponUuid,
+          name: this.selectedWeaponDocument.name,
+          weaponType: this.selectedWeaponDocument.system?.type?.value ?? "",
+          selected: true,
+          optionLabel: this.selectedWeaponDocument.name
+        }]
       });
     }
 
-    const baseWeaponOptions = registry.weaponOptions.map(option => ({
-      ...option,
-      selected: option.uuid === this.selectedBaseWeaponUuid,
-      optionLabel: `${option.name} — ${option.sourceLabel}`
+    const baseWeaponOptionGroups = registry.weaponSourceGroups.map(group => ({
+      label: group.label,
+      items: group.packs.flatMap(pack => pack.items).sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)).map(option => ({
+        ...option,
+        selected: option.uuid === this.selectedBaseWeaponUuid,
+        optionLabel: option.name
+      }))
     }));
+    const manualTemplateCount = templateOptionGroups.reduce((count, group) => count + group.items.length, 0);
     const selectedBaseWeapon = this.selectedBaseWeaponDocument ? {
       uuid: this.selectedBaseWeaponUuid,
       name: this.selectedBaseWeaponDocument.name,
@@ -584,6 +650,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
     const effectAvailability = Object.fromEntries(Object.keys(effectValues).map(key => [key, effectAvailabilityOptions(effectValues[key]?.availability)]));
     const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
+    const descriptionValue = this.descriptionCustomized ? this.customDescription : this.templateDescription;
+    const enrichedDescription = await enrichDescription(descriptionValue, this.selectedWeaponDocument);
 
     return {
       stage: MODULE_STAGE,
@@ -592,14 +660,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       steps,
       itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
       selectedType: this.selectedType,
-      weaponCount: registry.weaponOptions.length,
-      templateOptions,
+      weaponCount: manualTemplateCount,
+      templateOptionGroups,
       templateCategoryOptions,
       templateCategory: this.templateCategory,
       selectedWeapon,
       selectedBaseWeapon,
       selectedBaseWeaponUuid: this.selectedBaseWeaponUuid,
-      baseWeaponOptions,
+      baseWeaponOptionGroups,
       baseWeaponRequired: this.baseWeaponRequired,
       baseWeaponCustomized: customization("baseWeapon"),
       inheritedBaseWeapon: Boolean(this.inheritedBaseWeaponUuid),
@@ -697,7 +765,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       damageResistanceOptions: damageEffectOptions("damageResistance"),
       damageImmunityOptions: damageEffectOptions("damageImmunity"),
       damageVulnerabilityOptions: damageEffectOptions("damageVulnerability"),
-      conditionImmunityOptions: conditionTypeOptions(effectValues.conditionImmunity.conditions)
+      conditionImmunityOptions: conditionTypeOptions(effectValues.conditionImmunity.conditions),
+      descriptionComplete,
+      descriptionCustomized: this.descriptionCustomized,
+      descriptionValue,
+      enrichedDescription,
+      hasTemplateDescription: Boolean(this.templateDescription.trim()),
+      descriptionSource: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Template"
     };
   }
 
@@ -742,6 +816,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
+    root.querySelector('[data-description-toggle]')?.addEventListener("change", event => this.#toggleDescriptionCustomization(event));
+    const descriptionEditor = root.querySelector('[data-description-editor]');
+    descriptionEditor?.addEventListener("input", event => this.#updateDescription(event));
+    descriptionEditor?.addEventListener("change", event => this.#updateDescription(event));
     const spellDropZone = root.querySelector('[data-spell-drop-zone]');
     if (spellDropZone) {
       spellDropZone.addEventListener("dragover", event => this.#spellDragOver(event));
@@ -795,8 +873,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
+  #syncDescriptionFromEditor() {
+    if (!this.descriptionCustomized) return;
+    const editor = this.element?.querySelector?.("[data-description-editor]");
+    if (!editor) return;
+    const value = editor.value
+      ?? editor.querySelector?.("textarea")?.value
+      ?? editor.querySelector?.("input[type=hidden]")?.value
+      ?? editor.getAttribute?.("value");
+    if (value !== null && value !== undefined) this.customDescription = String(value);
+  }
+
   #changeStep(event) {
     event.preventDefault();
+    this.#syncDescriptionFromEditor();
     const button = event.currentTarget;
     if (button.disabled || button.dataset.locked === "true") return;
     this.restoreScrollTop = null;
@@ -806,6 +896,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #continue(event) {
     event.preventDefault();
+    this.#syncDescriptionFromEditor();
     if (this.step === "itemType" && this.selectedType === "weapon") {
       this.restoreScrollTop = null;
       this.step = "baseItem";
@@ -822,11 +913,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.restoreScrollTop = null;
       this.step = "grantedEffects";
       this.render({ force: true });
+      return;
+    }
+    if (this.step === "grantedEffects" && this.#validateGrantedEffects().valid) {
+      this.restoreScrollTop = null;
+      this.step = "description";
+      this.render({ force: true });
     }
   }
 
   #back(event) {
     event.preventDefault();
+    this.#syncDescriptionFromEditor();
+    if (this.step === "description") {
+      this.restoreScrollTop = null;
+      this.step = "grantedEffects";
+      this.render({ force: true });
+      return;
+    }
     if (this.step === "grantedEffects") {
       this.restoreScrollTop = null;
       this.step = "enhancements";
@@ -862,6 +966,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       option.hidden = !show;
       option.disabled = !show;
       if (show) visible += 1;
+    }
+    for (const group of select.querySelectorAll("optgroup")) {
+      const hasVisible = [...group.querySelectorAll("option[data-template-option]")].some(option => !option.hidden);
+      group.hidden = !hasVisible;
+      group.disabled = !hasVisible;
     }
     const counter = this.element.querySelector("[data-template-count]");
     if (counter) counter.textContent = String(visible);
@@ -915,7 +1024,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.selectedWeaponUuid && this.#hasTemplateChanges()) {
       const confirmed = await DialogV2.confirm({
         window: { title: uuid ? "Change Base Template" : "Clear Base Template", modal: true },
-        content: `<p>${uuid ? "Changing" : "Clearing"} the base template will discard the custom Item name, all Base Item overrides, additional damage entries, the custom icon, and all configured Enhancements.</p>`,
+        content: `<p>${uuid ? "Changing" : "Clearing"} the base template will discard the custom Item name, all Base Item overrides, additional damage entries, the custom icon, all configured Enhancements and Granted Effects, and any customized Description.</p>`,
         yes: { label: uuid ? "Change Template" : "Clear Template", icon: "fa-solid fa-rotate" },
         no: { label: "Keep Current Template", icon: "fa-solid fa-xmark" }
       });
@@ -949,6 +1058,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides = {};
       this.#resetEnhancements();
       this.#resetGrantedEffects();
+      this.templateDescription = cleanTemplateDescription(document);
+      this.customDescription = this.templateDescription;
+      this.descriptionCustomized = false;
 
       const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
       this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
@@ -982,7 +1094,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return this.itemName.trim() !== String(this.selectedWeaponDocument.name ?? "").trim()
       || meaningfulCustomization
       || Object.values(this.enhancements).some(Boolean)
-      || Object.values(this.grantedEffects).some(Boolean);
+      || Object.values(this.grantedEffects).some(Boolean)
+      || this.descriptionCustomized;
   }
 
   #clearTemplate() {
@@ -998,6 +1111,47 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = {};
     this.#resetEnhancements();
     this.#resetGrantedEffects();
+    this.templateDescription = "";
+    this.customDescription = "";
+    this.descriptionCustomized = false;
+  }
+
+  async #toggleDescriptionCustomization(event) {
+    const enabled = event.currentTarget.checked;
+    if (enabled) {
+      this.descriptionCustomized = true;
+      this.customDescription = this.templateDescription;
+      this.#renderPreservingScroll();
+      return;
+    }
+
+    const changed = String(this.customDescription ?? "") !== String(this.templateDescription ?? "");
+    if (changed) {
+      const confirmed = await DialogV2.confirm({
+        window: { title: "Restore Template Description", modal: true },
+        content: "<p>Disable description customization and discard the edited text? The cleaned Template description will be restored.</p>",
+        yes: { label: "Restore Template Description", icon: "fa-solid fa-rotate-left" },
+        no: { label: "Keep Custom Description", icon: "fa-solid fa-xmark" }
+      });
+      if (!confirmed) {
+        event.currentTarget.checked = true;
+        return;
+      }
+    }
+    this.descriptionCustomized = false;
+    this.customDescription = this.templateDescription;
+    this.#renderPreservingScroll();
+  }
+
+  #updateDescription(event) {
+    if (!this.descriptionCustomized) return;
+    const editor = event.currentTarget;
+    const value = editor?.value
+      ?? editor?.querySelector?.("textarea")?.value
+      ?? editor?.querySelector?.("input[type=hidden]")?.value
+      ?? editor?.getAttribute?.("value")
+      ?? "";
+    this.customDescription = String(value);
   }
 
   #updateItemName(event) {

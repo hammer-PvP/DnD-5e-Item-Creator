@@ -1,11 +1,11 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.0.2a Alpha  
+**Version:** 0.0.3 Alpha  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
 
-## v0.0.2a Alpha
+## v0.0.3 Alpha
 
 This Alpha intentionally does **not** create or modify Items. It establishes and validates:
 
@@ -27,7 +27,9 @@ This Alpha intentionally does **not** create or modify Items. It establishes and
 - validation of every enabled Enhancement without adding data for unchecked cards;
 - the checkbox-gated `Granted Effects` stage for AC, Saving Throws, ability scores, skills, resistances, immunities, Initiative, Hit Points, movement, senses, Spell Attack, Spell Save DC, and passive-score modifiers;
 - manual positive or negative values, multiple effect rows, dynamic D&D5e abilities/skills/damage types/conditions, and Owned, Equipped, or Equipped and Attuned availability;
-- one-click `All Saving Throws` and `All Skills` draft selections for future automatic generation of every required Active Effect change.
+- one-click `All Saving Throws` and `All Skills` draft selections for future automatic generation of every required Active Effect change;
+- manual Template and Base Weapon dropdowns grouped by configured source priority and alphabetized within each source;
+- the Template-only `Description` stage with conservative metadata cleanup, enriched preview, and checkbox-gated ProseMirror customization.
 
 ## Installation
 
@@ -43,10 +45,10 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Description, and Review will be implemented only after the draft stages have been validated.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Review, and final document generation will be implemented only after the draft stages have been validated.
 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.0.2a Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.2a/item-creator.zip`
+- v0.0.3 Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.3/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

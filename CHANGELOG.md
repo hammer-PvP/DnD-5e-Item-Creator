@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.0.3 — Alpha
+
+- Marked the visually validated Granted Effects stage as complete for the current draft workflow.
+- Grouped the manual Template dropdown by configured content-source priority using native source sections.
+- Sorted Template names alphabetically inside each source section while preserving the native D&D5e Compendium Browser as the primary discovery method.
+- Grouped the Base Weapon dropdown by configured content-source priority and sorted physical weapons alphabetically inside each source section.
+- Expanded the manual Template index to include all Weapon documents from active sources, while the Base Weapon selector remains restricted to valid mundane physical weapons.
+- Enabled the `Description` stage after a valid Granted Effects draft.
+- Inherited Description content exclusively from the selected special Template; the Base Weapon never contributes description text.
+- Added conservative cleanup of recognized leading Template metadata such as generic weapon applicability, rarity, attunement, and template-application instructions.
+- Preserved mechanical rules, narrative text, tables, lists, document links, and Foundry-enriched HTML whenever they are not recognized metadata.
+- Added checkbox-gated `Customize Description` using Foundry's native ProseMirror editor.
+- Added protected restoration of the cleaned Template description when custom text would be discarded.
+- Added automatic Description replacement when the Template changes, while Base Weapon changes leave Description untouched.
+- Kept Review, final Item creation, Activity generation, Active Effect generation, and runtime execution locked for later builds.
+- Updated manifest, documentation, interface scope text, and download URL for tag `v0.0.3`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.2a — Alpha
 
 - Enabled the `Granted Effects` stage after a valid Enhancements draft.

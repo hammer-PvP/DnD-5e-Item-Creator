@@ -142,6 +142,9 @@ export class ItemCreatorSourceRegistry {
     this.weaponSourceGroups = [];
     this.weaponPackGroups = [];
     this.weaponOptions = [];
+    this.templateSourceGroups = [];
+    this.templateOptions = [];
+    this.templateByUuid = new Map();
     this.weaponByUuid = new Map();
     this.weaponByIdentifier = new Map();
     this.iconOptions = [];
@@ -316,6 +319,9 @@ export class ItemCreatorSourceRegistry {
     this.weaponSourceGroups = [];
     this.weaponPackGroups = [];
     this.weaponOptions = [];
+    this.templateSourceGroups = [];
+    this.templateOptions = [];
+    this.templateByUuid.clear();
     this.weaponByUuid.clear();
     this.weaponByIdentifier.clear();
     this.iconOptions = [];
@@ -335,6 +341,7 @@ export class ItemCreatorSourceRegistry {
 
     const iconPaths = new Set();
     const sourceGroups = new Map();
+    const templateGroups = new Map();
 
     for (const summary of packs) {
       const pack = game.packs.get(summary.collection);
@@ -369,6 +376,20 @@ export class ItemCreatorSourceRegistry {
           search: `${entry.name ?? ""} ${summary.label} ${summary.sourceLabel} ${summary.packageTitle}`.toLowerCase(),
           system: entry.system ?? {}
         };
+
+        this.templateByUuid.set(uuid, option);
+        this.templateOptions.push(option);
+        let templateGroup = templateGroups.get(summary.sourceId);
+        if (!templateGroup) {
+          templateGroup = {
+            id: summary.sourceId,
+            label: summary.sourceLabel,
+            order: summary.sourcePriority,
+            items: []
+          };
+          templateGroups.set(summary.sourceId, templateGroup);
+        }
+        templateGroup.items.push(option);
 
         if (!iconPaths.has(option.img)) {
           iconPaths.add(option.img);
@@ -437,6 +458,17 @@ export class ItemCreatorSourceRegistry {
       });
     }
 
+    this.templateOptions.sort((a, b) => a.priority - b.priority
+      || a.name.localeCompare(b.name, game.i18n.lang)
+      || a.packLabel.localeCompare(b.packLabel, game.i18n.lang));
+    this.templateSourceGroups = [...templateGroups.values()]
+      .map(group => ({
+        ...group,
+        items: group.items.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)
+          || a.packLabel.localeCompare(b.packLabel, game.i18n.lang))
+      }))
+      .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
+
     this.weaponPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
     this.weaponSourceGroups = [...sourceGroups.values()]
       .map(group => ({
@@ -458,7 +490,11 @@ export class ItemCreatorSourceRegistry {
   }
 
   findWeapon(uuid) {
-    return this.weaponByUuid.get(uuid) ?? null;
+    return this.templateByUuid.get(uuid) ?? this.weaponByUuid.get(uuid) ?? null;
+  }
+
+  findTemplate(uuid) {
+    return this.templateByUuid.get(uuid) ?? null;
   }
 
   findBaseWeaponByIdentifier(identifier) {
