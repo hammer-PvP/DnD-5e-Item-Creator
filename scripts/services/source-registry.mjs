@@ -114,13 +114,19 @@ function isBaseWeapon(entry) {
     && !attunement;
 }
 
+function normalizeIdentifier(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 function normalizeSettings(stored) {
   const defaults = defaultSourceSettings();
   const value = stored && typeof stored === "object" ? stored : defaults;
   return {
     initialized: Boolean(value.initialized),
-    enabledPacks: Array.isArray(value.enabledPacks) ? [...new Set(value.enabledPacks.map(String))] : [],
-    packOrder: Array.isArray(value.packOrder) ? [...new Set(value.packOrder.map(String))] : []
+    enabledSources: Array.isArray(value.enabledSources) ? [...new Set(value.enabledSources.map(String))] : [],
+    sourceOrder: Array.isArray(value.sourceOrder) ? [...new Set(value.sourceOrder.map(String))] : [],
+    legacyEnabledPacks: Array.isArray(value.enabledPacks) ? [...new Set(value.enabledPacks.map(String))] : [],
+    legacyPackOrder: Array.isArray(value.packOrder) ? [...new Set(value.packOrder.map(String))] : []
   };
 }
 
@@ -137,8 +143,10 @@ export class ItemCreatorSourceRegistry {
     this.weaponPackGroups = [];
     this.weaponOptions = [];
     this.weaponByUuid = new Map();
+    this.weaponByIdentifier = new Map();
     this.iconOptions = [];
     this.packSummaries = [];
+    this.sourceSummaries = [];
     this.activePackSummaries = [];
     this.loaded = false;
     this.signature = "";
@@ -148,47 +156,83 @@ export class ItemCreatorSourceRegistry {
     this.loaded = false;
     this.signature = "";
     this.packSummaries = [];
+    this.sourceSummaries = [];
     this.activePackSummaries = [];
   }
 
-  get sourceSettings() {
+  get rawSourceSettings() {
     return normalizeSettings(game.settings.get(MODULE_ID, "sourceSettings"));
   }
 
-  isEnabled(collection, settings = this.sourceSettings) {
-    if (!settings.initialized) return true;
-    return settings.enabledPacks.includes(collection);
+  resolveSourceSettings(sources = this.sourceSummaries) {
+    const raw = this.rawSourceSettings;
+    const availableIds = sources.map(source => source.id);
+    const available = new Set(availableIds);
+
+    let enabledSources = raw.enabledSources.filter(id => available.has(id));
+    let sourceOrder = raw.sourceOrder.filter(id => available.has(id));
+
+    if (!raw.enabledSources.length && raw.legacyEnabledPacks.length) {
+      enabledSources = sources
+        .filter(source => source.packs.some(pack => raw.legacyEnabledPacks.includes(pack.collection)))
+        .map(source => source.id);
+    }
+
+    if (!raw.sourceOrder.length && raw.legacyPackOrder.length) {
+      sourceOrder = [...sources]
+        .sort((a, b) => {
+          const aIndex = Math.min(...a.packs.map(pack => {
+            const index = raw.legacyPackOrder.indexOf(pack.collection);
+            return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+          }));
+          const bIndex = Math.min(...b.packs.map(pack => {
+            const index = raw.legacyPackOrder.indexOf(pack.collection);
+            return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
+          }));
+          return aIndex - bIndex || a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang);
+        })
+        .map(source => source.id);
+    }
+
+    for (const id of availableIds) {
+      if (!sourceOrder.includes(id)) sourceOrder.push(id);
+    }
+
+    if (!raw.initialized) enabledSources = [...availableIds];
+
+    return {
+      initialized: raw.initialized,
+      enabledSources: [...new Set(enabledSources)],
+      sourceOrder: [...new Set(sourceOrder)]
+    };
   }
 
-  priorityFor(collection, settings = this.sourceSettings) {
-    const index = settings.packOrder.indexOf(collection);
+  get sourceSettings() {
+    return this.resolveSourceSettings();
+  }
+
+  isSourceEnabled(sourceIdValue, settings = this.sourceSettings) {
+    if (!settings.initialized) return true;
+    return settings.enabledSources.includes(sourceIdValue);
+  }
+
+  priorityForSource(sourceIdValue, settings = this.sourceSettings) {
+    const index = settings.sourceOrder.indexOf(sourceIdValue);
     return index >= 0 ? index : Number.MAX_SAFE_INTEGER;
   }
 
-  orderedPackSummaries(summaries, settings = this.sourceSettings) {
-    return [...summaries].sort((a, b) => {
-      const aPriority = this.priorityFor(a.collection, settings);
-      const bPriority = this.priorityFor(b.collection, settings);
-      if (aPriority !== bPriority) return aPriority - bPriority;
-      return a.sourceOrder - b.sourceOrder
-        || a.sourceLabel.localeCompare(b.sourceLabel, game.i18n.lang)
-        || a.label.localeCompare(b.label, game.i18n.lang);
+  orderedSources(sources, settings = this.resolveSourceSettings(sources)) {
+    return [...sources].sort((a, b) => {
+      const aPriority = this.priorityForSource(a.id, settings);
+      const bPriority = this.priorityForSource(b.id, settings);
+      return aPriority - bPriority || a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang);
     });
   }
 
   async discoverWeaponPacks({ force = false } = {}) {
-    if (this.packSummaries.length && !force) {
-      const settings = this.sourceSettings;
-      return this.orderedPackSummaries(this.packSummaries.map(summary => ({
-        ...summary,
-        enabled: this.isEnabled(summary.collection, settings),
-        priority: this.priorityFor(summary.collection, settings)
-      })), settings);
-    }
+    if (this.packSummaries.length && !force) return [...this.packSummaries];
 
     const summaries = [];
-    const settings = this.sourceSettings;
-
     for (const pack of game.packs) {
       if (pack.documentName !== "Item") continue;
       let index;
@@ -212,31 +256,81 @@ export class ItemCreatorSourceRegistry {
         sourceId: sourceId(pack, resolvedSourceLabel),
         sourceOrder: sourceSortOrder(resolvedSourceLabel),
         weaponCount,
-        enabled: this.isEnabled(pack.collection, settings),
-        priority: this.priorityFor(pack.collection, settings),
         search: `${label} ${resolvedSourceLabel} ${resolvedPackageTitle}`.toLowerCase()
       });
     }
 
     this.packSummaries = summaries;
-    return this.orderedPackSummaries(summaries, settings);
+    this.sourceSummaries = this.#groupSources(summaries);
+    return [...summaries];
+  }
+
+  async discoverWeaponSources({ force = false } = {}) {
+    await this.discoverWeaponPacks({ force });
+    const settings = this.resolveSourceSettings(this.sourceSummaries);
+    return this.orderedSources(this.sourceSummaries, settings).map(source => ({
+      ...source,
+      enabled: this.isSourceEnabled(source.id, settings),
+      priority: this.priorityForSource(source.id, settings)
+    }));
+  }
+
+  #groupSources(packs) {
+    const groups = new Map();
+    for (const pack of packs) {
+      let group = groups.get(pack.sourceId);
+      if (!group) {
+        group = {
+          id: pack.sourceId,
+          label: pack.sourceLabel,
+          order: pack.sourceOrder,
+          packageTitle: pack.packageTitle,
+          packageTitles: new Set(),
+          weaponCount: 0,
+          packs: [],
+          search: ""
+        };
+        groups.set(pack.sourceId, group);
+      }
+      group.order = Math.min(group.order, pack.sourceOrder);
+      group.weaponCount += pack.weaponCount;
+      group.packageTitles.add(pack.packageTitle);
+      group.packs.push(pack);
+    }
+
+    return [...groups.values()].map(group => ({
+      ...group,
+      packageTitles: [...group.packageTitles],
+      packCount: group.packs.length,
+      search: `${group.label} ${[...group.packageTitles].join(" ")}`.toLowerCase(),
+      packs: [...group.packs].sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
+    })).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
   }
 
   async loadWeapons({ force = false } = {}) {
-    const settings = this.sourceSettings;
-    const signature = `${settings.initialized}:${settings.enabledPacks.join("|")}:${settings.packOrder.join("|")}`;
+    const sources = await this.discoverWeaponSources({ force });
+    const settings = this.resolveSourceSettings(sources);
+    const signature = `${settings.initialized}:${settings.enabledSources.join("|")}:${settings.sourceOrder.join("|")}`;
     if (this.loaded && !force && signature === this.signature) return this;
 
     this.weaponSourceGroups = [];
     this.weaponPackGroups = [];
     this.weaponOptions = [];
     this.weaponByUuid.clear();
+    this.weaponByIdentifier.clear();
     this.iconOptions = [];
 
-    const packs = this.orderedPackSummaries(
-      (await this.discoverWeaponPacks({ force })).filter(summary => this.isEnabled(summary.collection, settings)),
+    const activeSources = this.orderedSources(
+      sources.filter(source => this.isSourceEnabled(source.id, settings)),
       settings
-    ).map((summary, priority) => ({ ...summary, priority }));
+    ).map((source, priority) => ({ ...source, priority }));
+
+    const packs = activeSources.flatMap(source => source.packs.map(pack => ({
+      ...pack,
+      sourcePriority: source.priority,
+      sourceLabel: source.label,
+      sourceId: source.id
+    }))).sort((a, b) => a.sourcePriority - b.sourcePriority || a.label.localeCompare(b.label, game.i18n.lang));
     this.activePackSummaries = packs;
 
     const iconPaths = new Set();
@@ -263,12 +357,15 @@ export class ItemCreatorSourceRegistry {
           name: entry.name,
           img: entry.img || "icons/svg/sword.svg",
           type: entry.type,
+          identifier: entry.system?.identifier ?? "",
+          baseItemIdentifier: entry.system?.type?.baseItem ?? "",
           weaponType: entry.system?.type?.value ?? "",
           collection: pack.collection,
           packLabel: summary.label,
           sourceLabel: summary.sourceLabel,
+          sourceId: summary.sourceId,
           packageTitle: summary.packageTitle,
-          priority: summary.priority,
+          priority: summary.sourcePriority,
           search: `${entry.name ?? ""} ${summary.label} ${summary.sourceLabel} ${summary.packageTitle}`.toLowerCase(),
           system: entry.system ?? {}
         };
@@ -282,7 +379,7 @@ export class ItemCreatorSourceRegistry {
             collection: summary.collection,
             packLabel: summary.label,
             sourceLabel: summary.sourceLabel,
-            priority: summary.priority,
+            priority: summary.sourcePriority,
             source: `${summary.sourceLabel} — ${summary.label}`,
             search: `${option.name} ${summary.sourceLabel} ${summary.label} ${summary.packageTitle}`.toLowerCase()
           });
@@ -292,6 +389,16 @@ export class ItemCreatorSourceRegistry {
         this.weaponByUuid.set(uuid, option);
         this.weaponOptions.push(option);
         items.push(option);
+
+        const identifiers = new Set([
+          normalizeIdentifier(option.baseItemIdentifier),
+          normalizeIdentifier(option.identifier)
+        ].filter(Boolean));
+        for (const identifier of identifiers) {
+          const matches = this.weaponByIdentifier.get(identifier) ?? [];
+          matches.push(option);
+          this.weaponByIdentifier.set(identifier, matches);
+        }
       }
 
       items.sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang));
@@ -302,7 +409,7 @@ export class ItemCreatorSourceRegistry {
         label: summary.label,
         sourceLabel: summary.sourceLabel,
         packageTitle: summary.packageTitle,
-        priority: summary.priority,
+        priority: summary.sourcePriority,
         weaponCount: items.length,
         items
       });
@@ -312,20 +419,19 @@ export class ItemCreatorSourceRegistry {
         group = {
           id: summary.sourceId,
           label: summary.sourceLabel,
-          order: summary.priority,
+          order: summary.sourcePriority,
           weaponCount: 0,
           packCount: 0,
           packs: []
         };
         sourceGroups.set(summary.sourceId, group);
       }
-      group.order = Math.min(group.order, summary.priority);
       group.weaponCount += items.length;
       group.packCount += 1;
       group.packs.push({
         collection: summary.collection,
         label: summary.label,
-        priority: summary.priority,
+        priority: summary.sourcePriority,
         weaponCount: items.length,
         items
       });
@@ -335,15 +441,17 @@ export class ItemCreatorSourceRegistry {
     this.weaponSourceGroups = [...sourceGroups.values()]
       .map(group => ({
         ...group,
-        packs: group.packs.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang))
+        packs: group.packs.sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
       }))
       .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label, game.i18n.lang));
 
     this.weaponOptions.sort((a, b) => a.priority - b.priority
       || a.name.localeCompare(b.name, game.i18n.lang)
       || a.packLabel.localeCompare(b.packLabel, game.i18n.lang));
-    this.iconOptions.sort((a, b) => a.priority - b.priority
-      || a.name.localeCompare(b.name, game.i18n.lang));
+    for (const matches of this.weaponByIdentifier.values()) {
+      matches.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, game.i18n.lang));
+    }
+    this.iconOptions.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, game.i18n.lang));
     this.loaded = true;
     this.signature = signature;
     return this;
@@ -353,6 +461,11 @@ export class ItemCreatorSourceRegistry {
     return this.weaponByUuid.get(uuid) ?? null;
   }
 
+  findBaseWeaponByIdentifier(identifier) {
+    const normalized = normalizeIdentifier(identifier);
+    if (!normalized) return null;
+    return this.weaponByIdentifier.get(normalized)?.[0] ?? null;
+  }
 
   describeDocument(document) {
     const collection = typeof document?.pack === "string"
@@ -374,12 +487,13 @@ export class ItemCreatorSourceRegistry {
       label: packLabel(pack),
       packLabel: packLabel(pack),
       sourceLabel: resolvedSourceLabel,
+      sourceId: sourceId(pack, resolvedSourceLabel),
       packageTitle: packageTitle(pack)
     };
   }
 
   async getWeaponDocument(uuid) {
-    if (!uuid || !this.weaponByUuid.has(uuid)) return null;
+    if (!uuid) return null;
     try {
       const document = await fromUuid(uuid);
       return document?.type === "weapon" ? document : null;

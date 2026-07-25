@@ -9,7 +9,7 @@ Hooks.once("init", () => {
 
   game.settings.register(MODULE_ID, "sourceSettings", {
     name: "Item Creator Content Sources",
-    hint: "Compendiums used to find base items and icons.",
+    hint: "Content sources used to find base items and icons.",
     scope: "world",
     config: false,
     type: Object,
@@ -19,7 +19,7 @@ Hooks.once("init", () => {
   game.settings.registerMenu(MODULE_ID, "contentSources", {
     name: "Content Sources",
     label: "Configure Content Sources",
-    hint: "Choose which installed Item compendiums Item Creator can use for base weapons and icons.",
+    hint: "Choose which installed content sources Item Creator can use for base weapons and icons, then arrange their priority.",
     icon: "fa-solid fa-books",
     type: ItemCreatorSettingsApp,
     restricted: true

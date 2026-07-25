@@ -1,11 +1,11 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.0.1c Alpha  
+**Version:** 0.0.1d Alpha  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, and icons.
 
-## v0.0.1c Alpha
+## v0.0.1d Alpha
 
 This Alpha intentionally does **not** create or modify Items. It establishes and validates:
 
@@ -20,9 +20,13 @@ This Alpha intentionally does **not** create or modify Items. It establishes and
 - square, fully contained icon cells, search, compendium filtering, preview, Cancel, and Use Selected Icon controls;
 - optional multiple additional-damage parts on the same future Attack Activity;
 - die count, die denomination, D&D5e damage type, and an optional ability modifier per additional-damage part;
-- source priority controls in Module Settings, with enabled compendiums reordered by Up/Down arrows;
+- package-level Content Sources in Module Settings, where each complete source is enabled once and ordered with Up/Down arrows;
+- automatic discovery of compatible internal compendiums according to the Item type being created;
 - priority-aware manual Template dropdowns and Icon Selection results;
-- named and collapsible source groups in Module Settings, with a fixed header/footer and independently scrollable source content;
+- a fixed Content Sources header/footer with one independently scrollable source list;
+- separation between the selected special Template and the physical Base Weapon;
+- automatic Base Weapon inheritance when the Template contains a valid `baseItem`;
+- a required Base Weapon dropdown when a Template does not define a valid base item;
 - cascading cleanup when any optional customization is disabled;
 - scroll preservation during normal edits and explicit reset only for confirmed template replacement or sidebar step changes.
 
@@ -45,5 +49,5 @@ The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.0.1c Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1c/item-creator.zip`
+- v0.0.1d Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1d/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

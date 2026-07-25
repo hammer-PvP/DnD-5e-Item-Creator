@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.0.1d — Alpha
+
+- Simplified Content Sources from per-compendium selection to one row per complete source, such as SRD 5.1, SRD 5.2 Modern, Player's Handbook 2024, Dungeon Master's Guide, and Monster Manual.
+- Automatically includes all compatible internal Item compendiums from an enabled source according to the Item type being created.
+- Replaced the duplicated priority and compendium-selection panels with one compact, scrollable source list.
+- Kept source activation and Up/Down priority controls in the same row, with search, Select All, Clear, fixed header, and fixed footer.
+- Added automatic migration from the previous `enabledPacks` / `packOrder` settings to package-level `enabledSources` / `sourceOrder`.
+- Preserved the native D&D5e Compendium Browser as the approved Template selector for Weapon and future Item types.
+- Separated the special Template from the physical Base Weapon in the Base Item draft.
+- Added a `Customize Base Weapon` checkbox and Base Weapon dropdown in the Core Weapon Configuration header.
+- Automatically resolves a valid Template `baseItem` identifier to a mundane Base Weapon from active sources.
+- Forces Base Weapon selection and blocks Base Item completion when a Template does not provide a valid Base Item.
+- Core inherited fields now come from the selected Base Weapon while the selected Template remains available as the special item model.
+- Added protected Base Weapon replacement with confirmation when existing core overrides would be discarded.
+- Updated manifest and documentation for tag `v0.0.1d`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.1c — Alpha
 
 - Replaced the custom Weapon Template Browser with the native D&D5e Compendium Browser.

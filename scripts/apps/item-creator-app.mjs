@@ -153,6 +153,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedType = null;
     this.selectedWeaponUuid = null;
     this.selectedWeaponDocument = null;
+    this.inheritedBaseWeaponUuid = null;
+    this.selectedBaseWeaponUuid = null;
+    this.selectedBaseWeaponDocument = null;
+    this.baseWeaponRequired = false;
     this.itemName = "";
     this.selectedIcon = "";
     this.templateCategory = "all";
@@ -189,15 +193,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#clearTemplate();
       }
     }
+    if (this.selectedBaseWeaponUuid && !this.selectedBaseWeaponDocument) {
+      try {
+        const document = await fromUuid(this.selectedBaseWeaponUuid);
+        if (isWeaponItemDocument(document)) this.selectedBaseWeaponDocument = document;
+        else this.#clearBaseWeapon();
+      } catch (_error) {
+        this.#clearBaseWeapon();
+      }
+    }
 
     const typeComplete = Boolean(this.selectedType);
-    const source = weaponSourceData(this.selectedWeaponDocument);
+    const source = weaponSourceData(this.selectedBaseWeaponDocument);
     const effective = source ? this.#effectiveValues(source) : null;
     const additionalDamageValid = !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
         Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
         && (!row.useAbilityModifier || Boolean(row.ability))));
-    const baseComplete = Boolean(this.selectedWeaponUuid && this.itemName.trim() && additionalDamageValid);
+    const baseComplete = Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
@@ -208,6 +221,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
     const selectedSource = this.selectedWeaponDocument
       ? (selectedOption ?? registry.describeDocument(this.selectedWeaponDocument))
+      : null;
+    const selectedBaseOption = this.selectedBaseWeaponUuid ? registry.findWeapon(this.selectedBaseWeaponUuid) : null;
+    const selectedBaseSource = this.selectedBaseWeaponDocument
+      ? (selectedBaseOption ?? registry.describeDocument(this.selectedBaseWeaponDocument))
       : null;
     const templateCounts = new Map();
     for (const option of registry.weaponOptions) {
@@ -241,6 +258,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       });
     }
 
+    const baseWeaponOptions = registry.weaponOptions.map(option => ({
+      ...option,
+      selected: option.uuid === this.selectedBaseWeaponUuid,
+      optionLabel: `${option.name} — ${option.sourceLabel}`
+    }));
+    const selectedBaseWeapon = this.selectedBaseWeaponDocument ? {
+      uuid: this.selectedBaseWeaponUuid,
+      name: this.selectedBaseWeaponDocument.name,
+      identifier: this.selectedBaseWeaponDocument.system?.identifier ?? "—",
+      source: selectedBaseSource ? `${selectedBaseSource.sourceLabel} — ${selectedBaseSource.packLabel}` : "Compendium Item"
+    } : null;
+
     const propertyKeys = CONFIG.DND5E.validProperties?.weapon ?? new Set();
     const propertyOptions = [...propertyKeys]
       .filter(key => key !== "mgc")
@@ -267,7 +296,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } : null;
 
     const customization = field => Boolean(this.customized[field]);
-    const customFieldCount = Object.values(this.customized).filter(Boolean).length;
+    const customFieldCount = Object.entries(this.customized).filter(([field, enabled]) =>
+      enabled && !(field === "baseWeapon" && this.baseWeaponRequired && !this.selectedBaseWeaponUuid)).length;
     const additionalDamageRows = (effective?.additionalDamage ?? []).map((row, index) => ({
       ...row,
       index: index + 1,
@@ -289,6 +319,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       templateCategoryOptions,
       templateCategory: this.templateCategory,
       selectedWeapon,
+      selectedBaseWeapon,
+      selectedBaseWeaponUuid: this.selectedBaseWeaponUuid,
+      baseWeaponOptions,
+      baseWeaponRequired: this.baseWeaponRequired,
+      baseWeaponCustomized: customization("baseWeapon"),
+      inheritedBaseWeapon: Boolean(this.inheritedBaseWeaponUuid),
       selectedWeaponUuid: this.selectedWeaponUuid,
       itemName: this.itemName,
       iconCustomized: customization("icon"),
@@ -342,6 +378,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
+    root.querySelector('[data-base-weapon-select]')?.addEventListener("change", event => this.#selectBaseWeapon(event));
     root.querySelector('[name="itemName"]')?.addEventListener("input", event => this.#updateItemName(event));
     root.querySelectorAll('[data-override-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleOverride(event)));
     root.querySelectorAll('[data-override-input]').forEach(input => {
@@ -369,14 +406,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #sourceValues() {
-    return weaponSourceData(this.selectedWeaponDocument);
+    return weaponSourceData(this.selectedBaseWeaponDocument);
   }
 
   #effectiveValues(source = this.#sourceValues()) {
     if (!source) return null;
     const effective = clone(source);
     for (const [field, enabled] of Object.entries(this.customized)) {
-      if (!enabled || !(field in this.overrides) || field === "icon") continue;
+      if (!enabled || !(field in this.overrides) || ["icon", "baseWeapon"].includes(field)) continue;
       effective[field] = clone(this.overrides[field]);
     }
     if (this.customized.properties) {
@@ -531,6 +568,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.templateCategory = option?.weaponType || document.system?.type?.value || "all";
       this.customized = {};
       this.overrides = {};
+
+      const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
+      this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
+      this.selectedBaseWeaponUuid = inherited?.uuid ?? null;
+      this.selectedBaseWeaponDocument = inherited ? await registry.getWeaponDocument(inherited.uuid) : null;
+      this.baseWeaponRequired = !this.selectedBaseWeaponDocument;
+      if (this.baseWeaponRequired) {
+        this.customized.baseWeapon = true;
+        this.overrides.baseWeapon = "";
+      }
     } catch (error) {
       console.error(`${MODULE_ID} | Unable to select weapon template.`, error);
       ui.notifications.error("Item Creator could not load the selected weapon template.");
@@ -546,13 +593,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #hasTemplateChanges() {
     if (!this.selectedWeaponDocument) return false;
+    const meaningfulCustomization = Object.entries(this.customized).some(([field, enabled]) => {
+      if (!enabled) return false;
+      if (field === "baseWeapon" && this.baseWeaponRequired && !this.overrides.baseWeapon) return false;
+      return true;
+    });
     return this.itemName.trim() !== String(this.selectedWeaponDocument.name ?? "").trim()
-      || Object.values(this.customized).some(Boolean);
+      || meaningfulCustomization;
   }
 
   #clearTemplate() {
     this.selectedWeaponUuid = null;
     this.selectedWeaponDocument = null;
+    this.inheritedBaseWeaponUuid = null;
+    this.selectedBaseWeaponUuid = null;
+    this.selectedBaseWeaponDocument = null;
+    this.baseWeaponRequired = false;
     this.itemName = "";
     this.selectedIcon = "";
     this.customized = {};
@@ -565,13 +621,28 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (draftName) draftName.textContent = this.itemName.trim() || "—";
   }
 
-  #toggleOverride(event) {
+  async #toggleOverride(event) {
     const field = event.currentTarget.dataset.overrideToggle;
     if (!field || !this.selectedWeaponDocument) return;
     const enabled = event.currentTarget.checked;
     this.customized[field] = enabled;
 
-    if (field === "icon") {
+    if (field === "baseWeapon") {
+      if (!enabled && this.baseWeaponRequired) {
+        this.customized.baseWeapon = true;
+        event.currentTarget.checked = true;
+        return;
+      }
+      if (enabled) {
+        this.overrides.baseWeapon = this.selectedBaseWeaponUuid ?? "";
+      } else {
+        delete this.overrides.baseWeapon;
+        this.selectedBaseWeaponUuid = this.inheritedBaseWeaponUuid;
+        this.selectedBaseWeaponDocument = this.inheritedBaseWeaponUuid
+          ? await ItemCreatorSourceRegistry.instance.getWeaponDocument(this.inheritedBaseWeaponUuid)
+          : null;
+      }
+    } else if (field === "icon") {
       if (enabled) this.overrides.icon = this.selectedIcon || this.selectedWeaponDocument.img || "icons/svg/sword.svg";
       else {
         delete this.overrides.icon;
@@ -639,6 +710,74 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       else delete this.overrides.ammunitionType;
     }
 
+    this.#renderPreservingScroll();
+  }
+
+  #clearBaseWeapon() {
+    this.selectedBaseWeaponUuid = null;
+    this.selectedBaseWeaponDocument = null;
+  }
+
+  #hasCoreOverrides() {
+    const nonCore = new Set(["baseWeapon", "icon", "additionalDamage"]);
+    return Object.entries(this.customized).some(([field, enabled]) => enabled && !nonCore.has(field));
+  }
+
+  #clearCoreOverrides() {
+    const keep = new Set(["baseWeapon", "icon", "additionalDamage"]);
+    for (const field of Object.keys(this.customized)) {
+      if (keep.has(field)) continue;
+      delete this.customized[field];
+      delete this.overrides[field];
+    }
+    delete this.overrides.versatile;
+    delete this.overrides.ammunitionType;
+  }
+
+  async #selectBaseWeapon(event) {
+    const uuid = String(event.currentTarget.value ?? "");
+    if (!uuid) {
+      if (this.baseWeaponRequired) {
+        this.#clearBaseWeapon();
+        this.overrides.baseWeapon = "";
+        this.#renderPreservingScroll();
+      }
+      return;
+    }
+    if (uuid === this.selectedBaseWeaponUuid) return;
+
+    if (this.selectedBaseWeaponUuid && this.#hasCoreOverrides()) {
+      const confirmed = await DialogV2.confirm({
+        window: { title: "Change Base Weapon", modal: true },
+        content: "<p>Changing the Base Weapon will replace inherited weapon statistics. The selected Template and non-core customizations will remain unchanged.</p>",
+        yes: { label: "Change Base Weapon", icon: "fa-solid fa-rotate" },
+        no: { label: "Keep Current Base Weapon", icon: "fa-solid fa-xmark" }
+      });
+      if (!confirmed) {
+        this.#renderPreservingScroll();
+        return;
+      }
+      this.#clearCoreOverrides();
+    }
+
+    const registry = ItemCreatorSourceRegistry.instance;
+    const option = registry.findWeapon(uuid);
+    if (!option) {
+      ui.notifications.error("The selected Base Weapon is not available in the active Item Creator sources.");
+      this.#renderPreservingScroll();
+      return;
+    }
+    const document = await registry.getWeaponDocument(uuid);
+    if (!isWeaponItemDocument(document)) {
+      ui.notifications.error("Item Creator could not load the selected Base Weapon.");
+      this.#renderPreservingScroll();
+      return;
+    }
+
+    this.selectedBaseWeaponUuid = uuid;
+    this.selectedBaseWeaponDocument = document;
+    this.customized.baseWeapon = true;
+    this.overrides.baseWeapon = uuid;
     this.#renderPreservingScroll();
   }
 

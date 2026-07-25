@@ -1,5 +1,5 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.0.1c";
+export const MODULE_VERSION = "0.0.1d";
 export const MODULE_STAGE = "Alpha";
 
 export const ITEM_TYPES = Object.freeze([
@@ -25,7 +25,7 @@ export const STEPS = Object.freeze([
 export function defaultSourceSettings() {
   return {
     initialized: false,
-    enabledPacks: [],
-    packOrder: []
+    enabledSources: [],
+    sourceOrder: []
   };
 }

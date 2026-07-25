@@ -24,6 +24,7 @@
       <h3>Current Draft</h3>
       <p><strong>Type:</strong> {{#if selectedType}}Weapon{{else}}—{{/if}}</p>
       <p><strong>Template:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      <p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
@@ -60,8 +61,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.1c Alpha scope</strong>
-          <p>This build validates priority-aware Template and Icon browsers plus optional additional damage configuration. It does not create or modify Items.</p>
+          <strong>v0.0.1d Alpha scope</strong>
+          <p>This build separates the selected Template from the physical Base Weapon and simplifies content-source configuration. It does not create or modify Items.</p>
         </div>
       </aside>
     </section>
@@ -80,7 +81,7 @@
         <div>
           <span class="ic-kicker">Weapon Creation</span>
           <h2>Base Item</h2>
-          <p>Load a Weapon through the native D&D5e Compendium Browser or the manual selectors, then enable only the core fields you want to replace. Disabled fields continue to inherit their template values.</p>
+          <p>Load a special Template through the native D&D5e Compendium Browser or the manual selectors, then confirm its physical Base Weapon. Core fields inherit from the Base Weapon unless you enable an override.</p>
         </div>
       </header>
 
@@ -165,6 +166,7 @@
 
           <dl class="ic-template-metadata">
             <div><dt>Template Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div>
+            <div><dt>Base Weapon</dt><dd>{{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else}}Required{{/if}}</dd></div>
             <div><dt>Current Base Damage</dt><dd>{{selectedWeapon.damageSummary}}</dd></div>
             {{#if custom.additionalDamage}}
             <div><dt>Additional Damage Parts</dt><dd>{{additionalDamageCount}}</dd></div>
@@ -173,10 +175,33 @@
         </section>
 
         <section class="ic-core-panel">
-          <header>
-            <span class="ic-kicker">Core Weapon Configuration</span>
-            <h3>Inherited Fields</h3>
-            <p>Mark a checkbox to replace that template value. Unmarking it immediately discards the custom value and restores inheritance.</p>
+          <header class="ic-core-header">
+            <div>
+              <span class="ic-kicker">Core Weapon Configuration</span>
+              <h3>Inherited Fields</h3>
+              <p>The Base Weapon supplies the physical statistics below. The selected Template remains the special model layered over it.</p>
+            </div>
+
+            <section class="ic-base-weapon-card {{#if baseWeaponCustomized}}enabled{{/if}} {{#if baseWeaponRequired}}required{{/if}}">
+              <label class="ic-override-heading">
+                <input type="checkbox" data-override-toggle="baseWeapon" {{#if baseWeaponCustomized}}checked{{/if}} {{#if baseWeaponRequired}}disabled{{/if}}>
+                <span>
+                  <strong>{{#if baseWeaponRequired}}Select Base Weapon{{else}}Customize Base Weapon{{/if}}</strong>
+                  <small>{{#if baseWeaponRequired}}This Template has no valid Base Item. Select the physical weapon before continuing.{{else}}Unchecked preserves the Base Weapon identified by the Template.{{/if}}</small>
+                </span>
+              </label>
+              <select data-base-weapon-select {{#unless baseWeaponCustomized}}disabled{{/unless}} class="{{#if baseWeaponRequired}}{{#unless selectedBaseWeapon}}invalid{{/unless}}{{/if}}">
+                <option value="">Select a base weapon…</option>
+                {{#each baseWeaponOptions}}
+                <option value="{{uuid}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+                {{/each}}
+              </select>
+              {{#if selectedBaseWeapon}}
+              <small class="ic-base-weapon-meta"><strong>{{selectedBaseWeapon.identifier}}</strong> · {{selectedBaseWeapon.source}}</small>
+              {{else if baseWeaponRequired}}
+              <small class="ic-base-weapon-warning"><i class="fa-solid fa-triangle-exclamation"></i> Base Weapon selection is required.</small>
+              {{/if}}
+            </section>
           </header>
 
           <div class="ic-core-grid">

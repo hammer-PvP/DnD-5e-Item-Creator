@@ -1058,3 +1058,90 @@
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
 }
+
+/* v0.0.1d — package-level sources and Template/Base Weapon separation */
+.ic-settings-app .ic-source-list {
+  display: block;
+  padding-bottom: 18px;
+}
+.ic-source-priority-panel {
+  min-height: 0;
+  border: 1px solid var(--ic-border-soft);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, .015);
+  overflow: hidden;
+}
+.ic-source-priority-panel > header {
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--ic-border-soft);
+  background: rgba(209, 176, 107, .035);
+}
+.ic-source-priority-panel h2 { margin: 2px 0 0; font-size: 20px; }
+.ic-source-priority-panel p { margin: 4px 0 0; opacity: .62; font-size: 10px; }
+.ic-source-priority-list { display: grid; gap: 6px; padding: 8px; }
+.ic-source-package-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 62px;
+  gap: 9px;
+  align-items: center;
+  min-height: 62px;
+  padding: 7px 8px;
+  border: 1px solid var(--ic-border-soft);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .025);
+}
+.ic-source-package-row.enabled {
+  border-color: rgba(209, 176, 107, .42);
+  background: rgba(209, 176, 107, .045);
+}
+.ic-source-package-toggle {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px 24px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+}
+.ic-source-package-toggle > input { width: 16px; height: 16px; margin: 0; }
+.ic-source-package-toggle > i { color: var(--ic-gold); }
+.ic-source-package-toggle > span { min-width: 0; }
+.ic-source-package-toggle strong,
+.ic-source-package-toggle small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ic-source-package-toggle small { margin-top: 2px; opacity: .62; font-size: 10px; }
+
+.ic-core-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 42%);
+  gap: 12px;
+  align-items: start;
+}
+.ic-core-header > div { min-width: 0; }
+.ic-base-weapon-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--ic-border-soft);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .018);
+}
+.ic-base-weapon-card.enabled {
+  border-color: rgba(209, 176, 107, .48);
+  background: rgba(209, 176, 107, .055);
+  box-shadow: inset 3px 0 var(--ic-red);
+}
+.ic-base-weapon-card.required {
+  border-color: rgba(197, 67, 61, .8);
+  box-shadow: inset 3px 0 var(--ic-red);
+}
+.ic-base-weapon-card > select { box-sizing: border-box; width: 100%; }
+.ic-base-weapon-card > select.invalid { border-color: var(--ic-red); }
+.ic-base-weapon-meta,
+.ic-base-weapon-warning { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+.ic-base-weapon-meta { opacity: .64; }
+.ic-base-weapon-meta strong { color: var(--ic-gold); }
+.ic-base-weapon-warning { color: #e77b72; }
+.ic-base-weapon-warning i { margin-right: 4px; }
+
+@media (max-width: 1050px) {
+  .ic-core-header { grid-template-columns: 1fr; }
+}
