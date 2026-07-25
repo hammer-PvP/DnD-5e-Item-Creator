@@ -28,6 +28,7 @@
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
+      {{#if enhancement.grantedSpellcasting}}<p><strong>Granted Spells:</strong> {{grantedSpellCount}}</p>{{/if}}
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Status:</strong> Alpha preview only</p>
     </section>
@@ -62,8 +63,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.1e Alpha scope</strong>
-          <p>This build completes the first interactive Enhancements stage with checkbox-gated magical, offensive, critical, resistance-bypass, and advantage configuration. It does not create or modify Items.</p>
+          <strong>v0.0.2 Alpha scope</strong>
+          <p>This build adds configurable Granted Spellcasting with native Spell browsing, drag-and-drop, uses, recovery, spell-slot consumption, eligibility, cast level, spellcasting calculation, and availability. It does not create or modify Items.</p>
         </div>
       </aside>
     </section>
@@ -502,6 +503,108 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="ic-enhancement-group ic-spellcasting-group">
+        <header>
+          <span class="ic-kicker">Granted Magic</span>
+          <h3>Granted Spellcasting</h3>
+        </header>
+        <section class="ic-enhancement-card ic-span-two ic-granted-spellcasting-card {{#if enhancement.grantedSpellcasting}}enabled{{/if}} {{#if enhancementErrors.grantedSpellcasting}}invalid{{/if}}">
+          <label class="ic-override-heading">
+            <input type="checkbox" data-enhancement-toggle="grantedSpellcasting" {{#if enhancement.grantedSpellcasting}}checked{{/if}}>
+            <span><strong>Granted Spellcasting</strong><small>Grant one or more Spells through this weapon. Each Spell has independent uses, recovery, slot consumption, eligibility, cast level, spellcasting calculation, spellbook visibility, and availability.</small></span>
+          </label>
+
+          <div class="ic-spell-drop-zone {{#unless enhancement.grantedSpellcasting}}disabled{{/unless}}" data-spell-drop-zone>
+            <i class="fa-solid fa-wand-sparkles"></i>
+            <div>
+              <strong>Drop a Spell here</strong>
+              <small>Drag a Spell Item from a compendium or directory, or use the native D&amp;D5e Spell Browser.</small>
+            </div>
+            <button type="button" data-action="browse-spells" {{#unless enhancement.grantedSpellcasting}}disabled{{/unless}}>
+              <i class="fa-solid fa-books"></i> Browse Spells
+            </button>
+          </div>
+
+          {{#if enhancement.grantedSpellcasting}}
+            {{#if grantedSpellRows.length}}
+            <div class="ic-granted-spell-list">
+              {{#each grantedSpellRows}}
+              <article class="ic-granted-spell {{#if invalid}}invalid{{/if}}" data-spell-id="{{id}}">
+                <header class="ic-granted-spell-header">
+                  <img src="{{img}}" alt="{{name}}">
+                  <div>
+                    <strong>{{name}}</strong>
+                    <span>{{spellLevelLabel}} · {{schoolLabel}}</span>
+                    <small>{{source}}</small>
+                  </div>
+                  <button type="button" class="ic-icon-button danger" data-action="remove-granted-spell" data-spell-id="{{id}}" aria-label="Remove {{name}}" title="Remove Spell">
+                    <i class="fa-solid fa-trash"></i>
+                  </button>
+                </header>
+
+                <div class="ic-spell-config-grid">
+                  <section class="ic-spell-config-panel">
+                    <h4>Uses and Recovery</h4>
+                    <label><span>Use Limit</span><select data-granted-spell-input="useLimit" data-spell-id="{{id}}">{{#each useLimitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if isLimited}}
+                    <div class="ic-spell-inline-fields">
+                      <label><span>Maximum Uses</span><input type="number" min="1" max="99" step="1" value="{{maxUses}}" data-granted-spell-input="maxUses" data-spell-id="{{id}}" data-value-type="number"></label>
+                      <label><span>Recovery</span><select data-granted-spell-input="recovery" data-spell-id="{{id}}">{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    </div>
+                    {{else}}
+                    <small class="ic-field-note">Unlimited means the item has no charge limit. Spell-slot consumption can still limit actual use.</small>
+                    {{/if}}
+                    <label class="ic-checkbox-line {{#if isCantrip}}disabled{{/if}}">
+                      <input type="checkbox" data-granted-spell-input="consumeSlot" data-spell-id="{{id}}" {{#if consumeSlot}}checked{{/if}} {{#if isCantrip}}disabled{{/if}}>
+                      <span><strong>Consume a Spell Slot</strong><small>{{#if isCantrip}}Cantrips never consume spell slots.{{else}}Require and consume a compatible slot for every cast.{{/if}}</small></span>
+                    </label>
+                  </section>
+
+                  <section class="ic-spell-config-panel">
+                    <h4>Eligibility and Cast Level</h4>
+                    <label><span>Casting Eligibility</span><select data-granted-spell-input="eligibility" data-spell-id="{{id}}" {{#if consumeSlot}}disabled{{/if}}>{{#each eligibilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if consumeSlot}}<small class="ic-field-note">Spell-slot consumption automatically requires a compatible spell slot.</small>{{/if}}
+                    <label><span>Cast Level</span><select data-granted-spell-input="castLevelMode" data-spell-id="{{id}}">{{#each castLevelModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if (eq castLevelMode "fixed")}}
+                    <label><span>Fixed Cast Level</span><select data-granted-spell-input="fixedCastLevel" data-spell-id="{{id}}" data-value-type="number">{{#each fixedCastLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{/if}}
+                  </section>
+
+                  <section class="ic-spell-config-panel ic-spellcasting-calculation">
+                    <h4>Spellcasting Calculation</h4>
+                    <label><span>Spellcasting</span><select data-granted-spell-input="spellcastingMode" data-spell-id="{{id}}">{{#each spellcastingModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if usesFixedSpellcasting}}
+                      {{#if hasAttack}}<label><span>Fixed Spell Attack Bonus</span><input type="number" min="-20" max="40" step="1" value="{{fixedAttackBonus}}" data-granted-spell-input="fixedAttackBonus" data-spell-id="{{id}}" data-value-type="number"></label>{{/if}}
+                      {{#if hasSave}}<label><span>Fixed Spell Save DC</span><input type="number" min="1" max="40" step="1" value="{{fixedSaveDc}}" data-granted-spell-input="fixedSaveDc" data-spell-id="{{id}}" data-value-type="number"></label>{{/if}}
+                      {{#unless hasAttack}}{{#unless hasSave}}<small class="ic-field-note">This Spell has no detected Spell Attack or Saving Throw, so fixed attack and DC values are not required.</small>{{/unless}}{{/unless}}
+                    {{else}}
+                    <small class="ic-field-note">Actor Default, Highest Spellcasting, or Intelligence/Wisdom/Charisma + Proficiency can support both spellcasters and non-spellcasters.</small>
+                    {{/if}}
+                  </section>
+
+                  <section class="ic-spell-config-panel">
+                    <h4>Availability</h4>
+                    <label><span>Available While</span><select data-granted-spell-input="availability" data-spell-id="{{id}}">{{#each availabilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label class="ic-checkbox-line">
+                      <input type="checkbox" data-granted-spell-input="showInSpellbook" data-spell-id="{{id}}" {{#if showInSpellbook}}checked{{/if}}>
+                      <span><strong>Show Granted Spell in Spellbook</strong><small>Expose the linked Spell in the Actor spellbook while the item grants it.</small></span>
+                    </label>
+                  </section>
+                </div>
+              </article>
+              {{/each}}
+            </div>
+            {{else}}
+            <div class="ic-spell-empty-state">
+              <i class="fa-solid fa-book-open"></i>
+              <strong>No Spells added</strong>
+              <p>Drop a Spell above or use Browse Spells. An enabled Granted Spellcasting card requires at least one valid Spell.</p>
+            </div>
+            {{/if}}
+          {{/if}}
+        </section>
       </section>
 
       <section class="ic-enhancement-group">

@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.0.2 — Alpha
+
+- Added a full-width, checkbox-gated `Granted Spellcasting` Enhancement card.
+- Added support for multiple independently configured Spells on the same Weapon draft.
+- Added Spell selection through the native D&D5e Compendium Browser locked to Spell Items.
+- Added drag-and-drop support for Spell Items from compendiums and the Item directory.
+- Added duplicate-spell prevention and removal controls.
+- Added Unlimited or Limited use modes, configurable maximum uses, and Short Rest or Long Rest recovery.
+- Added optional compatible spell-slot consumption; Cantrips cannot consume slots.
+- Added casting eligibility modes for independent item casting, spell-level access, or compatible spell-slot access.
+- Added Base Spell Level, Fixed Higher Level, and selected Spell Slot casting-level modes.
+- Added Actor Default Spellcasting, Highest Spellcasting, Intelligence/Wisdom/Charisma + Proficiency, and Fixed Item Spellcasting Values.
+- Added fixed Spell Attack Bonus and Spell Save DC fields when the linked Spell uses those mechanics.
+- Added optional spellbook display and availability while Owned, Equipped, or Equipped and Attuned.
+- Added per-Spell validation and visual invalid states.
+- Added cascading cleanup when Granted Spellcasting is disabled.
+- Updated manifest, documentation, interface scope text, and download URL for tag `v0.0.2`.
+- No Item creation or mutation is performed in this Alpha.
+
 ## 0.0.1e — Alpha
 
 - Marked the Base Item stage as the approved foundation and enabled the Enhancements stage in the sidebar and navigation flow.

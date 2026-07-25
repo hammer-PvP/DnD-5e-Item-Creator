@@ -1,11 +1,11 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.0.1e Alpha  
+**Version:** 0.0.2 Alpha  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
-Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, and icons.
+Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
 
-## v0.0.1e Alpha
+## v0.0.2 Alpha
 
 This Alpha intentionally does **not** create or modify Items. It establishes and validates:
 
@@ -13,20 +13,18 @@ This Alpha intentionally does **not** create or modify Items. It establishes and
 - `Weapon` as the first supported Item type;
 - the completed template-driven `Base Item` stage with a special Template, required physical Base Weapon, and checkbox-gated core overrides;
 - the native D&D5e Compendium Browser as the reusable Template selector for Weapon and future Item types;
-- manual Weapon Type and Template dropdowns as a fast alternative;
 - reusable Weapon icon selection from enabled content sources;
 - multiple typed additional-damage parts and optional ability modifiers in Base Item;
 - package-level Content Sources with source priority and automatic internal-compendium discovery;
-- an enabled `Enhancements` stage with eight independent checkbox-gated cards;
-- Magical Weapon rarity and attunement;
-- Weapon Enhancement +1, +2, and +3;
-- independent Attack Roll and Damage Roll bonuses;
-- Critical Hit Threshold and Extra Critical Damage;
-- resistance bypass selections clearly marked as requiring Item Creator Runtime;
-- Conditional Advantage with supported runtime conditions or description-only custom rules;
-- immediate cascading cleanup when an Enhancement is disabled;
-- validation of every enabled Enhancement without adding data for unchecked cards;
-- protected Template replacement that also clears Enhancement state after confirmation.
+- the checkbox-gated `Enhancements` stage for magical, offensive, critical, resistance-bypass, and conditional-advantage configuration;
+- `Granted Spellcasting` with multiple linked Spells per weapon;
+- native D&D5e Spell Browser selection and drag-and-drop from compendiums or the Item directory;
+- independent usage limits, Short Rest or Long Rest recovery, optional spell-slot consumption, and casting eligibility per granted Spell;
+- Base Spell Level, Fixed Higher Level, and compatible Spell Slot casting modes;
+- Actor Default Spellcasting, Highest Spellcasting, Intelligence/Wisdom/Charisma + Proficiency, or fixed item-owned Spell Attack and Save DC values;
+- optional spellbook display and Owned, Equipped, or Equipped and Attuned availability;
+- immediate cascading cleanup when any optional card is disabled;
+- validation of every enabled Enhancement without adding data for unchecked cards.
 
 ## Installation
 
@@ -42,10 +40,10 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Granted Effects, Description, and Review will be implemented only after the Base Item and Enhancements draft models have been validated.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Granted Effects, Description, and Review will be implemented only after the draft stages have been validated.
 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.0.1e Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.1e/item-creator.zip`
+- v0.0.2 Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.2/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

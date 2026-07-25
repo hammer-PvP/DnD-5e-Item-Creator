@@ -15,6 +15,11 @@ function isWeaponItemDocument(document) {
   return documentName === "Item" && document?.type === "weapon";
 }
 
+function isSpellItemDocument(document) {
+  const documentName = document?.documentName ?? document?.constructor?.documentName;
+  return documentName === "Item" && document?.type === "spell";
+}
+
 function valuesOf(value) {
   if (value instanceof Set) return [...value];
   if (Array.isArray(value)) return [...value];
@@ -146,6 +151,23 @@ function additionalDamageLabel(row) {
   return `${row.number}d${row.denomination}${ability ? ` + ${ability}` : ""} ${type}`;
 }
 
+function spellSourceData(document) {
+  if (!document) return null;
+  const system = document.system ?? {};
+  const activities = valuesOf(system.activities);
+  const level = Number(system.level ?? 0);
+  return {
+    level: Number.isFinite(level) ? Math.clamp(level, 0, 9) : 0,
+    school: system.school ?? "",
+    hasAttack: activities.some(activity => activity?.type === "attack"),
+    hasSave: activities.some(activity => activity?.type === "save")
+  };
+}
+
+function spellLevelLabel(level) {
+  return localizedLabel(CONFIG.DND5E.spellLevels?.[level], level === 0 ? "Cantrip" : `Level ${level}`);
+}
+
 function enhancementDefaults() {
   const firstDamageType = CONFIG.DND5E.damageTypes?.fire
     ? "fire"
@@ -158,6 +180,7 @@ function enhancementDefaults() {
     criticalThreshold: { mode: "19", custom: 19 },
     extraCriticalDamage: { number: 1, denomination: 8, damageType: firstDamageType },
     ignoreResistance: { damageTypes: firstDamageType ? [firstDamageType] : [] },
+    grantedSpellcasting: { spells: [] },
     conditionalAdvantage: {
       mode: "supported",
       appliesTo: "attackRolls",
@@ -192,6 +215,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.enhancementValues = enhancementDefaults();
     this.restoreScrollTop = null;
     this.templateBrowserOpen = false;
+    this.spellBrowserOpen = false;
     this.iconBrowserApp = null;
   }
 
@@ -344,6 +368,56 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       summary: additionalDamageLabel(row)
     }));
 
+    const grantedSpellRows = (this.enhancementValues.grantedSpellcasting.spells ?? []).map((row, index) => {
+      const level = Number(row.level ?? 0);
+      const isCantrip = level === 0;
+      const isLimited = row.useLimit === "limited";
+      const usesFixedSpellcasting = row.spellcastingMode === "fixed";
+      const castLevelOptions = Object.entries(CONFIG.DND5E.spellLevels ?? {})
+        .filter(([value]) => Number(value) >= level && Number(value) <= 9)
+        .map(([value, label]) => ({
+          value: Number(value),
+          label: game.i18n.localize(label),
+          selected: Number(row.fixedCastLevel) === Number(value)
+        }));
+      return {
+        ...row,
+        index: index + 1,
+        isCantrip,
+        isLimited,
+        usesFixedSpellcasting,
+        spellLevelLabel: spellLevelLabel(level),
+        schoolLabel: localizedLabel(CONFIG.DND5E.spellSchools?.[row.school], row.school || "Spell"),
+        useLimitOptions: fixedOptions([["unlimited", "Unlimited / At Will"], ["limited", "Limited Uses"]], row.useLimit),
+        recoveryOptions: fixedOptions([["shortRest", "Short Rest"], ["longRest", "Long Rest"]], row.recovery),
+        eligibilityOptions: fixedOptions([
+          ["independent", "Item Grants Independent Casting"],
+          ["spellLevelAccess", "Require Spell-Level Access"],
+          ["compatibleSlot", "Require Compatible Spell Slot"]
+        ], row.eligibility),
+        castLevelModeOptions: fixedOptions([
+          ["base", "Base Spell Level"],
+          ...(!isCantrip ? [["fixed", "Fixed Higher Level"]] : []),
+          ...(!isCantrip && row.consumeSlot ? [["slot", "Use Selected Spell Slot Level"]] : [])
+        ], row.castLevelMode),
+        fixedCastLevelOptions: castLevelOptions,
+        spellcastingModeOptions: fixedOptions([
+          ["actorDefault", "Actor Default Spellcasting"],
+          ["highest", "Highest Spellcasting"],
+          ["int", "Intelligence + Proficiency"],
+          ["wis", "Wisdom + Proficiency"],
+          ["cha", "Charisma + Proficiency"],
+          ["fixed", "Fixed Item Spellcasting Values"]
+        ], row.spellcastingMode),
+        availabilityOptions: fixedOptions([
+          ["owned", "Item is Owned"],
+          ["equipped", "Equipped"],
+          ["equippedAttuned", "Equipped and Attuned"]
+        ], row.availability),
+        invalid: !this.#validateGrantedSpell(row)
+      };
+    });
+
     return {
       stage: MODULE_STAGE,
       version: MODULE_VERSION,
@@ -406,6 +480,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       enhancement: this.enhancements,
       enhancementValues: this.enhancementValues,
       enhancementCount: Object.values(this.enhancements).filter(Boolean).length,
+      grantedSpellCount: grantedSpellRows.length,
+      grantedSpellRows,
       enhancementsComplete,
       enhancementErrors: enhancementValidation.errors,
       effectiveMagical: Boolean(this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement),
@@ -467,6 +543,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       input.addEventListener(eventName, event => this.#updateEnhancement(event));
     });
     root.querySelectorAll('[data-resistance-type]').forEach(input => input.addEventListener("change", event => this.#updateResistanceType(event)));
+    root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
+    root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
+    root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
+    const spellDropZone = root.querySelector('[data-spell-drop-zone]');
+    if (spellDropZone) {
+      spellDropZone.addEventListener("dragover", event => this.#spellDragOver(event));
+      spellDropZone.addEventListener("dragleave", event => this.#spellDragLeave(event));
+      spellDropZone.addEventListener("drop", event => this.#spellDrop(event));
+    }
 
     this.#applyTemplateFilter();
     if (Number.isFinite(this.restoreScrollTop)) {
@@ -981,6 +1066,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const critical = values.extraCriticalDamage;
       if (!(Number(critical.number) > 0 && Number(critical.denomination) > 0 && critical.damageType)) errors.extraCriticalDamage = true;
     }
+    if (this.enhancements.grantedSpellcasting) {
+      const spells = values.grantedSpellcasting.spells ?? [];
+      if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
+    }
     if (this.enhancements.ignoreResistance && !values.ignoreResistance.damageTypes.length) errors.ignoreResistance = true;
     if (this.enhancements.conditionalAdvantage) {
       const conditional = values.conditionalAdvantage;
@@ -988,6 +1077,180 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (conditional.mode === "custom" && !String(conditional.customText ?? "").trim()) errors.conditionalAdvantage = true;
     }
     return { valid: !Object.keys(errors).length, errors };
+  }
+
+  #validateGrantedSpell(spell) {
+    if (!spell?.uuid || !spell?.name) return false;
+    const level = Number(spell.level ?? 0);
+    if (!Number.isInteger(level) || level < 0 || level > 9) return false;
+    if (!['unlimited', 'limited'].includes(spell.useLimit)) return false;
+    if (spell.useLimit === 'limited') {
+      if (!(Number(spell.maxUses) > 0)) return false;
+      if (!['shortRest', 'longRest'].includes(spell.recovery)) return false;
+    }
+    if (level === 0 && spell.consumeSlot) return false;
+    if (!['independent', 'spellLevelAccess', 'compatibleSlot'].includes(spell.eligibility)) return false;
+    if (spell.consumeSlot && spell.eligibility !== 'compatibleSlot') return false;
+    if (!['base', 'fixed', 'slot'].includes(spell.castLevelMode)) return false;
+    if (spell.castLevelMode === 'slot' && (!spell.consumeSlot || level === 0)) return false;
+    if (spell.castLevelMode === 'fixed') {
+      const fixed = Number(spell.fixedCastLevel);
+      if (!Number.isInteger(fixed) || fixed < level || fixed > 9 || level === 0) return false;
+    }
+    if (!['actorDefault', 'highest', 'int', 'wis', 'cha', 'fixed'].includes(spell.spellcastingMode)) return false;
+    if (spell.spellcastingMode === 'fixed') {
+      if (spell.hasAttack && !Number.isFinite(Number(spell.fixedAttackBonus))) return false;
+      const save = Number(spell.fixedSaveDc);
+      if (spell.hasSave && (!Number.isFinite(save) || save < 1 || save > 40)) return false;
+    }
+    if (!['owned', 'equipped', 'equippedAttuned'].includes(spell.availability)) return false;
+    return true;
+  }
+
+  #newGrantedSpell(document) {
+    const spell = spellSourceData(document);
+    const source = ItemCreatorSourceRegistry.instance.describeDocument(document);
+    return {
+      id: foundry.utils.randomID(),
+      uuid: document.uuid,
+      name: document.name,
+      img: document.img || 'icons/svg/book.svg',
+      source: `${source.sourceLabel} — ${source.packLabel}`,
+      level: spell.level,
+      school: spell.school,
+      hasAttack: spell.hasAttack,
+      hasSave: spell.hasSave,
+      useLimit: 'unlimited',
+      maxUses: 1,
+      recovery: 'longRest',
+      consumeSlot: false,
+      eligibility: 'independent',
+      castLevelMode: 'base',
+      fixedCastLevel: spell.level,
+      spellcastingMode: 'actorDefault',
+      fixedAttackBonus: 5,
+      fixedSaveDc: 13,
+      showInSpellbook: false,
+      availability: 'equipped'
+    };
+  }
+
+  async #openSpellBrowser(event) {
+    event.preventDefault();
+    if (!this.enhancements.grantedSpellcasting || this.spellBrowserOpen) return;
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error('The native D&D5e Compendium Browser is unavailable.');
+      return;
+    }
+    this.spellBrowserOpen = true;
+    this.#setBrowserBlock(true);
+    try {
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: 'spells',
+        hint: 'Select a Spell to grant through this weapon.',
+        filters: { locked: { documentClass: 'Item', types: new Set(['spell']) } },
+        window: { modal: true }
+      });
+      if (uuid) await this.#addGrantedSpellUuid(uuid);
+    } catch (error) {
+      console.error(`${MODULE_ID} | Native Spell Browser failed.`, error);
+      ui.notifications.error('Item Creator could not open the D&D5e Spell Browser.');
+    } finally {
+      this.spellBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
+  }
+
+  async #addGrantedSpellUuid(uuid) {
+    let document;
+    try { document = await fromUuid(uuid); }
+    catch (error) { console.warn(`${MODULE_ID} | Unable to load spell ${uuid}.`, error); }
+    if (!isSpellItemDocument(document)) {
+      ui.notifications.warn('Only Spell Items can be added to Granted Spellcasting.');
+      return false;
+    }
+    const spells = this.enhancementValues.grantedSpellcasting.spells ??= [];
+    if (spells.some(spell => spell.uuid === document.uuid)) {
+      ui.notifications.warn(`${document.name} is already granted by this weapon.`);
+      return false;
+    }
+    spells.push(this.#newGrantedSpell(document));
+    this.#renderPreservingScroll();
+    return true;
+  }
+
+  #spellDragOver(event) {
+    if (!this.enhancements.grantedSpellcasting) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    event.currentTarget.classList.add('drag-over');
+  }
+
+  #spellDragLeave(event) {
+    event.currentTarget.classList.remove('drag-over');
+  }
+
+  async #spellDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('drag-over');
+    if (!this.enhancements.grantedSpellcasting) return;
+    try {
+      const data = foundry.applications.ux.TextEditor.implementation.getDragEventData(event);
+      if (data?.type !== 'Item') {
+        ui.notifications.warn('Drop a Spell Item into this field.');
+        return;
+      }
+      const item = await Item.implementation.fromDropData(data);
+      if (!isSpellItemDocument(item)) {
+        ui.notifications.warn('Only Spell Items can be added to Granted Spellcasting.');
+        return;
+      }
+      await this.#addGrantedSpellUuid(item.uuid);
+    } catch (error) {
+      console.error(`${MODULE_ID} | Unable to process dropped Spell.`, error);
+      ui.notifications.error('Item Creator could not read the dropped Spell.');
+    }
+  }
+
+  #removeGrantedSpell(event) {
+    event.preventDefault();
+    if (!this.enhancements.grantedSpellcasting) return;
+    const id = event.currentTarget.dataset.spellId;
+    this.enhancementValues.grantedSpellcasting.spells = (this.enhancementValues.grantedSpellcasting.spells ?? [])
+      .filter(spell => spell.id !== id);
+    this.#renderPreservingScroll();
+  }
+
+  #updateGrantedSpell(event) {
+    if (!this.enhancements.grantedSpellcasting) return;
+    const id = event.currentTarget.dataset.spellId;
+    const part = event.currentTarget.dataset.grantedSpellInput;
+    const spell = (this.enhancementValues.grantedSpellcasting.spells ?? []).find(entry => entry.id === id);
+    if (!spell || !part) return;
+    let value;
+    if (event.currentTarget.type === 'checkbox') value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === 'number') value = event.currentTarget.value === '' ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    spell[part] = value;
+
+    if (part === 'useLimit' && value === 'unlimited') {
+      spell.maxUses = 1;
+      spell.recovery = 'longRest';
+    }
+    if (part === 'consumeSlot') {
+      if (spell.level === 0) spell.consumeSlot = false;
+      else if (value) {
+        spell.eligibility = 'compatibleSlot';
+        spell.castLevelMode = 'slot';
+      } else {
+        if (spell.eligibility === 'compatibleSlot') spell.eligibility = 'independent';
+        if (spell.castLevelMode === 'slot') spell.castLevelMode = 'base';
+      }
+    }
+    if (part === 'castLevelMode' && value === 'fixed') spell.fixedCastLevel = Math.max(Number(spell.fixedCastLevel) || spell.level, spell.level);
+    this.#renderPreservingScroll();
   }
 
   #toggleEnhancement(event) {
@@ -1024,6 +1287,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   async close(options = {}) {
     await this.iconBrowserApp?.close?.();
     this.templateBrowserOpen = false;
+    this.spellBrowserOpen = false;
     this.iconBrowserApp = null;
     this.#setBrowserBlock(false);
     return super.close(options);
