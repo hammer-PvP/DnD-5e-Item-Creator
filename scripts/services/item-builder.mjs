@@ -382,7 +382,11 @@ async function buildCastActivities(parentItem, spells = []) {
         },
         level: castLevel,
         properties: [],
-        spellbook: Boolean(spell.showInSpellbook),
+        // Conditional spellbook display is controlled by the Item Creator runtime.
+        // D&D5e caches linked spells for every Cast Activity, but only lists a
+        // cached spell when this field is true. World items therefore start
+        // conditional grants hidden until their Actor copy becomes available.
+        spellbook: Boolean(spell.showInSpellbook && spell.availability === "owned"),
         uuid: spell.uuid
       },
       uses: recovery.uses,
@@ -391,6 +395,7 @@ async function buildCastActivities(parentItem, spells = []) {
         [MODULE_ID]: {
           grantedSpell: true,
           sourceSpellUuid: spell.uuid,
+          showInSpellbook: Boolean(spell.showInSpellbook),
           eligibility: spell.eligibility,
           consumeSlot: Boolean(spell.consumeSlot),
           availability: spell.availability,

@@ -1,11 +1,30 @@
 import { MODULE_ID } from "../constants.mjs";
 
+function valuesOf(value) {
+  if (value instanceof Map) return [...value.values()];
+  if (Array.isArray(value)) return [...value];
+  if (value?.values instanceof Function) {
+    try { return [...value.values()]; } catch (_error) { /* fall through */ }
+  }
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
 function isManagedItem(item) {
   return item?.documentName === "Item" && item.type === "weapon" && Boolean(item.getFlag(MODULE_ID, "created"));
 }
 
 function blueprintEffects(item) {
   return item.effects.filter(effect => effect.getFlag(MODULE_ID, "blueprint"));
+}
+
+function grantedSpellActivities(item) {
+  return valuesOf(item.system?.activities).filter(activity =>
+    activity?.type === "cast" && Boolean(activity?.flags?.[MODULE_ID]?.grantedSpell));
+}
+
+function activityConfig(activity) {
+  return activity?.flags?.[MODULE_ID] ?? {};
 }
 
 function isAvailable(item, availability) {
@@ -15,23 +34,48 @@ function isAvailable(item, availability) {
   return false;
 }
 
+function intendedSpellbookState(item, activity, config) {
+  if (typeof config.showInSpellbook === "boolean") return config.showInSpellbook;
+
+  const sourceUuid = config.sourceSpellUuid ?? activity.spell?.uuid;
+  const configured = (item.getFlag(MODULE_ID, "runtime")?.grantedSpells ?? [])
+    .find(spell => spell.uuid === sourceUuid || spell.name === activity.name);
+  if (typeof configured?.showInSpellbook === "boolean") return configured.showInSpellbook;
+
+  // Compatibility with v0.1.3 and older items: before the intent was stored on
+  // the Activity flag, the current native field was the only persisted signal.
+  return Boolean(activity.spell?.spellbook);
+}
+
 export class ItemCreatorRuntimeEffectService {
+  static #syncingItems = new Set();
+
   static registerHooks() {
-    Hooks.on("createItem", item => this.syncItem(item));
-    Hooks.on("updateItem", item => this.syncItem(item));
-    Hooks.on("deleteItem", item => this.removeItemEffects(item));
+    Hooks.on("createItem", (item, options) => {
+      if (options?.itemCreatorRuntime) return;
+      void this.syncItem(item);
+    });
+    Hooks.on("updateItem", (item, _changes, options) => {
+      if (options?.itemCreatorRuntime) return;
+      void this.syncItem(item);
+    });
+    Hooks.on("deleteItem", item => void this.removeItemEffects(item));
     Hooks.on("createActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
     });
     Hooks.on("updateActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
     });
     Hooks.on("deleteActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
     });
-    Hooks.once("ready", () => {
+    Hooks.once("ready", async () => {
       if (!game.user.isGM) return;
-      for (const actor of game.actors) for (const item of actor.items) if (isManagedItem(item)) this.syncItem(item);
+      for (const actor of game.actors) {
+        for (const item of actor.items) {
+          if (isManagedItem(item)) await this.syncItem(item);
+        }
+      }
     });
 
     Hooks.on("dnd5e.preUseLinkedSpell", (activity, usage) => this.#validateGrantedSpell(activity, usage));
@@ -41,6 +85,47 @@ export class ItemCreatorRuntimeEffectService {
 
   static async syncItem(item) {
     if (!game.user.isGM || !isManagedItem(item) || item.parent?.documentName !== "Actor") return;
+    if (this.#syncingItems.has(item.uuid)) return;
+
+    this.#syncingItems.add(item.uuid);
+    try {
+      await this.#syncGrantedSpellbook(item);
+      await this.#syncGrantedEffects(item);
+    } finally {
+      this.#syncingItems.delete(item.uuid);
+    }
+  }
+
+  static async #syncGrantedSpellbook(item) {
+    const updates = {};
+
+    for (const activity of grantedSpellActivities(item)) {
+      const activityId = activity.id ?? activity._id;
+      if (!activityId) continue;
+      const config = activityConfig(activity);
+      const intended = intendedSpellbookState(item, activity, config);
+      const availability = config.availability ?? "equipped";
+      const desired = intended && isAvailable(item, availability);
+
+      if (config.showInSpellbook !== intended) {
+        updates[`system.activities.${activityId}.flags.${MODULE_ID}.showInSpellbook`] = intended;
+      }
+      if (Boolean(activity.spell?.spellbook) !== desired) {
+        updates[`system.activities.${activityId}.spell.spellbook`] = desired;
+      }
+    }
+
+    if (Object.keys(updates).length) {
+      await item.update(updates, {
+        itemCreatorRuntime: true,
+        diff: true,
+        recursive: true,
+        render: true
+      });
+    }
+  }
+
+  static async #syncGrantedEffects(item) {
     const actor = item.parent;
     const existing = actor.effects.filter(effect => effect.getFlag(MODULE_ID, "sourceItemId") === item.id);
     const byBlueprint = new Map(existing.map(effect => [effect.getFlag(MODULE_ID, "blueprintId"), effect]));
@@ -64,7 +149,16 @@ export class ItemCreatorRuntimeEffectService {
         blueprintId: blueprint.id
       };
       const current = byBlueprint.get(blueprint.id);
-      if (current) update.push({ _id: current.id, name: data.name, img: data.img, description: data.description, changes: data.changes, disabled: false, origin: item.uuid, flags: data.flags });
+      if (current) update.push({
+        _id: current.id,
+        name: data.name,
+        img: data.img,
+        description: data.description,
+        changes: data.changes,
+        disabled: false,
+        origin: item.uuid,
+        flags: data.flags
+      });
       else create.push(data);
     }
 
@@ -79,7 +173,6 @@ export class ItemCreatorRuntimeEffectService {
     const ids = item.parent.effects.filter(effect => effect.getFlag(MODULE_ID, "sourceItemId") === item.id).map(effect => effect.id);
     if (ids.length) await item.parent.deleteEmbeddedDocuments("ActiveEffect", ids, { itemCreatorRuntime: true });
   }
-
 
   static #managedItemFromMessage(message) {
     const uuid = message?.flags?.dnd5e?.item?.uuid;

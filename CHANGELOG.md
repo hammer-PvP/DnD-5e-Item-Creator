@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.4 — Beta
+
+- Added runtime reconciliation for granted Spellbook entries so `Owned`, `Equipped`, and `Equipped and Attuned` availability is enforced in the Actor spellbook.
+- Conditional granted Spells now remain hidden while their source weapon is inactive and become visible automatically when that exact Actor Item copy is equipped or equipped and attuned.
+- Preserved native D&D5e cached linked Spells and Cast Activity use counters, preventing equip/unequip cycles from resetting limited uses.
+- Added per-Activity `showInSpellbook` intent flags so visibility state is separate from the GM's permanent configuration choice.
+- Added backward reconciliation for v0.1.3 and older Item Creator weapons by recovering spellbook intent from stored granted-Spell configuration.
+- Kept duplicate weapon copies independent through D&D5e's native `cachedFor` Activity linkage; changing one copy does not activate or hide another copy's granted Spells.
+- New conditional Cast Activities start hidden in world Items and are activated only by runtime availability on an Actor.
+- Retained the v0.1.3 native Description editor and automatic Item Properties / Granted Spellcasting description builders.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.4`.
+
 ## 0.1.3 — Beta
 
 - Rebuilt the customized Description editor through Foundry's native `HTMLProseMirrorElement.create` lifecycle instead of relying on declarative custom-element initialization inside the Item Creator template.
