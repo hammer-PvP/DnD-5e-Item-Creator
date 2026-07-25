@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.0 — Beta
+
+- Promoted the module from Alpha draft validation to the first complete Weapon creation Beta.
+- Updated `Customize Description` so Foundry's native rich-text editor starts with the complete original Template HTML, while inherited preview mode remains conservatively cleaned.
+- Enabled the final `Review` stage after Description.
+- Added a native D&D5e item chat-card preview built from a temporary validated Weapon document.
+- Added a compact inventory-style preview with icon, final name, rarity, attunement, damage, properties, Activities, and generated effect count.
+- Added a final configuration summary for Template, Base Weapon, name, overrides, Enhancements, granted Spells, Granted Effects, and Description source.
+- Added final Item assembly using the physical Base Weapon, special Template, GM overrides, Enhancements, granted Spell Cast Activities, Granted Effect blueprints, and source metadata.
+- Added native Attack Activity generation with base damage, extra damage parts, attack and damage bonuses, critical threshold, and extra critical damage.
+- Added linked native Cast Activities for granted Spells with configured uses, recovery, slot consumption, cast level, spellcasting calculation, spellbook visibility, and availability flags.
+- Added Active Effect blueprint generation for the approved Granted Effects.
+- Added runtime Actor-effect mirroring for Item Creator weapons according to Owned, Equipped, or Equipped and Attuned availability.
+- Added protected `Confirm Item Creation` with OK and Cancel, background interaction blocking, duplicate-submit prevention, and a blocking `Creating Item…` processing overlay.
+- Added final creation of the validated Weapon in the world Items Directory.
+- Updated interface stage labels, manifest, documentation, and versioned download URL for tag `v0.1.0`.
+
 ## 0.0.3 — Alpha
 
 - Marked the visually validated Granted Effects stage as complete for the current draft workflow.

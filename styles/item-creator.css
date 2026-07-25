@@ -1781,3 +1781,239 @@
     flex-direction: column;
   }
 }
+
+/* Review and protected item creation */
+.ic-review-step {
+  display: grid;
+  gap: 16px;
+}
+
+.ic-review-preview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.ic-review-panel,
+.ic-review-summary {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--ic-border-soft);
+  border-radius: 6px;
+  background: var(--ic-panel-soft);
+}
+
+.ic-review-panel > header,
+.ic-review-summary > header {
+  padding-bottom: 11px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--ic-border-soft);
+}
+
+.ic-review-panel h3,
+.ic-review-summary h3 {
+  margin: 2px 0 0;
+  font: 700 22px/1.1 var(--dnd5e-font-roboto-slab, serif);
+}
+
+.ic-native-chat-preview {
+  min-height: 320px;
+  padding: 12px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, .24);
+}
+
+.ic-native-chat-preview .chat-card,
+.ic-native-chat-preview .item-card {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+.ic-native-chat-preview button,
+.ic-native-chat-preview a[data-action] {
+  pointer-events: none;
+}
+
+.ic-inventory-card {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 13px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid rgba(209, 176, 107, .36);
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(43, 37, 48, .96), rgba(21, 20, 23, .98));
+}
+
+.ic-inventory-card > img {
+  box-sizing: border-box;
+  width: 86px;
+  height: 86px;
+  object-fit: cover;
+  border: 1px solid var(--ic-gold);
+  border-radius: 5px;
+}
+
+.ic-inventory-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ic-gold-bright);
+  font: 700 18px/1.2 var(--dnd5e-font-roboto-slab, serif);
+}
+
+.ic-inventory-title i { color: var(--ic-gold); }
+.ic-inventory-main > p { margin: 4px 0 10px; opacity: .62; }
+
+.ic-inventory-main dl,
+.ic-review-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.ic-inventory-main dl > div,
+.ic-review-summary dl > div {
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(255, 255, 255, .07);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .025);
+}
+
+.ic-inventory-main dt,
+.ic-review-summary dt {
+  margin-bottom: 3px;
+  opacity: .55;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ic-inventory-main dd,
+.ic-review-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ic-gold-bright);
+  font-weight: 700;
+}
+
+.ic-inventory-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.ic-inventory-tags span {
+  padding: 3px 6px;
+  border: 1px solid rgba(209, 176, 107, .26);
+  border-radius: 999px;
+  background: rgba(209, 176, 107, .08);
+  font-size: 9px;
+}
+
+.ic-review-activities { margin-top: 14px; }
+.ic-review-activities h4 { margin: 0 0 7px; font-family: var(--dnd5e-font-roboto-slab, serif); }
+.ic-review-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  margin-top: 5px;
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 4px;
+  background: rgba(255,255,255,.025);
+}
+.ic-review-activity img { width: 34px; height: 34px; object-fit: cover; border: 0; border-radius: 3px; }
+.ic-review-activity strong,
+.ic-review-activity small { display: block; }
+.ic-review-activity small { margin-top: 2px; opacity: .55; font-size: 9px; }
+
+.ic-review-summary > aside,
+.ic-review-error {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(209, 176, 107, .26);
+  border-radius: 5px;
+  background: rgba(70, 50, 85, .16);
+}
+.ic-review-summary aside p,
+.ic-review-error p { margin: 0; opacity: .72; }
+.ic-review-summary aside i { color: var(--ic-gold); }
+.ic-review-error { border-color: rgba(205, 74, 74, .5); background: rgba(130, 35, 35, .12); }
+.ic-review-error > i { color: #e46d6d; font-size: 20px; }
+.ic-review-error strong { display: block; margin-bottom: 3px; }
+
+.ic-save-item { min-width: 160px; }
+
+.ic-protected-backdrop,
+.ic-processing-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 5, 7, .72);
+  backdrop-filter: blur(2px);
+}
+.ic-protected-backdrop { z-index: 999998; }
+.ic-processing-overlay {
+  z-index: 1000000;
+  display: grid;
+  place-items: center;
+  pointer-events: all;
+}
+
+.ic-processing-card {
+  width: min(460px, calc(100vw - 40px));
+  padding: 28px;
+  text-align: center;
+  border: 1px solid var(--ic-gold);
+  border-radius: 7px;
+  background: #17161a;
+  box-shadow: 0 18px 70px #000;
+}
+.ic-processing-card > i { color: var(--ic-gold); font-size: 38px; }
+.ic-processing-card h2 { margin: 12px 0 6px; font-family: var(--dnd5e-font-roboto-slab, serif); }
+.ic-processing-card p { margin: 0; opacity: .7; }
+
+.ic-confirm-item-dialog { z-index: 999999 !important; }
+.ic-confirm-item-content {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 8px 2px;
+}
+.ic-confirm-item-content > i { color: var(--ic-gold); font-size: 34px; }
+.ic-confirm-item-content h2 { margin: 0 0 5px; font-family: var(--dnd5e-font-roboto-slab, serif); }
+.ic-confirm-item-content p { margin: 0; }
+body.ic-protected-active { overflow: hidden; }
+.ic-protected-blocked { pointer-events: none !important; }
+
+@media (max-width: 900px) {
+  .ic-review-preview-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 620px) {
+  .ic-inventory-card { grid-template-columns: 64px minmax(0, 1fr); }
+  .ic-inventory-card > img { width: 64px; height: 64px; }
+  .ic-inventory-main dl,
+  .ic-review-summary dl { grid-template-columns: 1fr; }
+}
+.ic-confirm-item-dialog .window-header button.close,
+.ic-confirm-item-dialog .window-header [data-action="close"],
+.ic-confirm-item-dialog .window-header .header-control.close { display: none !important; }
+.ic-native-chat-preview .card-header.description .details.collapsible-content {
+  display: block !important;
+  height: auto !important;
+  max-height: none !important;
+  grid-template-rows: 1fr !important;
+}
+.ic-native-chat-preview .card-header.description > .summary > .fa-chevron-down { display: none; }

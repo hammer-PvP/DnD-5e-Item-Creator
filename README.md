@@ -1,35 +1,24 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.0.3 Alpha  
+**Version:** 0.1.0 Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
 
-## v0.0.3 Alpha
+## v0.1.0 Beta
 
-This Alpha intentionally does **not** create or modify Items. It establishes and validates:
+This Beta implements the complete assisted Weapon creation path:
 
-- the approved GM-only Item Creator entry point and Character Builder-aligned ApplicationV2 shell;
-- `Weapon` as the first supported Item type;
-- the completed template-driven `Base Item` stage with a special Template, required physical Base Weapon, and checkbox-gated core overrides;
-- the native D&D5e Compendium Browser as the reusable Template selector for Weapon and future Item types;
-- reusable Weapon icon selection from enabled content sources;
-- multiple typed additional-damage parts and optional ability modifiers in Base Item;
-- package-level Content Sources with source priority and automatic internal-compendium discovery;
-- the checkbox-gated `Enhancements` stage for magical, offensive, critical, resistance-bypass, and conditional-advantage configuration;
-- `Granted Spellcasting` with multiple linked Spells per weapon;
-- native D&D5e Spell Browser selection and drag-and-drop from compendiums or the Item directory;
-- independent usage limits, Short Rest or Long Rest recovery, optional spell-slot consumption, and casting eligibility per granted Spell;
-- Base Spell Level, Fixed Higher Level, and compatible Spell Slot casting modes;
-- Actor Default Spellcasting, Highest Spellcasting, Intelligence/Wisdom/Charisma + Proficiency, or fixed item-owned Spell Attack and Save DC values;
-- optional spellbook display and Owned, Equipped, or Equipped and Attuned availability;
-- immediate cascading cleanup when any optional card is disabled;
-- validation of every enabled Enhancement without adding data for unchecked cards;
-- the checkbox-gated `Granted Effects` stage for AC, Saving Throws, ability scores, skills, resistances, immunities, Initiative, Hit Points, movement, senses, Spell Attack, Spell Save DC, and passive-score modifiers;
-- manual positive or negative values, multiple effect rows, dynamic D&D5e abilities/skills/damage types/conditions, and Owned, Equipped, or Equipped and Attuned availability;
-- one-click `All Saving Throws` and `All Skills` draft selections for future automatic generation of every required Active Effect change;
-- manual Template and Base Weapon dropdowns grouped by configured source priority and alphabetized within each source;
-- the Template-only `Description` stage with conservative metadata cleanup, enriched preview, and checkbox-gated ProseMirror customization.
+- native D&D5e Compendium Browser selection for Weapon Templates and granted Spells;
+- separate special Template and physical Base Weapon composition;
+- checkbox-gated Base Item overrides, Enhancements, Granted Spellcasting, and Granted Effects;
+- Template-only Description inheritance with a cleaned preview and full original HTML loaded into Foundry's native rich-text editor when customization is enabled;
+- final Review with a native D&D5e chat-card preview, compact inventory presentation, activity list, and configuration summary;
+- protected `Save Item` confirmation and blocking processing overlay;
+- creation of the final world Weapon Item with Attack and Cast Activities, generated Active Effect blueprints, source metadata, and Item Creator runtime flags;
+- runtime mirroring of Granted Effects when the created Item is owned, equipped, or equipped and attuned on an Actor.
+
+Weapon is the only available creation type in this Beta. Equipment, Consumable, and other Item types remain locked until the Weapon workflow is validated.
 
 ## Installation
 
@@ -45,10 +34,10 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Item creation commits, protected transaction overlays, Review, and final document generation will be implemented only after the draft stages have been validated.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.0 creates world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.0.3 Alpha package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.0.3/item-creator.zip`
+- v0.1.0 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.0/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

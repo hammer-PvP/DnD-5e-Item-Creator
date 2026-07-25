@@ -32,7 +32,7 @@
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
       <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
-      <p><strong>Status:</strong> Alpha preview only</p>
+      <p><strong>Status:</strong> {{#if reviewReady}}Ready to create{{else}}Beta draft{{/if}}</p>
     </section>
   </aside>
 
@@ -65,8 +65,8 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.0.3 Alpha scope</strong>
-          <p>This build groups manual Template and Base Weapon selectors by source priority and adds the Template-driven Description stage with safe metadata cleanup and optional rich-text customization. It does not create or modify Items.</p>
+          <strong>v0.1.0 Beta flow</strong>
+          <p>This Beta supports the complete Weapon creation flow: Base Item, Enhancements, Granted Effects, Description, Review, and protected creation in the Items Directory.</p>
         </div>
       </aside>
     </section>
@@ -826,14 +826,14 @@
             <h3>{{selectedWeapon.name}}</h3>
             <p>{{descriptionSource}}</p>
           </div>
-          <span class="ic-support-badge native"><i class="fa-solid fa-filter"></i> Template metadata cleaned</span>
+          <span class="ic-support-badge native"><i class="fa-solid fa-filter"></i> Clean inherited preview</span>
         </header>
 
         <label class="ic-description-toggle">
           <input type="checkbox" data-description-toggle {{#if descriptionCustomized}}checked{{/if}}>
           <span>
             <strong>Customize Description</strong>
-            <small>Unchecked preserves the cleaned mechanical description from the Template. The Base Weapon does not modify this text.</small>
+            <small>Enable the Foundry rich-text editor with the complete original Template description as the starting text. The Base Weapon never contributes description content.</small>
           </span>
         </label>
 
@@ -858,14 +858,95 @@
 
         <aside class="ic-description-note">
           <i class="fa-solid fa-circle-info"></i>
-          <p>Rarity, attunement, generic “any weapon” instructions, and other recognized Template metadata are omitted when they appear as leading metadata blocks. Mechanical rules, tables, lists, document links, and narrative text are preserved.</p>
+          <p>Inherited preview mode conservatively removes recognized leading Template metadata. Customize mode loads the complete original Template HTML into Foundry’s native editor so the GM can preserve, rewrite, or remove any part manually.</p>
         </aside>
       </section>
     </section>
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" disabled title="Review will be implemented in a later Alpha"><span>Review</span><i class="fa-solid fa-lock"></i></button>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless descriptionComplete}}disabled{{/unless}}><span>Review</span><i class="fa-solid fa-chevron-right"></i></button>
+    </footer>
+    {{/if}}
+
+    {{#if (eq step "review")}}
+    <section class="ic-step-content ic-review-step">
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Final Validation</span>
+          <h2>Review Item</h2>
+          <p>Review the native-style chat presentation and the compact inventory appearance before creating the Item in the world Items Directory.</p>
+        </div>
+      </header>
+
+      {{#if reviewError}}
+      <aside class="ic-review-error">
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <div><strong>Preview could not be built</strong><p>{{reviewError}}</p></div>
+      </aside>
+      {{else}}
+      <div class="ic-review-preview-grid">
+        <section class="ic-review-panel ic-chat-preview-panel">
+          <header><span class="ic-kicker">Chat Presentation</span><h3>Native Item Card</h3></header>
+          <div class="ic-native-chat-preview">{{{reviewChatCard}}}</div>
+        </section>
+
+        <section class="ic-review-panel ic-inventory-preview-panel">
+          <header><span class="ic-kicker">Inventory Presentation</span><h3>Item Card</h3></header>
+          {{#if reviewInventory}}
+          <article class="ic-inventory-card">
+            <img src="{{reviewInventory.img}}" alt="{{reviewInventory.name}}">
+            <div class="ic-inventory-main">
+              <div class="ic-inventory-title"><strong>{{reviewInventory.name}}</strong>{{#if reviewInventory.magical}}<i class="fa-solid fa-sparkles" title="Magical"></i>{{/if}}</div>
+              <p>{{reviewInventory.type}} · {{reviewInventory.rarity}}</p>
+              <dl>
+                <div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>
+                <div><dt>Attunement</dt><dd>{{reviewInventory.attunement}}</dd></div>
+                <div><dt>Quantity</dt><dd>{{reviewInventory.quantity}}</dd></div>
+                <div><dt>Effects</dt><dd>{{reviewInventory.effects}}</dd></div>
+              </dl>
+              {{#if reviewInventory.properties.length}}
+              <div class="ic-inventory-tags">{{#each reviewInventory.properties}}<span>{{this}}</span>{{/each}}</div>
+              {{/if}}
+            </div>
+          </article>
+
+          <div class="ic-review-activities">
+            <h4>Activities</h4>
+            {{#if reviewInventory.activities.length}}
+              {{#each reviewInventory.activities}}
+              <div class="ic-review-activity"><img src="{{img}}" alt=""><span><strong>{{name}}</strong><small>{{type}}</small></span></div>
+              {{/each}}
+            {{else}}
+              <p>No Activities are configured.</p>
+            {{/if}}
+          </div>
+          {{/if}}
+        </section>
+      </div>
+
+      <section class="ic-review-summary">
+        <header><span class="ic-kicker">Configuration Summary</span><h3>Final Draft</h3></header>
+        <dl>
+          <div><dt>Template</dt><dd>{{reviewSummary.template}}</dd></div>
+          <div><dt>Base Weapon</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
+          <div><dt>Final Name</dt><dd>{{reviewSummary.name}}</dd></div>
+          <div><dt>Base Overrides</dt><dd>{{reviewSummary.baseOverrides}}</dd></div>
+          <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>
+          <div><dt>Granted Spells</dt><dd>{{reviewSummary.grantedSpells}}</dd></div>
+          <div><dt>Granted Effects</dt><dd>{{reviewSummary.grantedEffects}}</dd></div>
+          <div><dt>Description</dt><dd>{{reviewSummary.description}}</dd></div>
+        </dl>
+        <aside><i class="fa-solid fa-circle-info"></i><p>Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.</p></aside>
+      </section>
+      {{/if}}
+    </section>
+
+    <footer class="ic-navigation">
+      <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
+      <button type="button" class="ic-primary-continue ic-save-item" data-action="save-item" {{#unless reviewReady}}disabled{{/unless}}>
+        <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Creating…{{else}}Save Item{{/if}}</span>
+      </button>
     </footer>
     {{/if}}
 

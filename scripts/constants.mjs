@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.0.3";
-export const MODULE_STAGE = "Alpha";
+export const MODULE_VERSION = "0.1.0";
+export const MODULE_STAGE = "Beta";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },
@@ -19,7 +19,7 @@ export const STEPS = Object.freeze([
   { id: "enhancements", label: "Enhancements", icon: "fa-wand-magic-sparkles", available: true },
   { id: "grantedEffects", label: "Granted Effects", icon: "fa-shield-heart", available: true },
   { id: "description", label: "Description", icon: "fa-scroll", available: true },
-  { id: "review", label: "Review", icon: "fa-list-check", available: false }
+  { id: "review", label: "Review", icon: "fa-list-check", available: true }
 ]);
 
 export function defaultSourceSettings() {

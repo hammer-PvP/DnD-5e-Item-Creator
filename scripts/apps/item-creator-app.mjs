@@ -1,6 +1,8 @@
 import { ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, STEPS } from "../constants.mjs";
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
+import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
+import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
@@ -407,8 +409,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
     this.templateDescription = "";
+    this.templateDescriptionRaw = "";
     this.customDescription = "";
     this.descriptionCustomized = false;
+    this.reviewBuildError = "";
+    this.savingItem = false;
     this.restoreScrollTop = null;
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
@@ -449,9 +454,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.#clearBaseWeapon();
       }
     }
-    if (this.selectedWeaponDocument && !this.templateDescription && !this.descriptionCustomized) {
+    if (this.selectedWeaponDocument && !this.templateDescriptionRaw) {
+      this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
       this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
-      this.customDescription = this.templateDescription;
+      if (!this.descriptionCustomized) this.customDescription = this.templateDescriptionRaw;
     }
 
     const typeComplete = Boolean(this.selectedType);
@@ -467,6 +473,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const grantedEffectValidation = this.#validateGrantedEffects();
     const grantedEffectsComplete = enhancementsComplete && grantedEffectValidation.valid;
     const descriptionComplete = grantedEffectsComplete;
+
+    let reviewData = null;
+    let reviewChatCard = "";
+    let reviewError = "";
+    if (this.step === "review" && descriptionComplete) {
+      try {
+        reviewData = await ItemCreatorItemBuilder.build(this.#builderDraft(effective));
+        reviewChatCard = await ItemCreatorItemBuilder.renderChatCard(reviewData.temporary);
+        this.reviewBuildError = "";
+      } catch (error) {
+        console.error(`${MODULE_ID} | Unable to build Review preview.`, error);
+        reviewError = error?.message ?? "The final Item preview could not be built.";
+        this.reviewBuildError = reviewError;
+      }
+    }
+    const reviewComplete = Boolean(reviewData) && !reviewError;
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
@@ -480,12 +502,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
               ? grantedEffectsComplete
               : step.id === "description"
                 ? descriptionComplete
-                : false,
+                : step.id === "review"
+                  ? reviewComplete
+                  : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
         || (step.id === "grantedEffects" && !enhancementsComplete)
         || (step.id === "description" && !grantedEffectsComplete)
+        || (step.id === "review" && !descriptionComplete)
     }));
 
     const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
@@ -652,6 +677,27 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
     const descriptionValue = this.descriptionCustomized ? this.customDescription : this.templateDescription;
     const enrichedDescription = await enrichDescription(descriptionValue, this.selectedWeaponDocument);
+    const reviewItem = reviewData?.temporary ?? null;
+    const reviewProperties = valuesOf(reviewItem?.system?.properties).map(value =>
+      localizedLabel(CONFIG.DND5E.itemProperties?.[value], value)).sort((a, b) => a.localeCompare(b, game.i18n.lang));
+    const reviewActivities = valuesOf(reviewItem?.system?.activities).map(activity => ({
+      name: activity.name || localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type),
+      type: localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type),
+      img: activity.img || reviewItem?.img
+    }));
+    const reviewInventory = reviewItem ? {
+      name: reviewItem.name,
+      img: reviewItem.img,
+      type: "Weapon",
+      rarity: localizedLabel(CONFIG.DND5E.itemRarity?.[reviewItem.system?.rarity], reviewItem.system?.rarity || "Mundane"),
+      attunement: reviewItem.system?.attunement ? localizedLabel(CONFIG.DND5E.attunementTypes?.[reviewItem.system.attunement], reviewItem.system.attunement) : "None",
+      quantity: reviewItem.system?.quantity ?? 1,
+      damage: displayDamage(effective?.baseDamage, damageTypeLabel),
+      properties: reviewProperties,
+      activities: reviewActivities,
+      effects: reviewItem.effects?.size ?? reviewItem.effects?.length ?? 0,
+      magical: valuesOf(reviewItem.system?.properties).includes("mgc")
+    } : null;
 
     return {
       stage: MODULE_STAGE,
@@ -771,7 +817,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       descriptionValue,
       enrichedDescription,
       hasTemplateDescription: Boolean(this.templateDescription.trim()),
-      descriptionSource: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Template"
+      hasRawTemplateDescription: Boolean(this.templateDescriptionRaw.trim()),
+      descriptionSource: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Template",
+      reviewComplete,
+      reviewReady: reviewComplete && Boolean(reviewData),
+      reviewError,
+      reviewChatCard,
+      reviewInventory,
+      reviewSummary: {
+        template: this.selectedWeaponDocument?.name ?? "—",
+        baseWeapon: this.selectedBaseWeaponDocument?.name ?? "—",
+        name: this.itemName.trim() || "—",
+        baseOverrides: customFieldCount,
+        enhancements: Object.values(this.enhancements).filter(Boolean).length,
+        grantedSpells: grantedSpellRows.length,
+        grantedEffects: grantedEffectCount,
+        description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
+      },
+      savingItem: this.savingItem
     };
   }
 
@@ -781,6 +844,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-action="step"]').forEach(button => button.addEventListener("click", event => this.#changeStep(event)));
     root.querySelector('[data-action="continue"]')?.addEventListener("click", event => this.#continue(event));
     root.querySelector('[data-action="back"]')?.addEventListener("click", event => this.#back(event));
+    root.querySelector('[data-action="save-item"]')?.addEventListener("click", event => this.#saveItem(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
@@ -835,6 +899,80 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const content = this.element?.querySelector(".ic-step-content");
         if (content) content.scrollTop = top;
       });
+    }
+  }
+
+  #builderDraft(effective = this.#effectiveValues()) {
+    return {
+      template: this.selectedWeaponDocument,
+      baseWeapon: this.selectedBaseWeaponDocument,
+      itemName: this.itemName,
+      icon: this.selectedIcon || this.selectedWeaponDocument?.img,
+      effective,
+      customized: clone(this.customized),
+      overrides: clone(this.overrides),
+      enhancements: clone(this.enhancements),
+      enhancementValues: clone(this.enhancementValues),
+      grantedEffects: clone(this.grantedEffects),
+      grantedEffectValues: clone(this.grantedEffectValues),
+      description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
+      descriptionCustomized: this.descriptionCustomized
+    };
+  }
+
+  async #saveItem(event) {
+    event.preventDefault();
+    if (this.savingItem) return;
+    this.#syncDescriptionFromEditor();
+    if (!this.#isBaseComplete() || !this.#validateEnhancements().valid || !this.#validateGrantedEffects().valid) {
+      ui.notifications.error("Item Creator found incomplete or invalid configuration. Review the enabled cards before saving.");
+      return;
+    }
+
+    try {
+      await ItemCreatorItemBuilder.build(this.#builderDraft());
+    } catch (error) {
+      console.error(`${MODULE_ID} | Final Item validation failed.`, error);
+      ui.notifications.error(`The Item could not be validated: ${error?.message ?? "Unknown validation error"}`);
+      return;
+    }
+
+    const itemName = this.itemName.trim();
+    const confirmed = await ProtectedTransactionDialogService.confirm({
+      key: "create-item",
+      matchClass: "ic-confirm-item-dialog",
+      dialogOptions: {
+        classes: ["ic-confirm-item-dialog"],
+        window: { title: "Confirm Item Creation", modal: true },
+        content: `<div class="ic-confirm-item-content"><i class="fa-solid fa-hammer"></i><div><h2>Confirm Item Creation</h2><p>Create <strong>${foundry.utils.escapeHTML(itemName)}</strong> in the Items Directory?</p></div></div>`,
+        yes: { label: "OK", icon: "fa-solid fa-check" },
+        no: { label: "Cancel", icon: "fa-solid fa-xmark" }
+      }
+    });
+    if (!confirmed) return;
+
+    this.savingItem = true;
+    try {
+      const created = await ProtectedTransactionDialogService.runProcessing({
+        title: "Creating Item…",
+        message: "Building the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait.",
+        operation: async () => {
+          const { data } = await ItemCreatorItemBuilder.build(this.#builderDraft());
+          const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+          const item = await ItemClass.create(data, { renderSheet: false });
+          if (!item) throw new Error("Foundry did not return the created Item document.");
+          return item;
+        }
+      });
+      ui.notifications.info(`${created.name} was created successfully.`);
+      await this.close();
+      ui.items?.render?.();
+    } catch (error) {
+      console.error(`${MODULE_ID} | Item creation failed.`, error);
+      ui.notifications.error(`Item creation failed. No Item was created: ${error?.message ?? "Unknown error"}`);
+      this.savingItem = false;
+      this.step = "review";
+      this.render({ force: true });
     }
   }
 
@@ -919,12 +1057,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.restoreScrollTop = null;
       this.step = "description";
       this.render({ force: true });
+      return;
+    }
+    if (this.step === "description" && this.#validateGrantedEffects().valid) {
+      this.restoreScrollTop = null;
+      this.step = "review";
+      this.render({ force: true });
     }
   }
 
   #back(event) {
     event.preventDefault();
     this.#syncDescriptionFromEditor();
+    if (this.step === "review") {
+      this.restoreScrollTop = null;
+      this.step = "description";
+      this.render({ force: true });
+      return;
+    }
     if (this.step === "description") {
       this.restoreScrollTop = null;
       this.step = "grantedEffects";
@@ -1058,8 +1208,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides = {};
       this.#resetEnhancements();
       this.#resetGrantedEffects();
+      this.templateDescriptionRaw = rawTemplateDescription(document);
       this.templateDescription = cleanTemplateDescription(document);
-      this.customDescription = this.templateDescription;
+      this.customDescription = this.templateDescriptionRaw;
       this.descriptionCustomized = false;
 
       const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
@@ -1112,15 +1263,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#resetEnhancements();
     this.#resetGrantedEffects();
     this.templateDescription = "";
+    this.templateDescriptionRaw = "";
     this.customDescription = "";
     this.descriptionCustomized = false;
+    this.reviewBuildError = "";
+    this.savingItem = false;
   }
 
   async #toggleDescriptionCustomization(event) {
     const enabled = event.currentTarget.checked;
     if (enabled) {
       this.descriptionCustomized = true;
-      this.customDescription = this.templateDescription;
+      this.customDescription = this.templateDescriptionRaw;
       this.#renderPreservingScroll();
       return;
     }
@@ -1129,7 +1283,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (changed) {
       const confirmed = await DialogV2.confirm({
         window: { title: "Restore Template Description", modal: true },
-        content: "<p>Disable description customization and discard the edited text? The cleaned Template description will be restored.</p>",
+        content: "<p>Disable description customization and discard the edited text? The inherited Template description will be restored.</p>",
         yes: { label: "Restore Template Description", icon: "fa-solid fa-rotate-left" },
         no: { label: "Keep Custom Description", icon: "fa-solid fa-xmark" }
       });
@@ -1139,7 +1293,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
     this.descriptionCustomized = false;
-    this.customDescription = this.templateDescription;
+    this.customDescription = this.templateDescriptionRaw;
     this.#renderPreservingScroll();
   }
 

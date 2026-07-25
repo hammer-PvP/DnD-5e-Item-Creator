@@ -1,10 +1,12 @@
 import { MODULE_ID, MODULE_VERSION, defaultSourceSettings } from "./constants.mjs";
 import { ItemCreatorApp } from "./apps/item-creator-app.mjs";
 import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
+import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 
 let appInstance = null;
 
 Hooks.once("init", () => {
+  ItemCreatorRuntimeEffectService.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, "sourceSettings", {
