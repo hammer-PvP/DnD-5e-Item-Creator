@@ -118,6 +118,21 @@ function clone(value) {
   return foundry.utils.deepClone(value);
 }
 
+function readDescriptionEditorValue(editor) {
+  if (!editor) return null;
+
+  const editable = editor.querySelector?.('.ProseMirror, [contenteditable="true"]');
+  if (editable) return editable.innerHTML;
+
+  const namedInput = editor.querySelector?.('[name="system.description.value"]');
+  if (namedInput && typeof namedInput.value === "string") return namedInput.value;
+
+  if (typeof editor.value === "string") return editor.value;
+
+  const attributeValue = editor.getAttribute?.("value");
+  return attributeValue === null || attributeValue === undefined ? null : String(attributeValue);
+}
+
 function displayDamage(data, damageTypeLabel) {
   if (!data) return "—";
   const dice = data.number && data.denomination ? `${data.number}d${data.denomination}` : "0";
@@ -884,6 +899,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const descriptionEditor = root.querySelector('[data-description-editor]');
     descriptionEditor?.addEventListener("input", event => this.#updateDescription(event));
     descriptionEditor?.addEventListener("change", event => this.#updateDescription(event));
+    descriptionEditor?.addEventListener("focusout", event => this.#updateDescription(event));
     const spellDropZone = root.querySelector('[data-spell-drop-zone]');
     if (spellDropZone) {
       spellDropZone.addEventListener("dragover", event => this.#spellDragOver(event));
@@ -1014,12 +1030,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #syncDescriptionFromEditor() {
     if (!this.descriptionCustomized) return;
     const editor = this.element?.querySelector?.("[data-description-editor]");
-    if (!editor) return;
-    const value = editor.value
-      ?? editor.querySelector?.("textarea")?.value
-      ?? editor.querySelector?.("input[type=hidden]")?.value
-      ?? editor.getAttribute?.("value");
-    if (value !== null && value !== undefined) this.customDescription = String(value);
+    const value = readDescriptionEditorValue(editor);
+    if (value !== null) this.customDescription = value;
   }
 
   #changeStep(event) {
@@ -1279,7 +1291,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
 
-    const changed = String(this.customDescription ?? "") !== String(this.templateDescription ?? "");
+    this.#syncDescriptionFromEditor();
+    const changed = String(this.customDescription ?? "") !== String(this.templateDescriptionRaw ?? "");
     if (changed) {
       const confirmed = await DialogV2.confirm({
         window: { title: "Restore Template Description", modal: true },
@@ -1299,13 +1312,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #updateDescription(event) {
     if (!this.descriptionCustomized) return;
-    const editor = event.currentTarget;
-    const value = editor?.value
-      ?? editor?.querySelector?.("textarea")?.value
-      ?? editor?.querySelector?.("input[type=hidden]")?.value
-      ?? editor?.getAttribute?.("value")
-      ?? "";
-    this.customDescription = String(value);
+    const value = readDescriptionEditorValue(event.currentTarget);
+    if (value !== null) this.customDescription = value;
   }
 
   #updateItemName(event) {

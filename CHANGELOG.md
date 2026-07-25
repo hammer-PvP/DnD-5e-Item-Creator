@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1 — Beta
+
+- Fixed the Description editor so enabling `Customize Description` loads the complete original Template HTML into Foundry's native ProseMirror editor.
+- Corrected the ProseMirror field path to `system.description.value` and added reliable capture of edited HTML before navigation, Review, and Save.
+- Fixed restoration checks so an untouched original Template description is not incorrectly treated as a manual edit.
+- Removed the duplicate D&D5e Item preparation that caused `Cannot redefine property: _index` during Review.
+- Isolated provisional Cast Activity construction from the final Item source to prevent D&D5e preparation from mutating and reusing Activity arrays.
+- Added recursive removal of transient `_index` properties before temporary Item construction, preview serialization, and final creation data.
+- Restored native chat-card and inventory Review previews for PHB 2024, Monster Manual 2024, and other Weapon Templates.
+- Restored `Save Item`, protected confirmation, and final world Item creation after a successful Review build.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.1`.
+
 ## 0.1.0 — Beta
 
 - Promoted the module from Alpha draft validation to the first complete Weapon creation Beta.

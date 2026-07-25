@@ -62,13 +62,29 @@ function damagePart({ number = 0, denomination = 0, bonus = "", damageType = "",
   };
 }
 
+function stripTransientIndices(value) {
+  if (Array.isArray(value)) return value.map(entry => stripTransientIndices(entry));
+  if (!value || typeof value !== "object") return value;
+
+  const clean = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === "_index") continue;
+    clean[key] = stripTransientIndices(entry);
+  }
+  return clean;
+}
+
+function cleanDocumentSource(source) {
+  return stripTransientIndices(clone(source ?? {}));
+}
+
 function sanitizeDocumentData(source) {
-  const data = clone(source ?? {});
+  const data = cleanDocumentSource(source);
   for (const key of ["_id", "folder", "sort", "ownership", "_stats", "pack"]) delete data[key];
   data.flags ??= {};
   data.system ??= {};
   data.effects = (data.effects ?? []).map(effect => {
-    const clean = clone(effect);
+    const clean = cleanDocumentSource(effect);
     delete clean.origin;
     return clean;
   });
@@ -499,12 +515,15 @@ export class ItemCreatorItemBuilder {
     const provisionalActivities = [...nonAttackActivities, attack];
     data.system.activities = Object.fromEntries(provisionalActivities.map(activity => [activity._id, activity]));
 
-    // Create a provisional parent so native Cast Activity data models can apply defaults and validation.
+    // Create an isolated provisional parent only when native Cast Activity models are needed.
+    // D&D5e mutates Activity array entries during preparation by defining a non-configurable `_index`.
+    // Never reuse the source object passed to a temporary Item constructor.
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
-    const provisionalItem = new ItemClass(data, { temporary: true });
     if (enhancements.grantedSpellcasting) {
+      const provisionalSource = cleanDocumentSource(data);
+      const provisionalItem = new ItemClass(provisionalSource, { temporary: true });
       const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting.spells ?? []);
-      for (const activity of castActivities) data.system.activities[activity._id] = activity;
+      for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
     data.effects = objectEffects(draft.template).map(effect => {
@@ -539,10 +558,11 @@ export class ItemCreatorItemBuilder {
 
     composeRuntimeText(data, draft);
 
-    // Validate using the actual D&D5e Item document class before preview or creation.
-    const temporary = new ItemClass(data, { temporary: true });
-    temporary.prepareData();
-    const finalData = temporary.toObject();
+    // Validate using one fresh D&D5e Item document. The constructor performs preparation.
+    // Calling prepareData again, or reusing a previously prepared source, causes `_index` redefinition errors.
+    const finalSource = cleanDocumentSource(data);
+    const temporary = new ItemClass(finalSource, { temporary: true });
+    const finalData = cleanDocumentSource(temporary.toObject());
     delete finalData._id;
     return { data: finalData, temporary };
   }
