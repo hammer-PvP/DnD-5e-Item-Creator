@@ -281,6 +281,15 @@ function buildGrantedEffects(enabled, values) {
     addEffect("spellSaveDcBonus", "Spell Save DC Bonus", values.spellSaveDcBonus.availability, changes);
   }
 
+  if (enabled.criticalThreshold) {
+    const changes = [];
+    const threshold = Math.min(20, Math.max(1, Number(values.criticalThreshold?.threshold) || 20));
+    const scope = values.criticalThreshold?.scope ?? "all";
+    if (scope === "all" || scope === "weapon") addChange(changes, "flags.dnd5e.weaponCriticalThreshold", MODES().DOWNGRADE, threshold);
+    if (scope === "all" || scope === "spell") addChange(changes, "flags.dnd5e.spellCriticalThreshold", MODES().DOWNGRADE, threshold);
+    addEffect("criticalThreshold", "Critical Hit Threshold", values.criticalThreshold.availability, changes);
+  }
+
   if (enabled.passiveScoreBonus) {
     const changes = [];
     const scoreSkills = { perception: "prc", investigation: "inv", insight: "ins" };
@@ -455,9 +464,9 @@ function spellReference(spell) {
 function availabilityLead(availability) {
   return {
     owned: "While you possess this item",
-    equipped: "While this weapon is equipped",
-    equippedAttuned: "While this weapon is equipped and you are attuned to it"
-  }[availability] ?? "While this weapon is equipped";
+    equipped: "While this item is equipped",
+    equippedAttuned: "While this item is equipped and you are attuned to it"
+  }[availability] ?? "While this item is equipped";
 }
 
 function useCountPhrase(maxUses) {
@@ -619,7 +628,8 @@ function titleCase(value) {
 
 function availabilityTitle(availability) {
   return {
-    weapon: "Weapon Properties",
+    item: "Item Properties",
+    weapon: "Item Properties",
     owned: "While Owned",
     equipped: "While Equipped",
     equippedAttuned: "While Equipped and Attuned"
@@ -628,6 +638,7 @@ function availabilityTitle(availability) {
 
 function availabilityChatSuffix(availability) {
   return {
+    item: "",
     weapon: "",
     owned: " while owned",
     equipped: " while equipped",
@@ -666,7 +677,7 @@ function formatRows(rows, formatter) {
 
 function itemPropertyEntries(draft) {
   const entries = [];
-  const add = (label, value, availability = "weapon") => {
+  const add = (label, value, availability = "item") => {
     const text = String(value ?? "").trim();
     if (text) entries.push({ label, value: text, availability });
   };
@@ -693,6 +704,16 @@ function itemPropertyEntries(draft) {
     const attunement = setting.attunement === "required" ? "; requires attunement" : "";
     add("Magical Weapon", `${rarity || "Magical"}${attunement}`);
   }
+  if (enhancements.magicalItem) {
+    const setting = enhancementValues.magicalItem ?? {};
+    const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
+    const attunement = setting.attunement === "required" ? "; requires attunement" : "";
+    add("Magical Equipment", `${rarity || "Magical"}${attunement}`);
+  }
+  if (enhancements.armorEnhancement) add("Armor Enhancement", `${signedValue(enhancementValues.armorEnhancement?.bonus)} AC`);
+  if (enhancements.baseArmorClass) add("Base Armor Class", String(Number(enhancementValues.baseArmorClass?.value) || 0));
+  if (enhancements.removeStrengthRequirement) add("Strength Requirement", "Removed");
+  if (enhancements.removeStealthDisadvantage) add("Stealth Disadvantage", "Removed");
   if (enhancements.weaponEnhancement) add("Weapon Enhancement", `${signedValue(enhancementValues.weaponEnhancement?.bonus)} to attack and damage rolls`);
   if (enhancements.attackBonus) add("Attack Roll Bonus", `${signedValue(enhancementValues.attackBonus?.bonus)} to attack rolls`);
   if (enhancements.damageBonus) add("Damage Roll Bonus", `${signedValue(enhancementValues.damageBonus?.bonus)} to damage rolls`);
@@ -718,10 +739,17 @@ function itemPropertyEntries(draft) {
       wielderDimLight: "the wielder is in dim light",
       targetNotActed: "the target has not acted in this combat"
     }[setting.supportedCondition];
-    add("Conditional Advantage", condition ? `Advantage on attacks with this weapon when ${condition}` : "");
+    const sourceLabel = draft.itemType === "equipment" ? "while this item is active" : "with this weapon";
+    add("Conditional Advantage", condition ? `Advantage on attacks ${sourceLabel} when ${condition}` : "");
   }
 
   if (effects.armorClassBonus) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
+  if (effects.criticalThreshold) {
+    const setting = effectValues.criticalThreshold ?? {};
+    const threshold = Number(setting.threshold) || 20;
+    const scope = setting.scope === "weapon" ? "weapon attacks" : setting.scope === "spell" ? "spell attacks" : "weapon and spell attacks";
+    add("Critical Hit Threshold", `Critical hit on ${threshold === 20 ? "20" : `${threshold}–20`} for ${scope}`, setting.availability);
+  }
   if (effects.savingThrowBonus) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
     ? `${signedValue(row.bonus)} to all saving throws`
     : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowBonus?.availability);
@@ -789,15 +817,15 @@ function composeItemPropertiesText(data, draft) {
     return;
   }
 
-  const groupOrder = ["weapon", "owned", "equipped", "equippedAttuned"];
+  const groupOrder = ["item", "owned", "equipped", "equippedAttuned"];
   const groups = groupOrder.map(availability => ({
     availability,
-    entries: entries.filter(entry => (entry.availability || "weapon") === availability)
+    entries: entries.filter(entry => (entry.availability || "item") === availability)
   })).filter(group => group.entries.length);
 
   const fullGroups = groups.map(group => `<div class="item-creator-property-group"><h4>${availabilityTitle(group.availability)}</h4>${propertyGridHtml(group.entries)}</div>`).join("");
   const fullSection = `<section class="item-creator-generated item-creator-item-properties" data-item-creator-generated="item-properties"><h3>Item Properties</h3>${fullGroups}</section>`;
-  const chatItems = entries.map(entry => `<li><strong>${escapeHtml(entry.label)}:</strong> ${escapeHtml(entry.value)}${escapeHtml(availabilityChatSuffix(entry.availability || "weapon"))}.</li>`).join("");
+  const chatItems = entries.map(entry => `<li><strong>${escapeHtml(entry.label)}:</strong> ${escapeHtml(entry.value)}${escapeHtml(availabilityChatSuffix(entry.availability || "item"))}.</li>`).join("");
   const chatSection = `<section class="item-creator-generated item-creator-item-properties" data-item-creator-generated="item-properties"><h3>Item Properties</h3><ul>${chatItems}</ul></section>`;
 
   data.system.description.value = appendGeneratedSection(currentValue, fullSection);
@@ -821,32 +849,13 @@ function composeGrantedSpellcastingText(data, draft) {
   data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
 }
 
-function composeRuntimeText(data, draft) {
-  const lines = [];
-  if (draft.enhancements.ignoreResistance) {
-    const labels = (draft.enhancementValues.ignoreResistance.damageTypes ?? [])
-      .map(type => game.i18n.localize(CONFIG.DND5E.damageTypes?.[type]?.label ?? type));
-    if (labels.length) lines.push(`<p><strong>Ignore Resistance.</strong> Damage of the selected type${labels.length > 1 ? "s" : ""} (${labels.join(", ")}) from this weapon ignores resistance, but not immunity.</p>`);
-  }
-  if (draft.enhancements.conditionalAdvantage) {
-    const setting = draft.enhancementValues.conditionalAdvantage;
-    const condition = setting.mode === "custom" ? setting.customText : {
-      targetUndead: "the target is Undead",
-      targetFiend: "the target is a Fiend",
-      targetBloodied: "the target is below half its Hit Points",
-      wielderDimLight: "the wielder is in dim light",
-      targetNotActed: "the target has not acted in this combat"
-    }[setting.supportedCondition];
-    if (condition) lines.push(`<p><strong>Conditional Advantage.</strong> The wielder has advantage on attack rolls made with this weapon when ${condition}.</p>`);
-  }
-  if (!lines.length) return;
-  const existing = String(data.system.description?.value ?? "");
-  data.system.description ??= {};
-  data.system.description.value = `${existing}${existing ? "\n" : ""}<section class="item-creator-runtime-rules"><h3>Item Creator Rules</h3>${lines.join("")}</section>`;
-}
-
 export class ItemCreatorItemBuilder {
   static async build(draft) {
+    if (draft?.itemType === "equipment") return this.#buildEquipment(draft);
+    return this.#buildWeapon(draft);
+  }
+
+  static async #buildWeapon(draft) {
     if (!draft?.template || !draft?.baseWeapon || !draft?.effective) throw new Error("Template, Base Weapon, and effective values are required.");
 
     const data = sanitizeDocumentData(draft.template.toObject());
@@ -995,6 +1004,117 @@ export class ItemCreatorItemBuilder {
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.
     // Calling prepareData again, or reusing a previously prepared source, causes `_index` redefinition errors.
+    const finalSource = cleanDocumentSource(data);
+    const temporary = new ItemClass(finalSource, { temporary: true });
+    const finalData = cleanDocumentSource(temporary.toObject());
+    delete finalData._id;
+    return { data: finalData, temporary };
+  }
+
+  static async #buildEquipment(draft) {
+    if (!draft?.template || !draft?.effective) throw new Error("Template and effective Equipment values are required.");
+
+    const template = draft.template;
+    const baseEquipment = draft.baseEquipment ?? draft.baseWeapon ?? template;
+    const data = sanitizeDocumentData(template.toObject());
+    const baseSource = baseEquipment.toObject();
+    const effective = clone(draft.effective);
+    const enhancements = draft.enhancements ?? {};
+    const enhancementValues = draft.enhancementValues ?? {};
+
+    data.name = draft.itemName.trim();
+    data.img = draft.icon || template.img || baseEquipment.img || "icons/svg/item-bag.svg";
+    data.type = "equipment";
+    data.system ??= {};
+    data.system.description ??= {};
+    data.system.description.value = draft.description ?? "";
+    data.system.description.chat = data.system.description.chat ?? "";
+    data.system.type = clone(baseSource.system?.type ?? data.system.type ?? {});
+    data.system.type.value = effective.nativeType || "wondrous";
+    data.system.type.baseItem = effective.baseItem ?? baseSource.system?.type?.baseItem ?? baseSource.system?.identifier ?? "";
+    data.system.quantity = Math.max(1, Number(effective.quantity) || 1);
+    data.system.weight = { value: Number(effective.weight?.value) || 0, units: effective.weight?.units || "lb" };
+    data.system.price = { value: Number(effective.price?.value) || 0, denomination: effective.price?.denomination || "gp" };
+    data.system.proficient = effective.proficient === "automatic" ? null : effective.proficient === "proficient" ? 1 : 0;
+    data.system.properties = [...new Set(effective.properties ?? [])].filter(property => property !== "mgc");
+    data.system.armor = clone(baseSource.system?.armor ?? data.system.armor ?? {});
+    data.system.armor.value = Number(effective.armor?.value) || 0;
+    data.system.armor.dex = effective.armor?.dex === "" || effective.armor?.dex === null || effective.armor?.dex === undefined
+      ? null : Number(effective.armor.dex);
+    data.system.armor.magicalBonus = String(effective.armor?.magicalBonus ?? data.system.armor.magicalBonus ?? "");
+    data.system.strength = Number(effective.strength) || 0;
+    data.system.rarity = template.system?.rarity ?? data.system.rarity ?? "";
+    data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
+    data.system.equipped = false;
+    data.system.attuned = false;
+
+    if (enhancements.magicalItem) {
+      data.system.properties.push("mgc");
+      data.system.rarity = enhancementValues.magicalItem?.rarity || "uncommon";
+      data.system.attunement = enhancementValues.magicalItem?.attunement || "";
+    } else if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+
+    if (enhancements.armorEnhancement) {
+      data.system.properties.push("mgc");
+      data.system.armor.magicalBonus = String(Number(enhancementValues.armorEnhancement?.bonus) || 0);
+    }
+    if (enhancements.baseArmorClass) data.system.armor.value = Number(enhancementValues.baseArmorClass?.value) || 0;
+    if (enhancements.removeStrengthRequirement) data.system.strength = 0;
+    if (enhancements.removeStealthDisadvantage) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
+    data.system.properties = [...new Set(data.system.properties)];
+
+    const templateActivities = objectActivities(template);
+    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
+    data.system.activities = Object.fromEntries(Object.values(templateActivities)
+      .filter(activity => !managedActivityIds.has(activity?._id ?? activity?.id))
+      .map(activity => [activity._id, cleanDocumentSource(activity)]));
+
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    if (enhancements.grantedSpellcasting) {
+      const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? []);
+      for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
+    }
+
+    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
+    data.effects = objectEffects(template).filter(effect => !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
+      const clean = clone(effect);
+      delete clean.origin;
+      return clean;
+    });
+    data.effects.push(...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {}));
+
+    data.flags ??= {};
+    data.flags[MODULE_ID] = {
+      created: true,
+      schemaVersion: 1,
+      moduleVersion: MODULE_VERSION,
+      itemType: "equipment",
+      equipmentForm: draft.equipmentForm ?? "accessory",
+      templateUuid: template.uuid,
+      baseEquipmentUuid: baseEquipment.uuid,
+      editedFromUuid: draft.editingSourceUuid ?? null,
+      importedItem: Boolean(draft.importedItem),
+      runtime: {
+        ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
+        conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
+        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : []
+      },
+      draft: plain({
+        equipmentForm: draft.equipmentForm ?? "accessory",
+        customized: draft.customized,
+        overrides: draft.overrides,
+        enhancements: draft.enhancements,
+        enhancementValues: draft.enhancementValues,
+        grantedEffects: draft.grantedEffects,
+        grantedEffectValues: draft.grantedEffectValues,
+        descriptionCustomized: draft.descriptionCustomized
+      })
+    };
+
+    composeItemPropertiesText(data, draft);
+    composeGrantedSpellcastingText(data, draft);
+
     const finalSource = cleanDocumentSource(data);
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());

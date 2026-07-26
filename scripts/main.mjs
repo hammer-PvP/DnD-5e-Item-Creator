@@ -21,7 +21,7 @@ Hooks.once("init", () => {
   game.settings.registerMenu(MODULE_ID, "contentSources", {
     name: "Content Sources",
     label: "Configure Content Sources",
-    hint: "Choose which installed content sources Item Creator can use for base weapons and icons, then arrange their priority.",
+    hint: "Choose which installed content sources Item Creator can use for base items and icons, then arrange their priority.",
     icon: "fa-solid fa-books",
     type: ItemCreatorSettingsApp,
     restricted: true
@@ -61,8 +61,10 @@ function contextItem(target) {
   return id ? game.items.get(String(id)) : null;
 }
 
-function isEditableWorldWeapon(item) {
-  return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && item.type === "weapon" && !item.parent && !item.pack);
+function isEditableWorldItem(item) {
+  const supported = item?.type === "weapon"
+    || (item?.type === "equipment" && item?.system?.type?.value !== "vehicle");
+  return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && supported && !item.parent && !item.pack);
 }
 
 function addEditContextOption(options) {
@@ -72,17 +74,17 @@ function addEditContextOption(options) {
     itemCreatorEdit: true,
     name: "Edit with Item Creator",
     icon: '<i class="fa-solid fa-hammer"></i>',
-    condition: target => isEditableWorldWeapon(contextItem(target)),
+    condition: target => isEditableWorldItem(contextItem(target)),
     callback: target => {
       const item = contextItem(target);
-      if (isEditableWorldWeapon(item)) openItemCreator({ item });
+      if (isEditableWorldItem(item)) openItemCreator({ item });
     }
   });
 }
 
 function openItemCreator({ item = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Item Creator.");
-  if (item && !isEditableWorldWeapon(item)) return ui.notifications.warn("Only world Weapon Items can be edited with Item Creator.");
+  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon and Equipment Items can be edited with Item Creator.");
 
   if (appInstance?.element?.isConnected) {
     const sameTarget = (appInstance.editingItemId ?? null) === (item?.id ?? null);

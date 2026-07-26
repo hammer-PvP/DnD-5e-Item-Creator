@@ -38,7 +38,7 @@
             <i class="fa-solid fa-books"></i>
             <span>
               <strong>{{label}}</strong>
-              <small>{{weaponCount}} weapon documents across {{packCount}} compatible compendiums</small>
+              <small>{{itemCount}} supported documents ({{weaponCount}} Weapons · {{equipmentCount}} Equipment) across {{packCount}} compatible compendiums</small>
               {{#if packageSummary}}<small>{{packageSummary}}</small>{{/if}}
             </span>
           </label>
@@ -51,7 +51,7 @@
         <div class="ic-empty-state">
           <i class="fa-solid fa-triangle-exclamation"></i>
           <strong>No compatible content sources were found</strong>
-          <p>Activate a D&D5e system or module package that contains Weapon Item documents.</p>
+          <p>Activate a D&D5e system or module package that contains supported Weapon or Equipment Item documents.</p>
         </div>
         {{/each}}
       </div>

@@ -26,7 +26,7 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
 
   async _prepareContext() {
     const registry = ItemCreatorSourceRegistry.instance;
-    const sources = await registry.discoverWeaponSources({ force: true });
+    const sources = await registry.discoverItemSources({ force: true });
     const settings = registry.resolveSourceSettings(sources);
     const availableIds = sources.map(source => source.id);
 

@@ -33,9 +33,9 @@
 
     <section class="ic-draft-summary">
       <h3>Current Draft</h3>
-      <p><strong>Type:</strong> {{#if selectedType}}Weapon{{else}}—{{/if}}</p>
-      <p><strong>Template:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
-      <p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>
+      <p><strong>Type:</strong> {{#if selectedType}}{{itemTypeLabel}}{{else}}—{{/if}}</p>
+      <p><strong>{{#if isEquipment}}Base Item{{else}}Template{{/if}}:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      {{#if isWeapon}}<p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>{{else if isEquipment}}<p><strong>Equipment Form:</strong> {{equipmentFormLabel}}</p>{{/if}}
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
@@ -54,7 +54,7 @@
         <div>
           <span class="ic-kicker">Assisted Item Creation</span>
           <h2>Choose Item Type</h2>
-          <p>Weapon is the first supported creation flow. Other document types will be added after Weapon is complete and validated.</p>
+          <p>Create Weapons and Equipment with the same assisted workflow. Consumables and Tools will be added in later stages.</p>
         </div>
       </header>
 
@@ -77,7 +77,7 @@
         <i class="fa-solid fa-flask"></i>
         <div>
           <strong>v{{version}} Beta flow</strong>
-          <p>This Beta supports the complete Weapon creation flow: Base Item, Enhancements, Granted Effects, Description, Review, and protected creation in the Items Directory.</p>
+          <p>This Beta supports complete Weapon and Equipment flows, including native base data, enhancements, granted effects, granted spells, protected creation, and world-item editing.</p>
         </div>
       </aside>
     </section>
@@ -92,6 +92,7 @@
 
     {{#if (eq step "baseItem")}}
     <section class="ic-step-content ic-base-step">
+      {{#if isWeapon}}
       <header class="ic-section-header">
         <div>
           <span class="ic-kicker">Weapon Creation</span>
@@ -138,7 +139,7 @@
               {{#each templateOptionGroups}}
               <optgroup label="{{label}}">
                 {{#each items}}
-                <option value="{{uuid}}" data-template-option data-category="{{weaponType}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
+                <option value="{{uuid}}" data-template-option data-category="{{templateCategory}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>
                 {{/each}}
               </optgroup>
               {{/each}}
@@ -423,6 +424,73 @@
         <p>Use the native D&D5e Compendium Browser or the manual dropdowns to load the starting name, icon, damage, properties, range, Mastery, weight, price, and other core values.</p>
       </div>
       {{/if}}
+      {{else}}
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Equipment Creation</span>
+          <h2>Base Item</h2>
+          <p>Select an existing Equipment Item or start from a custom equipment shell. This step defines what the object physically is; its powers are configured later.</p>
+        </div>
+      </header>
+
+      <section class="ic-template-panel">
+        <header><div><span class="ic-kicker">Base Equipment</span><h3>Choose a Starting Model</h3></div><small><strong>{{weaponCount}}</strong> matching items</small></header>
+        <div class="ic-template-browser-entry ic-equipment-browser-actions">
+          <button type="button" class="ic-browse-template-button" data-action="browse-templates"><i class="fa-solid fa-books"></i><span><strong>Browse Equipment</strong><small>Open the native D&amp;D5e Compendium Browser restricted to Equipment Items.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button type="button" class="ic-browse-template-button ic-custom-equipment-button" data-action="custom-equipment"><i class="fa-solid fa-plus"></i><span><strong>Create Custom Equipment</strong><small>Start with an empty equipment shell for robes, rings, amulets, catalysts, and other custom objects.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+        <div class="ic-manual-template-divider"><span>or select manually</span></div>
+        <div class="ic-template-controls ic-template-manual-controls">
+          <label><span>Equipment Type</span><select data-template-category>{{#each templateCategoryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+          <label class="ic-template-select-field"><span>Base Item</span><select data-template-select {{#unless weaponCount}}disabled{{/unless}}><option value="">Select equipment…</option>{{#each templateOptionGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{uuid}}" data-template-option data-category="{{templateCategory}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+        </div>
+      </section>
+
+      {{#if selectedWeapon}}
+      <div class="ic-base-form-layout">
+        <section class="ic-identity-panel">
+          <header><span class="ic-kicker">Identity</span><h3>Equipment Identity</h3></header>
+          <div class="ic-template-summary">
+            <button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="open-icon-browser" {{#unless iconCustomized}}disabled{{/unless}}><img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}"><span><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span></button>
+            <div><strong>{{selectedWeapon.name}}</strong><small>{{selectedWeapon.sourceLabel}}</small><small>{{selectedWeapon.packLabel}}</small></div>
+          </div>
+          <label class="ic-field"><span>Item Name</span><input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off"></label>
+          <label class="ic-identity-toggle"><input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}><span><strong>Customize Icon</strong><small>Enable the icon button to select another image.</small></span></label>
+          <dl class="ic-template-metadata"><div><dt>Native Type</dt><dd>{{selectedWeapon.equipmentTypeLabel}}</dd></div><div><dt>Equipment Form</dt><dd>{{equipmentFormLabel}}</dd></div><div><dt>Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div></dl>
+        </section>
+
+        <section class="ic-core-fields-panel">
+          <header><span class="ic-kicker">Physical Structure</span><h3>Equipment Fields</h3></header>
+          <div class="ic-override-grid">
+            <section class="ic-override-card enabled ic-span-two">
+              <label class="ic-field"><span>Equipment Form</span><select data-equipment-form>{{#each equipmentFormOptions}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <small class="ic-field-note">Torso / Robe and other clothing remain non-armor Equipment and require no Armor Training.</small>
+            </section>
+
+            <section class="ic-override-card {{#if custom.nativeType}}enabled{{/if}}">
+              <label class="ic-override-heading"><input type="checkbox" data-override-toggle="nativeType" {{#if custom.nativeType}}checked{{/if}}><span><strong>Customize Native Type</strong><small>Foundry D&amp;D5e equipment classification.</small></span></label>
+              {{#if isArmorForm}}<select data-override-input="nativeType" {{#unless custom.nativeType}}disabled{{/unless}}>{{#each armorTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>{{else}}<select data-override-input="nativeType" {{#unless custom.nativeType}}disabled{{/unless}}>{{#each equipmentTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>{{/if}}
+            </section>
+
+            <section class="ic-override-card {{#if custom.quantity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="quantity" {{#if custom.quantity}}checked{{/if}}><span><strong>Customize Quantity</strong><small>Initial stack quantity.</small></span></label><input type="number" min="1" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}></section>
+
+            <section class="ic-override-card {{#if custom.weight}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="weight" {{#if custom.weight}}checked{{/if}}><span><strong>Customize Weight</strong><small>Weight of one item.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.weight.value}}" data-override-input="weight" data-override-part="value" data-value-type="number" {{#unless custom.weight}}disabled{{/unless}}></label><label><span>Unit</span><select data-override-input="weight" data-override-part="units" {{#unless custom.weight}}disabled{{/unless}}>{{#each weightUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+
+            <section class="ic-override-card {{#if custom.price}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="price" {{#if custom.price}}checked{{/if}}><span><strong>Customize Price</strong><small>Market value and currency.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.price.value}}" data-override-input="price" data-override-part="value" data-value-type="number" {{#unless custom.price}}disabled{{/unless}}></label><label><span>Currency</span><select data-override-input="price" data-override-part="denomination" {{#unless custom.price}}disabled{{/unless}}>{{#each currencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+
+            {{#if hasArmorFields}}
+            <section class="ic-override-card ic-span-two {{#if custom.armor}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="armor" {{#if custom.armor}}checked{{/if}}><span><strong>Customize Armor Data</strong><small>Native AC and Dexterity contribution. Leave maximum Dexterity blank for full Dexterity.</small></span></label><div class="ic-enhancement-fields three-columns"><label><span>Base AC</span><input type="number" min="0" step="1" value="{{effective.armor.value}}" data-override-input="armor" data-override-part="value" data-value-type="number" {{#unless custom.armor}}disabled{{/unless}}></label><label><span>Maximum Dexterity Bonus</span><input type="number" min="0" step="1" value="{{#unless armorDexFull}}{{armorDexValue}}{{/unless}}" data-override-input="armor" data-override-part="dex" {{#unless custom.armor}}disabled{{/unless}}></label><label><span>Current Magical Bonus</span><input type="text" value="{{effective.armor.magicalBonus}}" data-override-input="armor" data-override-part="magicalBonus" {{#unless custom.armor}}disabled{{/unless}}></label></div></section>
+            <section class="ic-override-card {{#if custom.strength}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="strength" {{#if custom.strength}}checked{{/if}}><span><strong>Customize Strength Requirement</strong><small>Set 0 for no requirement.</small></span></label><input type="number" min="0" step="1" value="{{effective.strength}}" data-override-input="strength" data-value-type="number" {{#unless custom.strength}}disabled{{/unless}}></section>
+            {{/if}}
+
+            <section class="ic-override-card ic-span-two {{#if custom.properties}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="properties" {{#if custom.properties}}checked{{/if}}><span><strong>Customize Equipment Properties</strong><small>Native D&amp;D5e properties such as Focus or Stealth Disadvantage.</small></span></label><div class="ic-property-grid">{{#each propertyOptions}}<label class="ic-property-option {{#if selected}}selected{{/if}}"><input type="checkbox" data-property-key="{{value}}" {{#if selected}}checked{{/if}} {{#unless ../custom.properties}}disabled{{/unless}}><span>{{label}}</span></label>{{/each}}</div></section>
+          </div>
+        </section>
+      </div>
+      {{else}}
+      <div class="ic-empty-state ic-template-empty"><i class="fa-solid fa-shirt"></i><strong>Choose equipment or create a custom shell</strong><p>Armor, shields, robes, cloaks, rings, amulets, boots, gloves, focuses, catalysts, and other equipable objects all use this flow.</p></div>
+      {{/if}}
+      {{/if}}
     </section>
 
     <footer class="ic-navigation">
@@ -435,6 +503,7 @@
 
     {{#if (eq step "enhancements")}}
     <section class="ic-step-content ic-enhancements-step">
+      {{#if isWeapon}}
       <header class="ic-section-header">
         <div>
           <span class="ic-kicker">Weapon Creation</span>
@@ -526,6 +595,20 @@
         </div>
       </section>
 
+      {{else}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Equipment Creation</span><h2>Enhancements</h2><p>Configure only structural properties of the Equipment document here. Actor-facing powers belong in Granted Effects.</p></div></header>
+      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-layer-group"></i><div><strong>Filtered for Equipment</strong><p>Weapon-only attack, damage, Mastery, and weapon critical fields are hidden. Armor-specific options appear only for Armor and Shield forms.</p></div></aside>
+      <section class="ic-enhancement-group"><header><span class="ic-kicker">Magical Configuration</span><h3>Magical Nature and Armor Data</h3></header><div class="ic-enhancement-grid">
+        <section class="ic-enhancement-card {{#if enhancement.magicalItem}}enabled{{/if}} {{#if enhancementErrors.magicalItem}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="magicalItem" {{#if enhancement.magicalItem}}checked{{/if}}><span><strong>Magical Equipment</strong><small>Set rarity and attunement for any armor, robe, ring, amulet, focus, or accessory.</small></span></label><div class="ic-enhancement-fields two-columns"><label><span>Rarity</span><select data-enhancement-input="magicalItem" data-enhancement-part="rarity" {{#unless enhancement.magicalItem}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Attunement</span><select data-enhancement-input="magicalItem" data-enhancement-part="attunement" {{#unless enhancement.magicalItem}}disabled{{/unless}}>{{#each attunementOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+        {{#if hasArmorFields}}
+        <section class="ic-enhancement-card {{#if enhancement.armorEnhancement}}enabled{{/if}} {{#if enhancementErrors.armorEnhancement}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="armorEnhancement" {{#if enhancement.armorEnhancement}}checked{{/if}}><span><strong>Armor Enhancement</strong><small>Apply the native +1, +2, or +3 magical armor bonus.</small></span></label><label class="ic-enhancement-field"><span>Enhancement Bonus</span><select data-enhancement-input="armorEnhancement" data-enhancement-part="bonus" data-value-type="number" {{#unless enhancement.armorEnhancement}}disabled{{/unless}}>{{#each enhancementBonusOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></section>
+        <section class="ic-enhancement-card {{#if enhancement.baseArmorClass}}enabled{{/if}} {{#if enhancementErrors.baseArmorClass}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="baseArmorClass" {{#if enhancement.baseArmorClass}}checked{{/if}}><span><strong>Base Armor Class Override</strong><small>Replace the native base AC value.</small></span></label><label class="ic-enhancement-field"><span>Base AC</span><input type="number" min="0" max="40" step="1" value="{{enhancementValues.baseArmorClass.value}}" data-enhancement-input="baseArmorClass" data-enhancement-part="value" data-value-type="number" {{#unless enhancement.baseArmorClass}}disabled{{/unless}}></label></section>
+        <section class="ic-enhancement-card {{#if enhancement.removeStrengthRequirement}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="removeStrengthRequirement" {{#if enhancement.removeStrengthRequirement}}checked{{/if}}><span><strong>Remove Strength Requirement</strong><small>Set the native Strength requirement to none.</small></span></label></section>
+        <section class="ic-enhancement-card {{#if enhancement.removeStealthDisadvantage}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="removeStealthDisadvantage" {{#if enhancement.removeStealthDisadvantage}}checked{{/if}}><span><strong>Remove Stealth Disadvantage</strong><small>Remove the native Stealth Disadvantage property.</small></span></label></section>
+        {{/if}}
+      </div></section>
+      {{/if}}
+
       <section class="ic-enhancement-group ic-spellcasting-group">
         <header>
           <span class="ic-kicker">Granted Magic</span>
@@ -534,7 +617,7 @@
         <section class="ic-enhancement-card ic-span-two ic-granted-spellcasting-card {{#if enhancement.grantedSpellcasting}}enabled{{/if}} {{#if enhancementErrors.grantedSpellcasting}}invalid{{/if}}">
           <label class="ic-override-heading">
             <input type="checkbox" data-enhancement-toggle="grantedSpellcasting" {{#if enhancement.grantedSpellcasting}}checked{{/if}}>
-            <span><strong>Granted Spellcasting</strong><small>Grant one or more Spells through this weapon. Each Spell has independent uses, recovery, slot consumption, eligibility, cast level, spellcasting calculation, spellbook visibility, and availability.</small></span>
+            <span><strong>Granted Spellcasting</strong><small>Grant one or more existing Spells through this item. Each Spell has independent uses, recovery, slot consumption, eligibility, cast level, spellcasting calculation, spellbook visibility, and availability.</small></span>
           </label>
 
           <div class="ic-spell-drop-zone {{#unless enhancement.grantedSpellcasting}}disabled{{/unless}}" data-spell-drop-zone>
@@ -637,7 +720,7 @@
           <section class="ic-enhancement-card ic-span-two {{#if enhancement.ignoreResistance}}enabled{{/if}} {{#if enhancementErrors.ignoreResistance}}invalid{{/if}}">
             <label class="ic-override-heading">
               <input type="checkbox" data-enhancement-toggle="ignoreResistance" {{#if enhancement.ignoreResistance}}checked{{/if}}>
-              <span><strong>Ignore Damage Resistance</strong><small>Damage of the selected types from this weapon ignores resistance, but not immunity.</small></span>
+              <span><strong>Ignore Damage Resistance</strong><small>Damage of the selected types while this item applies ignores resistance, but not immunity.</small></span>
             </label>
             <span class="ic-support-badge runtime"><i class="fa-solid fa-microchip"></i> Item Creator Runtime</span>
             <div class="ic-resistance-grid">
@@ -653,7 +736,7 @@
           <section class="ic-enhancement-card ic-span-two {{#if enhancement.conditionalAdvantage}}enabled{{/if}} {{#if enhancementErrors.conditionalAdvantage}}invalid{{/if}}">
             <label class="ic-override-heading">
               <input type="checkbox" data-enhancement-toggle="conditionalAdvantage" {{#if enhancement.conditionalAdvantage}}checked{{/if}}>
-              <span><strong>Conditional Advantage</strong><small>Grant Advantage on Attack Rolls with this weapon under a supported condition, or record a custom descriptive rule.</small></span>
+              <span><strong>Conditional Advantage</strong><small>Grant Advantage on supported Attack Rolls while this item applies, or record a custom descriptive rule.</small></span>
             </label>
             <span class="ic-support-badge {{#if conditionalIsSupported}}runtime{{else}}description{{/if}}"><i class="fa-solid {{#if conditionalIsSupported}}fa-microchip{{else}}fa-align-left{{/if}}"></i> {{conditionalSupportLabel}}</span>
             <div class="ic-enhancement-fields conditional-fields">
@@ -682,17 +765,17 @@
     <section class="ic-step-content ic-granted-effects-step">
       <header class="ic-section-header">
         <div>
-          <span class="ic-kicker">Weapon Creation</span>
+          <span class="ic-kicker">{{itemTypeLabel}} Creation</span>
           <h2>Granted Effects</h2>
-          <p>Enable only the passive effects this weapon grants to its wielder. Every card is optional, accepts manual values, and is removed completely from the draft when disabled.</p>
+          <p>Enable only the passive effects this item grants to its bearer. The complete library is available to both Weapons and Equipment.</p>
         </div>
       </header>
 
       <aside class="ic-alpha-note ic-effect-note">
         <i class="fa-solid fa-shield-heart"></i>
         <div>
-          <strong>Active Effect preparation</strong>
-          <p>This Alpha stores a validated effect draft. Native D&amp;D5e changes and Item Creator runtime behaviors will be generated during the future commit stage.</p>
+          <strong>Availability-aware effects</strong>
+          <p>Each effect can apply while owned, equipped, or equipped and attuned. Runtime mirrors keep Actor effects synchronized with the Item state.</p>
         </div>
       </aside>
 
@@ -705,6 +788,11 @@
               <label><span>AC Modifier</span><input type="number" step="1" value="{{grantedEffectValues.armorClassBonus.bonus}}" data-effect-input="armorClassBonus" data-effect-part="bonus" data-value-type="number"></label>
               <label><span>Active While</span><select data-effect-input="armorClassBonus" data-effect-part="availability">{{#each effectAvailability.armorClassBonus}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             </fieldset>
+          </section>
+
+          <section class="ic-effect-card {{#if grantedEffects.criticalThreshold}}enabled{{/if}} {{#if grantedEffectErrors.criticalThreshold}}invalid{{/if}}">
+            <label class="ic-override-heading"><input type="checkbox" data-effect-toggle="criticalThreshold" {{#if grantedEffects.criticalThreshold}}checked{{/if}}><span><strong>Critical Hit Threshold</strong><small>Reduce the Actor's weapon, spell, or combined critical threshold.</small></span></label>
+            <fieldset class="ic-effect-body" {{#unless grantedEffects.criticalThreshold}}disabled{{/unless}}><label><span>Critical Hit On</span><select data-effect-input="criticalThreshold" data-effect-part="threshold" data-value-type="number">{{#each criticalThresholdEffectOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Applies To</span><select data-effect-input="criticalThreshold" data-effect-part="scope">{{#each criticalThresholdScopeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Active While</span><select data-effect-input="criticalThreshold" data-effect-part="availability">{{#each effectAvailability.criticalThreshold}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></fieldset>
           </section>
 
           <section class="ic-effect-card ic-span-two {{#if grantedEffects.savingThrowBonus}}enabled{{/if}} {{#if grantedEffectErrors.savingThrowBonus}}invalid{{/if}}">
@@ -826,7 +914,7 @@
         <div>
           <span class="ic-kicker">Item Presentation</span>
           <h2>Description</h2>
-          <p>The description is inherited only from the selected Template. The physical Base Weapon never contributes text to this stage.</p>
+          <p>The description is inherited only from the selected Template. The physical base item does not contribute separate text to this stage.</p>
         </div>
       </header>
 
@@ -844,7 +932,7 @@
           <input type="checkbox" data-description-toggle {{#if descriptionCustomized}}checked{{/if}}>
           <span>
             <strong>Customize Description</strong>
-            <small>Enable the Foundry rich-text editor with the complete original Template description as the starting text. The Base Weapon never contributes description content.</small>
+            <small>Enable the Foundry rich-text editor with the complete original Template description as the starting text. The physical base item never contributes separate description content.</small>
           </span>
         </label>
 
@@ -908,7 +996,7 @@
               <div class="ic-inventory-title"><strong>{{reviewInventory.name}}</strong>{{#if reviewInventory.magical}}<i class="fa-solid fa-sparkles" title="Magical"></i>{{/if}}</div>
               <p>{{reviewInventory.type}} · {{reviewInventory.rarity}}</p>
               <dl>
-                <div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>
+                {{#if isWeapon}}<div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>{{else}}<div><dt>Equipment Type</dt><dd>{{reviewInventory.equipmentType}}</dd></div>{{#if reviewInventory.armor}}<div><dt>Armor Class</dt><dd>{{reviewInventory.armor}}</dd></div>{{/if}}{{/if}}
                 <div><dt>Attunement</dt><dd>{{reviewInventory.attunement}}</dd></div>
                 <div><dt>Quantity</dt><dd>{{reviewInventory.quantity}}</dd></div>
                 <div><dt>Effects</dt><dd>{{reviewInventory.effects}}</dd></div>
@@ -936,8 +1024,8 @@
       <section class="ic-review-summary">
         <header><span class="ic-kicker">Configuration Summary</span><h3>Final Draft</h3></header>
         <dl>
-          <div><dt>Template</dt><dd>{{reviewSummary.template}}</dd></div>
-          <div><dt>Base Weapon</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
+          <div><dt>{{#if isEquipment}}Base Item{{else}}Template{{/if}}</dt><dd>{{reviewSummary.template}}</dd></div>
+          <div><dt>{{#if isWeapon}}Base Weapon{{else}}Equipment Form{{/if}}</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
           <div><dt>Final Name</dt><dd>{{reviewSummary.name}}</dd></div>
           <div><dt>Base Overrides</dt><dd>{{reviewSummary.baseOverrides}}</dd></div>
           <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>

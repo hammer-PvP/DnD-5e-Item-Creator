@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.7 — Beta
+
+- Added the complete assisted Equipment creation flow using the existing Item Type, Base Item, Enhancements, Granted Effects, Description, and Review stages.
+- Enabled Equipment selection through the native D&D5e Compendium Browser, configured manual source lists, and a custom Equipment shell.
+- Added Equipment forms for Armor, Shield, Torso / Robe, Cloak / Mantle, Headwear, Neck / Amulet, Hands / Gloves, Finger / Ring, Feet / Boots, Waist / Belt, Focus / Catalyst, Accessory, and Other Equipment.
+- Kept robes and caster clothing as non-armor Equipment without Light Armor or other Armor Training requirements.
+- Added native Equipment fields for D&D5e equipment classification, quantity, weight, price, armor values, Dexterity contribution, Strength requirement, proficiency, focus, and supported Equipment properties.
+- Added Equipment-specific Enhancements for Magical Equipment, Armor Enhancement, Base Armor Class override, removing Strength requirements, and removing Stealth Disadvantage.
+- Filtered Weapon-only attack, damage, range, Mastery, and weapon-property Enhancements out of the Equipment flow.
+- Reused the complete Granted Effects library for Equipment and added Actor-level Critical Hit Threshold for weapon attacks, spell attacks, or all attacks.
+- Enabled Granted Spellcasting for Equipment using existing Spell documents with independent uses, recovery, slot consumption, cast level, spellcasting calculation, Spellbook visibility, and availability.
+- Extended runtime spellbook reconciliation, Active Effect mirroring, Ignore Resistance, and Conditional Advantage to managed Equipment Items.
+- Added `Edit with Item Creator`, `Update Item`, and `Save as Copy` support for world Equipment Items while preserving unrecognized Activities, Effects, system data, and third-party flags.
+- Reduced the Item Type screen to the definitive scope: Weapon, Equipment, Consumable, and Tool. Removed Container, Loot, Spell, and Feature creation from the module scope.
+- Preserved all v0.1.6 native Weapon-import and deterministic Attack-damage corrections.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.7`.
+
 ## 0.1.6 — Beta
 
 - Fixed native D&D5e and earlier homebrew Weapon import incorrectly treating the prepared base-damage part as Item Creator Additional Damage.

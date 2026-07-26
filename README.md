@@ -1,9 +1,25 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.6 Beta  
+**Version:** 0.1.7 Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
+
+## v0.1.7 Beta
+
+This Beta adds the first complete **Equipment** creation and editing flow while preserving the existing Weapon workflow.
+
+Equipment uses the same assisted stages as Weapon: Item Type, Base Item, Enhancements, Granted Effects, Description, and Review. A GM can select an Equipment document from configured compendiums or start from a custom equipment shell.
+
+Supported Equipment forms include Armor, Shield, Torso / Robe, Cloak / Mantle, Headwear, Neck / Amulet, Hands / Gloves, Finger / Ring, Feet / Boots, Waist / Belt, Focus / Catalyst, Accessory, and Other Equipment. Robes and other caster clothing remain non-armor Equipment and do not require Light Armor or other Armor Training.
+
+Equipment-specific Enhancements include Magical Equipment, native Armor Enhancement, Base Armor Class override, removal of Strength requirements, and removal of Stealth Disadvantage. Weapon-only attack construction, damage, range, Mastery, and weapon properties remain filtered out of the Equipment flow.
+
+Equipment has access to the complete Granted Effects library, including Armor Class, ability scores, saving throws, checks, skills, resistances and immunities, movement, senses, initiative, Hit Points, spell attack and save bonuses, passive scores, and Actor-level weapon or spell Critical Hit Threshold. Granted Spellcasting continues to select existing Spell documents; Item Creator does not create new Spells.
+
+The GM-only **Edit with Item Creator** action now supports world Equipment Items as well as world Weapon Items. Managed Items restore their complete Item Creator draft, while native or earlier homebrew Equipment imports supported D&D5e fields and preserves unrecognized data. Review continues to offer **Update Item** and **Save as Copy**.
+
+The Item Type screen is now limited to the definitive module scope: Weapon, Equipment, Consumable, and Tool. Consumable and Tool remain Coming Later. Container, Loot, Spell, and Feature creation are not part of Item Creator.
 
 ## v0.1.6 Beta
 
@@ -31,7 +47,6 @@ Updating a world Item does not automatically replace copies that were already pl
 
 This Beta also retains the complete assisted Weapon creation path, the native Description editor, automatic Item Properties and Granted Spellcasting text, conditional Spellbook visibility, and runtime Granted Effects.
 
-Weapon is the only available creation and editing type in this Beta. Equipment, Consumable, and other Item types remain locked until the Weapon workflow is validated.
 
 ## Installation
 
@@ -47,7 +62,7 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.6 creates and edits world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.7 creates and edits world Weapon and Equipment Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
 
 ## Runtime dependency
 
@@ -58,5 +73,5 @@ Dynamic mechanics require Item Creator to remain active, including conditional S
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.6 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.6/item-creator.zip`
+- v0.1.7 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.7/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

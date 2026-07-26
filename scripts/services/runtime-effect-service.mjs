@@ -11,7 +11,7 @@ function valuesOf(value) {
 }
 
 function isManagedItem(item) {
-  return item?.documentName === "Item" && item.type === "weapon" && Boolean(item.getFlag(MODULE_ID, "created"));
+  return item?.documentName === "Item" && ["weapon", "equipment"].includes(item.type) && Boolean(item.getFlag(MODULE_ID, "created"));
 }
 
 function blueprintEffects(item) {
@@ -80,7 +80,7 @@ export class ItemCreatorRuntimeEffectService {
 
     Hooks.on("dnd5e.preUseLinkedSpell", (activity, usage) => this.#validateGrantedSpell(activity, usage));
     Hooks.on("dnd5e.preRollAttack", config => this.#applyConditionalAdvantage(config));
-    Hooks.on("dnd5e.preCalculateDamage", (_actor, _damages, options) => this.#applyResistanceBypass(options));
+    Hooks.on("dnd5e.preCalculateDamage", (actor, _damages, options) => this.#applyResistanceBypass(actor, options));
   }
 
   static async syncItem(item) {
@@ -154,7 +154,7 @@ export class ItemCreatorRuntimeEffectService {
         name: data.name,
         img: data.img,
         description: data.description,
-        changes: data.changes,
+        "system.changes": data.system?.changes ?? data.changes ?? [],
         disabled: false,
         origin: item.uuid,
         flags: data.flags
@@ -181,21 +181,36 @@ export class ItemCreatorRuntimeEffectService {
     return isManagedItem(item) ? item : null;
   }
 
-  static #applyResistanceBypass(options) {
-    const item = this.#managedItemFromMessage(options?.originatingMessage);
-    const types = item?.getFlag(MODULE_ID, "runtime")?.ignoreResistance?.damageTypes ?? [];
-    if (!types.length || options.ignore === true) return;
+  static #runtimeEquipmentAvailable(item) {
+    if (!isManagedItem(item) || item.type !== "equipment") return false;
+    if (!item.system?.equipped) return false;
+    const requiresAttunement = Boolean(item.system?.attunement);
+    return !requiresAttunement || Boolean(item.system?.attuned);
+  }
+
+  static #activeRuntimeItems(actor, originatingItem = null) {
+    const items = [];
+    if (isManagedItem(originatingItem)) items.push(originatingItem);
+    for (const item of actor?.items ?? []) {
+      if (item === originatingItem || !this.#runtimeEquipmentAvailable(item)) continue;
+      items.push(item);
+    }
+    return items;
+  }
+
+  static #applyResistanceBypass(actor, options) {
+    const originatingItem = this.#managedItemFromMessage(options?.originatingMessage);
+    const owner = actor ?? originatingItem?.actor;
+    const types = new Set();
+    for (const item of this.#activeRuntimeItems(owner, originatingItem)) {
+      for (const type of item.getFlag(MODULE_ID, "runtime")?.ignoreResistance?.damageTypes ?? []) types.add(type);
+    }
+    if (!types.size || options.ignore === true) return;
     options.ignore ??= {};
     options.ignore.resistance = new Set([...(options.ignore.resistance ?? []), ...types]);
   }
 
-  static #applyConditionalAdvantage(config) {
-    const activity = config?.subject;
-    const item = activity?.item;
-    if (!isManagedItem(item)) return;
-    const setting = item.getFlag(MODULE_ID, "runtime")?.conditionalAdvantage;
-    if (!setting || setting.mode !== "supported") return;
-
+  static #conditionApplies(setting, item) {
     const targetToken = [...(game.user?.targets ?? [])][0] ?? null;
     const target = targetToken?.actor ?? null;
     const wielderToken = item.actor?.getActiveTokens?.()[0] ?? null;
@@ -229,7 +244,22 @@ export class ItemCreatorRuntimeEffectService {
         break;
       }
     }
-    if (applies) config.advantage = true;
+    return applies;
+  }
+
+  static #applyConditionalAdvantage(config) {
+    const activity = config?.subject;
+    const originatingItem = activity?.item;
+    const actor = originatingItem?.actor;
+    if (!actor) return;
+    for (const item of this.#activeRuntimeItems(actor, originatingItem)) {
+      const setting = item.getFlag(MODULE_ID, "runtime")?.conditionalAdvantage;
+      if (!setting || setting.mode !== "supported") continue;
+      if (this.#conditionApplies(setting, item)) {
+        config.advantage = true;
+        return;
+      }
+    }
   }
 
   static #validateGrantedSpell(activity, usage) {

@@ -1,4 +1,4 @@
-import { ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, STEPS } from "../constants.mjs";
+import { EQUIPMENT_FORMS, ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, STEPS } from "../constants.mjs";
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
@@ -15,6 +15,15 @@ function nativeCompendiumBrowserClass() {
 function isWeaponItemDocument(document) {
   const documentName = document?.documentName ?? document?.constructor?.documentName;
   return documentName === "Item" && document?.type === "weapon";
+}
+
+function isEquipmentItemDocument(document) {
+  const documentName = document?.documentName ?? document?.constructor?.documentName;
+  return documentName === "Item" && document?.type === "equipment" && document?.system?.type?.value !== "vehicle";
+}
+
+function isSupportedItemDocument(document) {
+  return isWeaponItemDocument(document) || isEquipmentItemDocument(document);
 }
 
 function isSpellItemDocument(document) {
@@ -163,6 +172,92 @@ function weaponSourceData(document) {
       ability: "",
       bonus: String(part?.bonus ?? "")
     })).filter(part => part.number > 0 && part.denomination > 0 && part.damageType)
+  };
+}
+
+function equipmentFormForDocument(document) {
+  const saved = document?.flags?.[MODULE_ID]?.draft?.equipmentForm
+    ?? document?.flags?.[MODULE_ID]?.equipmentForm;
+  if (saved && EQUIPMENT_FORMS.some(form => form.id === saved)) return saved;
+
+  const type = document?.system?.type?.value ?? "";
+  if (["light", "medium", "heavy", "natural"].includes(type)) return "armor";
+  if (type === "shield") return "shield";
+  if (type === "ring") return "ring";
+
+  const properties = valuesOf(document?.system?.properties);
+  if (["rod", "wand"].includes(type) || properties.includes("foc")) return "focus";
+
+  const identity = `${document?.name ?? ""} ${document?.system?.identifier ?? ""} ${document?.system?.type?.baseItem ?? ""}`
+    .toLowerCase();
+  const matches = pattern => pattern.test(identity);
+  if (matches(/\b(cloak|cape|mantle)\b/)) return "cloak";
+  if (matches(/\b(robe|vestment|vestments|shirt|tunic|garb)\b/)) return "torso";
+  if (matches(/\b(helm|helmet|hat|hood|crown|circlet|tiara|headband)\b/)) return "headwear";
+  if (matches(/\b(amulet|necklace|periapt|medallion|pendant|talisman)\b/)) return "neck";
+  if (matches(/\b(glove|gloves|gauntlet|gauntlets|bracer|bracers)\b/)) return "hands";
+  if (matches(/\b(boot|boots|slipper|slippers|shoe|shoes|sandal|sandals)\b/)) return "feet";
+  if (matches(/\b(belt|girdle|sash)\b/)) return "waist";
+  if (matches(/\b(focus|catalyst|orb|crystal|symbol|totem)\b/)) return "focus";
+
+  if (type === "clothing") return "torso";
+  if (type === "wondrous") return "accessory";
+  return "other";
+}
+
+function defaultDexCap(type) {
+  if (type === "medium") return 2;
+  if (type === "heavy" || type === "shield") return 0;
+  return null;
+}
+
+function equipmentSourceData(document) {
+  if (!document) return null;
+  const system = document.system ?? {};
+  const nativeType = system.type?.value ?? "wondrous";
+  const properties = valuesOf(system.properties).filter(property => property !== "mgc");
+  const proficient = system.proficient;
+  const armorValue = Number(system.armor?.base ?? system.armor?.value ?? 0) || 0;
+  const armorDex = system.armor?.dex === null || system.armor?.dex === undefined
+    ? defaultDexCap(nativeType)
+    : Number(system.armor.dex);
+  return {
+    equipmentForm: equipmentFormForDocument(document),
+    nativeType,
+    baseItem: system.type?.baseItem ?? system.identifier ?? "",
+    quantity: Number(system.quantity) || 1,
+    weight: {
+      value: Number(system.weight?.value ?? system.weight ?? 0) || 0,
+      units: system.weight?.units ?? "lb"
+    },
+    price: {
+      value: Number(system.price?.value ?? 0) || 0,
+      denomination: system.price?.denomination ?? CONFIG.DND5E.defaultCurrency ?? "gp"
+    },
+    properties,
+    proficient: proficient === null || proficient === undefined ? "automatic" : Number(proficient) ? "proficient" : "notProficient",
+    armor: {
+      value: armorValue,
+      dex: Number.isFinite(armorDex) ? armorDex : null,
+      magicalBonus: String(system.armor?.magicalBonus ?? "")
+    },
+    strength: system.strength === null || system.strength === undefined ? 0 : Number(system.strength) || 0,
+    stealthDisadvantage: properties.includes("stealthDisadvantage"),
+    focus: properties.includes("foc")
+  };
+}
+
+function equipmentEnhancementDefaults() {
+  const defaults = enhancementDefaults();
+  return {
+    magicalItem: clone(defaults.magicalWeapon),
+    armorEnhancement: { bonus: 1 },
+    baseArmorClass: { value: 10 },
+    removeStrengthRequirement: {},
+    removeStealthDisadvantage: {},
+    grantedSpellcasting: clone(defaults.grantedSpellcasting),
+    ignoreResistance: clone(defaults.ignoreResistance),
+    conditionalAdvantage: clone(defaults.conditionalAdvantage)
   };
 }
 
@@ -417,6 +512,20 @@ function inferGrantedEffects(item) {
       continue;
     }
 
+    const criticalChanges = changes.filter(change => ["flags.dnd5e.weaponCriticalThreshold", "flags.dnd5e.spellCriticalThreshold"].includes(change.key));
+    if (criticalChanges.length === changes.length) {
+      const hasWeapon = criticalChanges.some(change => change.key.endsWith("weaponCriticalThreshold"));
+      const hasSpell = criticalChanges.some(change => change.key.endsWith("spellCriticalThreshold"));
+      enabled.criticalThreshold = true;
+      values.criticalThreshold = {
+        threshold: Number(criticalChanges[0]?.value) || 20,
+        scope: hasWeapon && hasSpell ? "all" : hasSpell ? "spell" : "weapon",
+        availability
+      };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
     const senseChanges = changes.filter(change => /^system[.]attributes[.]senses[.]ranges[.]/.test(change.key));
     if (senseChanges.length === changes.length) {
       enabled.grantedSense = true;
@@ -588,6 +697,7 @@ function grantedEffectDefaults() {
   const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
   return {
     armorClassBonus: { bonus: 1, availability: "equipped" },
+    criticalThreshold: { threshold: 19, scope: "all", availability: "equipped" },
     savingThrowBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
     savingThrowAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
     abilityScoreAdjustment: { entries: [effectRow({ ability: firstAbility, operation: "add", value: 1 })], availability: "equipped" },
@@ -678,6 +788,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedBaseWeaponUuid = null;
     this.selectedBaseWeaponDocument = null;
     this.baseWeaponRequired = false;
+    this.equipmentForm = "accessory";
     this.itemName = "";
     this.selectedIcon = "";
     this.templateCategory = "all";
@@ -685,7 +796,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.customized = {};
     this.overrides = {};
     this.enhancements = {};
-    this.enhancementValues = enhancementDefaults();
+    this.enhancementValues = editItem?.type === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
     this.templateDescription = "";
@@ -715,15 +826,100 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   async #initializeEditState(registry) {
     if (this.editStateInitialized || !this.editingItem) return;
     const item = this.editingItem;
-    if (item.parent || item.pack || item.type !== "weapon") throw new Error("Only world Weapon Items can be edited with Item Creator.");
+    if (item.parent || item.pack || !isSupportedItemDocument(item)) {
+      throw new Error("Only world Weapon and Equipment Items can be edited with Item Creator.");
+    }
 
-    this.selectedType = "weapon";
+    this.selectedType = item.type;
     this.itemName = item.name ?? "";
     this.selectedIcon = item.img ?? "";
     const flags = item.flags?.[MODULE_ID] ?? {};
     const savedDraft = flags.draft;
     this.editingManagedItem = Boolean(flags.created && savedDraft);
-    this.editingImportedItem = !this.editingManagedItem || Boolean(flags.importedItem) || isSelfImportedItem(item, flags);
+    this.editingImportedItem = !this.editingManagedItem || Boolean(flags.importedItem) || (item.type === "weapon" && isSelfImportedItem(item, flags));
+
+    if (item.type === "equipment") {
+      this.equipmentForm = savedDraft?.equipmentForm ?? flags.equipmentForm ?? equipmentFormForDocument(item);
+      if (this.editingManagedItem) {
+        this.selectedWeaponUuid = flags.templateUuid || item.uuid;
+        this.selectedBaseWeaponUuid = flags.baseEquipmentUuid || flags.baseItemUuid || flags.templateUuid || item.uuid;
+        this.selectedWeaponDocument = await registry.getEquipmentDocument(this.selectedWeaponUuid) ?? item;
+        this.selectedBaseWeaponDocument = await registry.getEquipmentDocument(this.selectedBaseWeaponUuid) ?? item;
+        this.customized = clone(savedDraft.customized ?? {});
+        this.overrides = clone(savedDraft.overrides ?? {});
+        this.enhancements = clone(savedDraft.enhancements ?? {});
+        this.enhancementValues = mergeWithDefaults(equipmentEnhancementDefaults(), savedDraft.enhancementValues);
+        this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
+        this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
+        this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
+        this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
+        this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
+        this.customDescription = this.descriptionCustomized
+          ? stripGeneratedDescription(item.system?.description?.value)
+          : this.templateDescriptionRaw;
+        this.managedActivityIds = valuesOf(item.system?.activities)
+          .filter(activity => activity?.type === "cast" && activity?.flags?.[MODULE_ID]?.grantedSpell)
+          .map(activity => activity.id ?? activity._id)
+          .filter(Boolean);
+        this.managedEffectIds = valuesOf(item.effects)
+          .filter(effect => effect?.flags?.[MODULE_ID]?.blueprint)
+          .map(effect => effect.id ?? effect._id)
+          .filter(Boolean);
+      } else {
+        this.selectedWeaponUuid = item.uuid;
+        this.selectedWeaponDocument = item;
+        this.selectedBaseWeaponUuid = item.uuid;
+        this.selectedBaseWeaponDocument = item;
+        this.inheritedBaseWeaponUuid = item.uuid;
+        this.customized = {};
+        this.overrides = {};
+
+        const source = equipmentSourceData(item);
+        this.equipmentForm = source?.equipmentForm ?? this.equipmentForm;
+        const enhancementValues = equipmentEnhancementDefaults();
+        this.enhancements = {};
+        const properties = valuesOf(item.system?.properties);
+        if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
+          this.enhancements.magicalItem = true;
+          enhancementValues.magicalItem = {
+            rarity: item.system?.rarity || "uncommon",
+            attunement: item.system?.attunement || ""
+          };
+        }
+        const armorBonus = Number(item.system?.armor?.magicalBonus);
+        if (Number.isFinite(armorBonus) && armorBonus !== 0) {
+          this.enhancements.armorEnhancement = true;
+          enhancementValues.armorEnhancement.bonus = armorBonus;
+        }
+
+        const grantedSpells = [];
+        for (const cast of valuesOf(item.system?.activities).filter(entry => entry?.type === "cast")) {
+          const imported = await grantedSpellFromCastActivity(cast);
+          if (!imported) continue;
+          grantedSpells.push(imported);
+          const activityId = cast.id ?? cast._id;
+          if (activityId) this.managedActivityIds.push(activityId);
+        }
+        if (grantedSpells.length) {
+          this.enhancements.grantedSpellcasting = true;
+          enhancementValues.grantedSpellcasting.spells = grantedSpells;
+        }
+        this.enhancementValues = enhancementValues;
+
+        const importedEffects = inferGrantedEffects(item);
+        this.grantedEffects = importedEffects.enabled;
+        this.grantedEffectValues = importedEffects.values;
+        this.managedEffectIds = importedEffects.managedEffectIds;
+        this.templateDescriptionRaw = rawTemplateDescription(item);
+        this.templateDescription = this.templateDescriptionRaw;
+        this.descriptionCustomized = true;
+        this.customDescription = stripGeneratedDescription(item.system?.description?.value);
+      }
+
+      this.baseWeaponRequired = false;
+      this.editStateInitialized = true;
+      return;
+    }
 
     if (this.editingManagedItem) {
       this.selectedWeaponUuid = flags.templateUuid || item.uuid;
@@ -751,8 +947,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         : this.templateDescriptionRaw;
 
       if (this.selectedWeaponDocument?.uuid === item.uuid) {
-        // A self-referenced imported Item must rebuild its primary Attack damage
-        // deterministically instead of preserving and appending to prior parts.
         this.replaceAttackDamageParts = true;
         this.managedActivityIds = valuesOf(item.system?.activities)
           .filter(activity => activity?.type === "cast")
@@ -776,8 +970,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides = {};
 
       const source = weaponSourceData(item);
-      // Imported primary Attack damage is always rebuilt from the interpreted
-      // source state, even when the Item has no additional damage.
       this.replaceAttackDamageParts = true;
       if (source?.additionalDamage?.length) {
         this.customized.additionalDamage = true;
@@ -792,10 +984,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.enhancements = {};
       if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
         this.enhancements.magicalWeapon = true;
-        enhancementValues.magicalWeapon = {
-          rarity: item.system?.rarity || "uncommon",
-          attunement: item.system?.attunement || ""
-        };
+        enhancementValues.magicalWeapon = { rarity: item.system?.rarity || "uncommon", attunement: item.system?.attunement || "" };
       }
       const magicalBonus = Number(item.system?.magicalBonus);
       if (Number.isFinite(magicalBonus) && magicalBonus !== 0) {
@@ -810,10 +999,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const threshold = Number(activity?.attack?.critical?.threshold);
       if (Number.isInteger(threshold) && threshold > 0) {
         this.enhancements.criticalThreshold = true;
-        enhancementValues.criticalThreshold = {
-          mode: [18, 19, 20].includes(threshold) ? String(threshold) : "custom",
-          custom: threshold
-        };
+        enhancementValues.criticalThreshold = { mode: [18, 19, 20].includes(threshold) ? String(threshold) : "custom", custom: threshold };
       }
       const criticalDamage = parseCriticalDamageFormula(activity?.damage?.critical?.bonus);
       if (criticalDamage) {
@@ -851,26 +1037,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async _prepareContext() {
     const registry = ItemCreatorSourceRegistry.instance;
-    await registry.loadWeapons();
+    await registry.loadAll();
     await this.#initializeEditState(registry);
 
+    const expectedType = this.selectedType === "equipment" ? "equipment" : "weapon";
+    const documentValidator = expectedType === "equipment" ? isEquipmentItemDocument : isWeaponItemDocument;
     if (this.selectedWeaponUuid && !this.selectedWeaponDocument) {
       try {
         const document = await fromUuid(this.selectedWeaponUuid);
-        if (isWeaponItemDocument(document)) this.selectedWeaponDocument = document;
+        if (documentValidator(document)) this.selectedWeaponDocument = document;
         else this.#clearTemplate();
-      } catch (_error) {
-        this.#clearTemplate();
-      }
+      } catch (_error) { this.#clearTemplate(); }
     }
     if (this.selectedBaseWeaponUuid && !this.selectedBaseWeaponDocument) {
       try {
         const document = await fromUuid(this.selectedBaseWeaponUuid);
-        if (isWeaponItemDocument(document)) this.selectedBaseWeaponDocument = document;
+        if (documentValidator(document)) this.selectedBaseWeaponDocument = document;
         else this.#clearBaseWeapon();
-      } catch (_error) {
-        this.#clearBaseWeapon();
-      }
+      } catch (_error) { this.#clearBaseWeapon(); }
     }
     if (this.selectedWeaponDocument && !this.templateDescriptionRaw) {
       this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
@@ -878,14 +1062,19 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (!this.descriptionCustomized) this.customDescription = this.templateDescriptionRaw;
     }
 
-    const typeComplete = Boolean(this.selectedType);
-    const source = weaponSourceData(this.selectedBaseWeaponDocument);
+    const isWeapon = this.selectedType === "weapon";
+    const isEquipment = this.selectedType === "equipment";
+    const itemTypeLabel = isEquipment ? "Equipment" : "Weapon";
+    const source = isEquipment ? equipmentSourceData(this.selectedBaseWeaponDocument) : weaponSourceData(this.selectedBaseWeaponDocument);
     const effective = source ? this.#effectiveValues(source) : null;
-    const additionalDamageValid = !this.customized.additionalDamage
+    const additionalDamageValid = !isWeapon || !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
         Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
         && (!row.useAbilityModifier || Boolean(row.ability))));
-    const baseComplete = Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
+    const typeComplete = Boolean(this.selectedType);
+    const baseComplete = Boolean(this.selectedWeaponUuid
+      && (isEquipment || this.selectedBaseWeaponUuid)
+      && this.itemName.trim() && additionalDamageValid);
     const enhancementValidation = this.#validateEnhancements();
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
     const grantedEffectValidation = this.#validateGrantedEffects();
@@ -910,19 +1099,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const steps = STEPS.map(step => ({
       ...step,
       active: step.id === this.step,
-      complete: step.id === "itemType"
-        ? typeComplete
-        : step.id === "baseItem"
-          ? baseComplete
-          : step.id === "enhancements"
-            ? enhancementsComplete
-            : step.id === "grantedEffects"
-              ? grantedEffectsComplete
-              : step.id === "description"
-                ? descriptionComplete
-                : step.id === "review"
-                  ? reviewComplete
-                  : false,
+      complete: step.id === "itemType" ? typeComplete
+        : step.id === "baseItem" ? baseComplete
+          : step.id === "enhancements" ? enhancementsComplete
+            : step.id === "grantedEffects" ? grantedEffectsComplete
+              : step.id === "description" ? descriptionComplete
+                : step.id === "review" ? reviewComplete : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
@@ -931,71 +1113,62 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         || (step.id === "review" && !descriptionComplete)
     }));
 
-    const selectedOption = this.selectedWeaponUuid ? registry.findWeapon(this.selectedWeaponUuid) : null;
+    const findOption = uuid => isEquipment ? registry.findEquipment(uuid) : registry.findWeapon(uuid);
+    const selectedOption = this.selectedWeaponUuid ? findOption(this.selectedWeaponUuid) : null;
     const selectedSource = this.selectedWeaponDocument
-      ? (selectedOption ?? registry.describeDocument(this.selectedWeaponDocument))
-      : null;
-    const selectedBaseOption = this.selectedBaseWeaponUuid ? registry.findWeapon(this.selectedBaseWeaponUuid) : null;
+      ? (selectedOption ?? registry.describeDocument(this.selectedWeaponDocument)) : null;
+    const selectedBaseOption = this.selectedBaseWeaponUuid ? findOption(this.selectedBaseWeaponUuid) : null;
     const selectedBaseSource = this.selectedBaseWeaponDocument
-      ? (selectedBaseOption ?? registry.describeDocument(this.selectedBaseWeaponDocument))
-      : null;
+      ? (selectedBaseOption ?? registry.describeDocument(this.selectedBaseWeaponDocument)) : null;
+
+    const templateOptions = isEquipment ? registry.equipmentTemplateOptions : registry.templateOptions;
+    const templateSourceGroupsSource = isEquipment ? registry.equipmentTemplateSourceGroups : registry.templateSourceGroups;
+    const sourceConfig = isEquipment ? CONFIG.DND5E.equipmentTypes : CONFIG.DND5E.weaponTypes;
+    const typeKey = isEquipment ? "equipmentType" : "weaponType";
     const templateCounts = new Map();
-    for (const option of registry.templateOptions) {
-      templateCounts.set(option.weaponType, (templateCounts.get(option.weaponType) ?? 0) + 1);
-    }
-
+    for (const option of templateOptions) templateCounts.set(option[typeKey], (templateCounts.get(option[typeKey]) ?? 0) + 1);
     const templateCategoryOptions = [{
-      value: "all",
-      label: "All Weapon Types",
-      selected: this.templateCategory === "all"
-    }, ...Object.entries(CONFIG.DND5E.weaponTypes ?? {})
-      .filter(([value]) => templateCounts.has(value))
-      .map(([value, label]) => ({
-        value,
-        label: `${game.i18n.localize(label)} (${templateCounts.get(value)})`,
-        selected: this.templateCategory === value
-      }))];
+      value: "all", label: `All ${itemTypeLabel} Types`, selected: this.templateCategory === "all"
+    }, ...Object.entries(sourceConfig ?? {}).filter(([value]) => templateCounts.has(value)).map(([value, label]) => ({
+      value, label: `${game.i18n.localize(typeof label === "string" ? label : label?.label ?? value)} (${templateCounts.get(value)})`,
+      selected: this.templateCategory === value
+    }))];
 
-    const templateOptionGroups = registry.templateSourceGroups.map(group => ({
+    const templateOptionGroups = templateSourceGroupsSource.map(group => ({
       label: group.label,
       items: group.items.map(option => ({
         ...option,
         selected: option.uuid === this.selectedWeaponUuid,
-        optionLabel: option.packLabel === group.label ? option.name : `${option.name} — ${option.packLabel}`
+        optionLabel: option.packLabel === group.label ? option.name : `${option.name} — ${option.packLabel}`,
+        templateCategory: option[typeKey]
       }))
     }));
-    if (this.selectedWeaponDocument && !registry.findTemplate(this.selectedWeaponUuid)) {
+    const selectedInRegistry = isEquipment ? registry.findEquipment(this.selectedWeaponUuid) : registry.findTemplate(this.selectedWeaponUuid);
+    if (this.selectedWeaponDocument && !selectedInRegistry) {
       templateOptionGroups.unshift({
         label: selectedSource?.sourceLabel ?? "Selected Source",
         items: [{
-          uuid: this.selectedWeaponUuid,
-          name: this.selectedWeaponDocument.name,
-          weaponType: this.selectedWeaponDocument.system?.type?.value ?? "",
-          selected: true,
-          optionLabel: this.selectedWeaponDocument.name
+          uuid: this.selectedWeaponUuid, name: this.selectedWeaponDocument.name,
+          templateCategory: this.selectedWeaponDocument.system?.type?.value ?? "",
+          selected: true, optionLabel: this.selectedWeaponDocument.name
         }]
       });
     }
 
-    const baseWeaponOptionGroups = registry.weaponSourceGroups.map(group => ({
+    const baseSourceGroups = isEquipment ? registry.equipmentSourceGroups : registry.weaponSourceGroups;
+    const baseWeaponOptionGroups = baseSourceGroups.map(group => ({
       label: group.label,
       items: group.packs.flatMap(pack => pack.items).sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)).map(option => ({
-        ...option,
-        selected: option.uuid === this.selectedBaseWeaponUuid,
-        optionLabel: option.name
+        ...option, selected: option.uuid === this.selectedBaseWeaponUuid, optionLabel: option.name
       }))
     }));
-    if (this.selectedBaseWeaponDocument && !registry.findWeapon(this.selectedBaseWeaponUuid)) {
+    if (this.selectedBaseWeaponDocument && !findOption(this.selectedBaseWeaponUuid)) {
       baseWeaponOptionGroups.unshift({
         label: selectedBaseSource?.sourceLabel ?? "World Item",
-        items: [{
-          uuid: this.selectedBaseWeaponUuid,
-          name: this.selectedBaseWeaponDocument.name,
-          selected: true,
-          optionLabel: this.selectedBaseWeaponDocument.name
-        }]
+        items: [{ uuid: this.selectedBaseWeaponUuid, name: this.selectedBaseWeaponDocument.name, selected: true, optionLabel: this.selectedBaseWeaponDocument.name }]
       });
     }
+
     const manualTemplateCount = templateOptionGroups.reduce((count, group) => count + group.items.length, 0);
     const selectedBaseWeapon = this.selectedBaseWeaponDocument ? {
       uuid: this.selectedBaseWeaponUuid,
@@ -1004,271 +1177,179 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       source: selectedBaseSource ? `${selectedBaseSource.sourceLabel} — ${selectedBaseSource.packLabel}` : "Compendium Item"
     } : null;
 
-    const propertyKeys = CONFIG.DND5E.validProperties?.weapon ?? new Set();
-    const propertyOptions = [...propertyKeys]
-      .filter(key => key !== "mgc")
-      .map(value => ({
-        value,
-        label: localizedLabel(CONFIG.DND5E.itemProperties?.[value], value),
-        selected: effective?.properties?.includes(value) ?? false
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
+    const propertyKeys = CONFIG.DND5E.validProperties?.[expectedType] ?? new Set();
+    const propertyOptions = [...propertyKeys].filter(key => key !== "mgc").map(value => ({
+      value,
+      label: localizedLabel(CONFIG.DND5E.itemProperties?.[value], value),
+      selected: effective?.properties?.includes(value) ?? false
+    })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
 
     const damageTypeLabel = effective?.damageType
-      ? localizedLabel(CONFIG.DND5E.damageTypes?.[effective.damageType], effective.damageType)
-      : "";
-
+      ? localizedLabel(CONFIG.DND5E.damageTypes?.[effective.damageType], effective.damageType) : "";
     const selectedWeapon = this.selectedWeaponDocument ? {
       name: this.selectedWeaponDocument.name,
-      img: this.selectedIcon || this.selectedWeaponDocument.img || "icons/svg/sword.svg",
-      sourceImg: this.selectedWeaponDocument.img || "icons/svg/sword.svg",
+      img: this.selectedIcon || this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg"),
+      sourceImg: this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg"),
       source: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Compendium Item",
       sourceLabel: selectedSource?.sourceLabel ?? "Compendium",
       packLabel: selectedSource?.packLabel ?? "Items",
       identifier: this.selectedWeaponDocument.system?.identifier ?? "—",
-      damageSummary: displayDamage(effective?.baseDamage, damageTypeLabel)
+      damageSummary: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : "—",
+      equipmentTypeLabel: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[effective?.nativeType], effective?.nativeType ?? "Equipment") : ""
     } : null;
 
     const customization = field => Boolean(this.customized[field]);
     const customFieldCount = Object.entries(this.customized).filter(([field, enabled]) =>
       enabled && !(field === "baseWeapon" && this.baseWeaponRequired && !this.selectedBaseWeaponUuid)).length;
-    const additionalDamageRows = (effective?.additionalDamage ?? []).map((row, index) => ({
-      ...row,
-      index: index + 1,
-      dieOptions: damageDiceOptions(row.denomination),
+    const additionalDamageRows = isWeapon ? (effective?.additionalDamage ?? []).map((row, index) => ({
+      ...row, index: index + 1, dieOptions: damageDiceOptions(row.denomination),
       damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, row.damageType),
-      abilityModifierOptions: abilityModifierOptions(row.ability),
-      summary: additionalDamageLabel(row)
-    }));
+      abilityModifierOptions: abilityModifierOptions(row.ability), summary: additionalDamageLabel(row)
+    })) : [];
 
-    const grantedSpellRows = (this.enhancementValues.grantedSpellcasting.spells ?? []).map((row, index) => {
+    const grantedSpellRows = (this.enhancementValues.grantedSpellcasting?.spells ?? []).map((row, index) => {
       const level = Number(row.level ?? 0);
       const isCantrip = level === 0;
       const isLimited = row.useLimit === "limited";
       const usesFixedSpellcasting = row.spellcastingMode === "fixed";
       const castLevelOptions = Object.entries(CONFIG.DND5E.spellLevels ?? {})
         .filter(([value]) => Number(value) >= level && Number(value) <= 9)
-        .map(([value, label]) => ({
-          value: Number(value),
-          label: game.i18n.localize(label),
-          selected: Number(row.fixedCastLevel) === Number(value)
-        }));
+        .map(([value, label]) => ({ value: Number(value), label: game.i18n.localize(label), selected: Number(row.fixedCastLevel) === Number(value) }));
       return {
-        ...row,
-        index: index + 1,
-        isCantrip,
-        isLimited,
-        usesFixedSpellcasting,
-        spellLevelLabel: spellLevelLabel(level),
-        schoolLabel: localizedLabel(CONFIG.DND5E.spellSchools?.[row.school], row.school || "Spell"),
+        ...row, index: index + 1, isCantrip, isLimited, usesFixedSpellcasting,
+        spellLevelLabel: spellLevelLabel(level), schoolLabel: localizedLabel(CONFIG.DND5E.spellSchools?.[row.school], row.school || "Spell"),
         useLimitOptions: fixedOptions([["unlimited", "Unlimited / At Will"], ["limited", "Limited Uses"]], row.useLimit),
         recoveryOptions: fixedOptions([["shortRest", "Short Rest"], ["longRest", "Long Rest"]], row.recovery),
-        eligibilityOptions: fixedOptions([
-          ["independent", "Item Grants Independent Casting"],
-          ["spellLevelAccess", "Require Spell-Level Access"],
-          ["compatibleSlot", "Require Compatible Spell Slot"]
-        ], row.eligibility),
-        castLevelModeOptions: fixedOptions([
-          ["base", "Base Spell Level"],
-          ...(!isCantrip ? [["fixed", "Fixed Higher Level"]] : []),
-          ...(!isCantrip && row.consumeSlot ? [["slot", "Use Selected Spell Slot Level"]] : [])
-        ], row.castLevelMode),
+        eligibilityOptions: fixedOptions([["independent", "Item Grants Independent Casting"], ["spellLevelAccess", "Require Spell-Level Access"], ["compatibleSlot", "Require Compatible Spell Slot"]], row.eligibility),
+        castLevelModeOptions: fixedOptions([["base", "Base Spell Level"], ...(!isCantrip ? [["fixed", "Fixed Higher Level"]] : []), ...(!isCantrip && row.consumeSlot ? [["slot", "Use Selected Spell Slot Level"]] : [])], row.castLevelMode),
         fixedCastLevelOptions: castLevelOptions,
-        spellcastingModeOptions: fixedOptions([
-          ["actorDefault", "Actor Default Spellcasting"],
-          ["highest", "Highest Spellcasting"],
-          ["int", "Intelligence + Proficiency"],
-          ["wis", "Wisdom + Proficiency"],
-          ["cha", "Charisma + Proficiency"],
-          ["fixed", "Fixed Item Spellcasting Values"]
-        ], row.spellcastingMode),
-        availabilityOptions: fixedOptions([
-          ["owned", "Item is Owned"],
-          ["equipped", "Equipped"],
-          ["equippedAttuned", "Equipped and Attuned"]
-        ], row.availability),
+        spellcastingModeOptions: fixedOptions([["actorDefault", "Actor Default Spellcasting"], ["highest", "Highest Spellcasting"], ["int", "Intelligence + Proficiency"], ["wis", "Wisdom + Proficiency"], ["cha", "Charisma + Proficiency"], ["fixed", "Fixed Item Spellcasting Values"]], row.spellcastingMode),
+        availabilityOptions: effectAvailabilityOptions(row.availability),
         invalid: !this.#validateGrantedSpell(row)
       };
     });
 
     const effectValues = this.grantedEffectValues;
-    const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({
-      ...row,
-      index: index + 1,
-      ...effectEntryOptions(key, row)
-    }));
+    const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({ ...row, index: index + 1, ...effectEntryOptions(key, row) }));
     const damageEffectOptions = key => Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
-      value,
-      label: localizedLabel(entry, value),
-      selected: (effectValues[key]?.damageTypes ?? []).includes(value)
+      value, label: localizedLabel(entry, value), selected: (effectValues[key]?.damageTypes ?? []).includes(value)
     })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
     const effectAvailability = Object.fromEntries(Object.keys(effectValues).map(key => [key, effectAvailabilityOptions(effectValues[key]?.availability)]));
     const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
     const descriptionValue = this.descriptionCustomized ? this.customDescription : this.templateDescription;
     const enrichedDescription = await enrichDescription(descriptionValue, this.selectedWeaponDocument);
     const reviewItem = reviewData?.temporary ?? null;
-    const reviewProperties = valuesOf(reviewItem?.system?.properties).map(value =>
-      localizedLabel(CONFIG.DND5E.itemProperties?.[value], value)).sort((a, b) => a.localeCompare(b, game.i18n.lang));
+    const reviewProperties = valuesOf(reviewItem?.system?.properties).map(value => localizedLabel(CONFIG.DND5E.itemProperties?.[value], value)).sort((a, b) => a.localeCompare(b, game.i18n.lang));
     const reviewActivities = valuesOf(reviewItem?.system?.activities).map(activity => ({
       name: activity.name || localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type),
-      type: localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type),
-      img: activity.img || reviewItem?.img
+      type: localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type), img: activity.img || reviewItem?.img
     }));
     const reviewInventory = reviewItem ? {
-      name: reviewItem.name,
-      img: reviewItem.img,
-      type: "Weapon",
+      name: reviewItem.name, img: reviewItem.img, type: itemTypeLabel,
       rarity: localizedLabel(CONFIG.DND5E.itemRarity?.[reviewItem.system?.rarity], reviewItem.system?.rarity || "Mundane"),
       attunement: reviewItem.system?.attunement ? localizedLabel(CONFIG.DND5E.attunementTypes?.[reviewItem.system.attunement], reviewItem.system.attunement) : "None",
       quantity: reviewItem.system?.quantity ?? 1,
-      damage: displayDamage(effective?.baseDamage, damageTypeLabel),
-      properties: reviewProperties,
-      activities: reviewActivities,
+      damage: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : null,
+      armor: isEquipment && Number(reviewItem.system?.armor?.value) ? reviewItem.system.armor.value : null,
+      equipmentType: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[reviewItem.system?.type?.value], reviewItem.system?.type?.value ?? "Equipment") : null,
+      properties: reviewProperties, activities: reviewActivities,
       effects: reviewItem.effects?.size ?? reviewItem.effects?.length ?? 0,
       magical: valuesOf(reviewItem.system?.properties).includes("mgc")
     } : null;
 
+    const equipmentFormOptions = EQUIPMENT_FORMS.map(form => ({ ...form, selected: form.id === this.equipmentForm }));
+    const effectiveEquipmentType = effective?.nativeType ?? "wondrous";
+    const armorTypes = Object.entries(CONFIG.DND5E.armorTypes ?? {}).filter(([value]) => value !== "shield");
+    const equipmentTypeOptions = configOptions(CONFIG.DND5E.equipmentTypes, effectiveEquipmentType);
+    const armorTypeOptions = armorTypes.map(([value, entry]) => ({ value, label: localizedLabel(entry, value), selected: effectiveEquipmentType === value }));
+    const isArmorForm = isEquipment && this.equipmentForm === "armor";
+    const isShieldForm = isEquipment && this.equipmentForm === "shield";
+    const hasArmorFields = isArmorForm || isShieldForm;
+
     return {
-      stage: MODULE_STAGE,
-      version: MODULE_VERSION,
-      editMode: Boolean(this.editingItem),
-      editingManagedItem: this.editingManagedItem,
-      editingImportedItem: this.editingImportedItem,
-      editingItemName: this.editingItem?.name ?? "",
-      step: this.step,
-      steps,
+      stage: MODULE_STAGE, version: MODULE_VERSION,
+      editMode: Boolean(this.editingItem), editingManagedItem: this.editingManagedItem,
+      editingImportedItem: this.editingImportedItem, editingItemName: this.editingItem?.name ?? "",
+      step: this.step, steps,
       itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
-      selectedType: this.selectedType,
-      weaponCount: manualTemplateCount,
-      templateOptionGroups,
-      templateCategoryOptions,
-      templateCategory: this.templateCategory,
-      selectedWeapon,
-      selectedBaseWeapon,
-      selectedBaseWeaponUuid: this.selectedBaseWeaponUuid,
-      baseWeaponOptionGroups,
-      baseWeaponRequired: this.baseWeaponRequired,
-      baseWeaponCustomized: customization("baseWeapon"),
-      inheritedBaseWeapon: Boolean(this.inheritedBaseWeaponUuid),
-      selectedWeaponUuid: this.selectedWeaponUuid,
-      itemName: this.itemName,
-      iconCustomized: customization("icon"),
-      customFieldCount,
-      loadingWeapon: this.loadingWeapon,
-      canOpenBaseItem: typeComplete,
-      baseComplete,
-      source,
-      effective,
-      custom: this.customized,
+      selectedType: this.selectedType, isWeapon, isEquipment, itemTypeLabel,
+      weaponCount: manualTemplateCount, templateOptionGroups, templateCategoryOptions,
+      templateCategory: this.templateCategory, selectedWeapon, selectedBaseWeapon,
+      selectedBaseWeaponUuid: this.selectedBaseWeaponUuid, baseWeaponOptionGroups,
+      baseWeaponRequired: this.baseWeaponRequired, baseWeaponCustomized: customization("baseWeapon"),
+      inheritedBaseWeapon: Boolean(this.inheritedBaseWeaponUuid), selectedWeaponUuid: this.selectedWeaponUuid,
+      itemName: this.itemName, iconCustomized: customization("icon"), customFieldCount,
+      loadingWeapon: this.loadingWeapon, canOpenBaseItem: typeComplete, baseComplete, source, effective, custom: this.customized,
+
       weaponTypeOptions: configOptions(CONFIG.DND5E.weaponTypes, effective?.weaponType),
-      attackTypeOptions: [
-        { value: "melee", label: "Melee", selected: effective?.attackType === "melee" },
-        { value: "ranged", label: "Ranged", selected: effective?.attackType === "ranged" }
-      ],
-      abilityOptions: configOptions(CONFIG.DND5E.abilities, effective?.attackAbility, {
-        blankValue: "",
-        blankLabel: "Automatic"
-      }),
-      proficiencyOptions: [
-        { value: "automatic", label: "Automatic", selected: effective?.proficiency === "automatic" },
-        { value: "proficient", label: "Always Proficient", selected: effective?.proficiency === "proficient" },
-        { value: "notProficient", label: "Not Proficient", selected: effective?.proficiency === "notProficient" }
-      ],
+      attackTypeOptions: [{ value: "melee", label: "Melee", selected: effective?.attackType === "melee" }, { value: "ranged", label: "Ranged", selected: effective?.attackType === "ranged" }],
+      abilityOptions: configOptions(CONFIG.DND5E.abilities, effective?.attackAbility, { blankValue: "", blankLabel: "Automatic" }),
+      proficiencyOptions: [{ value: "automatic", label: "Automatic", selected: effective?.proficiency === "automatic" }, { value: "proficient", label: "Always Proficient", selected: effective?.proficiency === "proficient" }, { value: "notProficient", label: "Not Proficient", selected: effective?.proficiency === "notProficient" }],
       damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, effective?.damageType),
       versatileDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, effective?.versatile?.damageType),
-      masteryOptions: configOptions(CONFIG.DND5E.weaponMasteries, effective?.mastery, {
-        blankValue: "",
-        blankLabel: "None"
-      }),
+      masteryOptions: configOptions(CONFIG.DND5E.weaponMasteries, effective?.mastery, { blankValue: "", blankLabel: "None" }),
       rangeUnitOptions: configOptions(CONFIG.DND5E.movementUnits, effective?.range?.units),
       weightUnitOptions: configOptions(CONFIG.DND5E.weightUnits, effective?.weight?.units),
       currencyOptions: configOptions(CONFIG.DND5E.currencies, effective?.price?.denomination),
       damageDiceOptions: damageDiceOptions(effective?.baseDamage?.denomination),
       versatileDiceOptions: damageDiceOptions(effective?.versatile?.denomination),
-      propertyOptions,
-      hasVersatile: effective?.properties?.includes("ver") ?? false,
+      propertyOptions, hasVersatile: effective?.properties?.includes("ver") ?? false,
       hasAmmunition: effective?.properties?.includes("amm") ?? false,
-      additionalDamageRows,
-      additionalDamageValid,
-      additionalDamageCount: additionalDamageRows.length,
-      enhancement: this.enhancements,
-      enhancementValues: this.enhancementValues,
+      additionalDamageRows, additionalDamageValid, additionalDamageCount: additionalDamageRows.length,
+
+      equipmentForm: this.equipmentForm, equipmentFormOptions, equipmentTypeOptions, armorTypeOptions,
+      isArmorForm, isShieldForm, hasArmorFields,
+      equipmentFormLabel: EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment",
+      armorDexFull: effective?.armor?.dex === null || effective?.armor?.dex === undefined,
+      armorDexValue: effective?.armor?.dex ?? 0,
+
+      enhancement: this.enhancements, enhancementValues: this.enhancementValues,
       enhancementCount: Object.values(this.enhancements).filter(Boolean).length,
-      grantedSpellCount: grantedSpellRows.length,
-      grantedSpellRows,
-      enhancementsComplete,
-      enhancementErrors: enhancementValidation.errors,
-      effectiveMagical: Boolean(this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement),
-      rarityOptions: configOptions(CONFIG.DND5E.itemRarity, this.enhancementValues.magicalWeapon.rarity),
-      attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, this.enhancementValues.magicalWeapon.attunement, {
-        blankValue: "",
-        blankLabel: "None"
-      }),
-      enhancementBonusOptions: fixedOptions([[1, "+1"], [2, "+2"], [3, "+3"]], this.enhancementValues.weaponEnhancement.bonus),
-      criticalThresholdOptions: fixedOptions([[20, "20 — Standard"], [19, "19 — Critical on 19–20"], [18, "18 — Critical on 18–20"], ["custom", "Custom"]], this.enhancementValues.criticalThreshold.mode),
-      criticalDamageDiceOptions: damageDiceOptions(this.enhancementValues.extraCriticalDamage.denomination),
-      criticalDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, this.enhancementValues.extraCriticalDamage.damageType),
-      resistanceDamageTypes: Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
-        value,
-        label: localizedLabel(entry, value),
-        selected: this.enhancementValues.ignoreResistance.damageTypes.includes(value)
-      })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)),
-      conditionalModeOptions: fixedOptions([["supported", "Supported Condition"], ["custom", "Custom Rule Text"]], this.enhancementValues.conditionalAdvantage.mode),
-      conditionalAppliesToOptions: fixedOptions([["attackRolls", "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage.appliesTo),
-      supportedConditionOptions: fixedOptions([
-        ["targetUndead", "Target is Undead"],
-        ["targetFiend", "Target is a Fiend"],
-        ["targetBloodied", "Target is below half its Hit Points"],
-        ["wielderDimLight", "Wielder is in dim light"],
-        ["targetNotActed", "Target has not acted this combat"]
-      ], this.enhancementValues.conditionalAdvantage.supportedCondition),
-      conditionalIsSupported: this.enhancementValues.conditionalAdvantage.mode === "supported",
-      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage.mode === "supported" ? "Item Creator Runtime" : "Description Only",
-      grantedEffects: this.grantedEffects,
-      grantedEffectValues: effectValues,
-      grantedEffectCount,
-      grantedEffectsComplete,
-      grantedEffectErrors: grantedEffectValidation.errors,
+      grantedSpellCount: grantedSpellRows.length, grantedSpellRows,
+      enhancementsComplete, enhancementErrors: enhancementValidation.errors,
+      effectiveMagical: Boolean(isEquipment
+        ? (this.enhancements.magicalItem || this.enhancements.armorEnhancement)
+        : (this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement)),
+      rarityOptions: configOptions(CONFIG.DND5E.itemRarity, isEquipment ? this.enhancementValues.magicalItem?.rarity : this.enhancementValues.magicalWeapon?.rarity),
+      attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, isEquipment ? this.enhancementValues.magicalItem?.attunement : this.enhancementValues.magicalWeapon?.attunement, { blankValue: "", blankLabel: "None" }),
+      enhancementBonusOptions: fixedOptions([[1, "+1"], [2, "+2"], [3, "+3"]], isEquipment ? this.enhancementValues.armorEnhancement?.bonus : this.enhancementValues.weaponEnhancement?.bonus),
+      criticalThresholdOptions: fixedOptions([[20, "20 — Standard"], [19, "19 — Critical on 19–20"], [18, "18 — Critical on 18–20"], ["custom", "Custom"]], this.enhancementValues.criticalThreshold?.mode),
+      criticalDamageDiceOptions: damageDiceOptions(this.enhancementValues.extraCriticalDamage?.denomination),
+      criticalDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, this.enhancementValues.extraCriticalDamage?.damageType),
+      resistanceDamageTypes: Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({ value, label: localizedLabel(entry, value), selected: this.enhancementValues.ignoreResistance?.damageTypes?.includes(value) })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)),
+      conditionalModeOptions: fixedOptions([["supported", "Supported Condition"], ["custom", "Custom Rule Text"]], this.enhancementValues.conditionalAdvantage?.mode),
+      conditionalAppliesToOptions: fixedOptions([["attackRolls", isEquipment ? "All Attack Rolls" : "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage?.appliesTo),
+      supportedConditionOptions: fixedOptions([["targetUndead", "Target is Undead"], ["targetFiend", "Target is a Fiend"], ["targetBloodied", "Target is below half its Hit Points"], ["wielderDimLight", "Wielder is in dim light"], ["targetNotActed", "Target has not acted this combat"]], this.enhancementValues.conditionalAdvantage?.supportedCondition),
+      conditionalIsSupported: this.enhancementValues.conditionalAdvantage?.mode === "supported",
+      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage?.mode === "supported" ? "Item Creator Runtime" : "Description Only",
+
+      grantedEffects: this.grantedEffects, grantedEffectValues: effectValues,
+      grantedEffectCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
       effectAvailability,
-      savingThrowBonusRows: prepareEffectRows("savingThrowBonus"),
-      savingThrowAdvantageRows: prepareEffectRows("savingThrowAdvantage"),
-      abilityScoreAdjustmentRows: prepareEffectRows("abilityScoreAdjustment"),
-      abilityCheckBonusRows: prepareEffectRows("abilityCheckBonus"),
-      skillBonusRows: prepareEffectRows("skillBonus"),
-      skillProficiencyRows: prepareEffectRows("skillProficiency"),
-      abilityCheckAdvantageRows: prepareEffectRows("abilityCheckAdvantage"),
-      movementBonusRows: prepareEffectRows("movementBonus"),
-      grantMovementTypeRows: prepareEffectRows("grantMovementType"),
-      grantedSenseRows: prepareEffectRows("grantedSense"),
+      savingThrowBonusRows: prepareEffectRows("savingThrowBonus"), savingThrowAdvantageRows: prepareEffectRows("savingThrowAdvantage"),
+      abilityScoreAdjustmentRows: prepareEffectRows("abilityScoreAdjustment"), abilityCheckBonusRows: prepareEffectRows("abilityCheckBonus"),
+      skillBonusRows: prepareEffectRows("skillBonus"), skillProficiencyRows: prepareEffectRows("skillProficiency"),
+      abilityCheckAdvantageRows: prepareEffectRows("abilityCheckAdvantage"), movementBonusRows: prepareEffectRows("movementBonus"),
+      grantMovementTypeRows: prepareEffectRows("grantMovementType"), grantedSenseRows: prepareEffectRows("grantedSense"),
       passiveScoreBonusRows: prepareEffectRows("passiveScoreBonus"),
-      damageResistanceOptions: damageEffectOptions("damageResistance"),
-      damageImmunityOptions: damageEffectOptions("damageImmunity"),
-      damageVulnerabilityOptions: damageEffectOptions("damageVulnerability"),
-      conditionImmunityOptions: conditionTypeOptions(effectValues.conditionImmunity.conditions),
-      descriptionComplete,
-      descriptionCustomized: this.descriptionCustomized,
-      descriptionValue,
-      enrichedDescription,
-      hasTemplateDescription: Boolean(this.templateDescription.trim()),
-      hasRawTemplateDescription: Boolean(this.templateDescriptionRaw.trim()),
+      damageResistanceOptions: damageEffectOptions("damageResistance"), damageImmunityOptions: damageEffectOptions("damageImmunity"),
+      damageVulnerabilityOptions: damageEffectOptions("damageVulnerability"), conditionImmunityOptions: conditionTypeOptions(effectValues.conditionImmunity.conditions),
+      criticalThresholdEffectOptions: fixedOptions([[20, "20 — Standard"], [19, "19 — Critical on 19–20"], [18, "18 — Critical on 18–20"]], effectValues.criticalThreshold?.threshold),
+      criticalThresholdScopeOptions: fixedOptions([["weapon", "Weapon Attacks"], ["spell", "Spell Attacks"], ["all", "All Attacks"]], effectValues.criticalThreshold?.scope),
+
+      descriptionComplete, descriptionCustomized: this.descriptionCustomized, descriptionValue, enrichedDescription,
+      hasTemplateDescription: Boolean(this.templateDescription.trim()), hasRawTemplateDescription: Boolean(this.templateDescriptionRaw.trim()),
       descriptionSource: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Template",
-      reviewComplete,
-      reviewReady: reviewComplete && Boolean(reviewData),
-      reviewError,
-      reviewChatCard,
-      reviewInventory,
+      reviewComplete, reviewReady: reviewComplete && Boolean(reviewData), reviewError, reviewChatCard, reviewInventory,
       reviewSummary: {
         template: this.selectedWeaponDocument?.name ?? "—",
-        baseWeapon: this.selectedBaseWeaponDocument?.name ?? "—",
-        name: this.itemName.trim() || "—",
-        baseOverrides: customFieldCount,
+        baseWeapon: isEquipment ? (EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment") : (this.selectedBaseWeaponDocument?.name ?? "—"),
+        name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
         enhancements: Object.values(this.enhancements).filter(Boolean).length,
-        grantedSpells: grantedSpellRows.length,
-        grantedEffects: grantedEffectCount,
+        grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
-      savingItem: this.savingItem,
-      readyStatus: this.editingItem ? "Ready to update" : "Ready to create"
+      savingItem: this.savingItem, readyStatus: this.editingItem ? "Ready to update" : "Ready to create"
     };
   }
 
@@ -1282,9 +1363,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="update-item"]')?.addEventListener("click", event => this.#updateItem(event));
     root.querySelector('[data-action="save-copy"]')?.addEventListener("click", event => this.#saveCopy(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
+    root.querySelector('[data-action="custom-equipment"]')?.addEventListener("click", event => this.#createCustomEquipment(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
     root.querySelector('[data-base-weapon-select]')?.addEventListener("change", event => this.#selectBaseWeapon(event));
+    root.querySelector('[data-equipment-form]')?.addEventListener("change", event => this.#selectEquipmentForm(event));
     root.querySelector('[name="itemName"]')?.addEventListener("input", event => this.#updateItemName(event));
     root.querySelectorAll('[data-override-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleOverride(event)));
     root.querySelectorAll('[data-override-input]').forEach(input => {
@@ -1415,8 +1498,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!customized.additionalDamage) delete overrides.additionalDamage;
 
     return {
+      itemType: this.selectedType,
+      equipmentForm: this.equipmentForm,
       template: this.selectedWeaponDocument,
       baseWeapon: this.selectedBaseWeaponDocument,
+      baseEquipment: this.selectedBaseWeaponDocument,
       itemName: this.itemName,
       icon: this.selectedIcon || this.selectedWeaponDocument?.img,
       effective,
@@ -1605,7 +1691,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #sourceValues() {
-    return weaponSourceData(this.selectedBaseWeaponDocument);
+    return this.selectedType === "equipment"
+      ? equipmentSourceData(this.selectedBaseWeaponDocument)
+      : weaponSourceData(this.selectedBaseWeaponDocument);
   }
 
   #effectiveValues(source = this.#sourceValues()) {
@@ -1645,7 +1733,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     event.preventDefault();
     const button = event.currentTarget;
     if (button.disabled || button.dataset.available !== "true") return;
-    this.selectedType = button.dataset.type;
+    const nextType = button.dataset.type;
+    if (this.editingItem && nextType !== this.editingItem.type) {
+      ui.notifications.warn("Editing cannot change the Foundry Item document type. Use Save as Copy from the original type instead.");
+      return;
+    }
+    if (this.selectedType && this.selectedType !== nextType) this.#clearTemplate();
+    this.selectedType = nextType;
+    this.#resetEnhancements();
+    this.#resetGrantedEffects();
     this.render({ force: true });
   }
 
@@ -1669,7 +1765,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #continue(event) {
     event.preventDefault();
     this.#syncDescriptionFromEditor();
-    if (this.step === "itemType" && this.selectedType === "weapon") {
+    if (this.step === "itemType" && ["weapon", "equipment"].includes(this.selectedType)) {
       this.restoreScrollTop = null;
       this.step = "baseItem";
       this.render({ force: true });
@@ -1734,6 +1830,100 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
+  #createCustomEquipment(event) {
+    event.preventDefault();
+    if (this.selectedType !== "equipment") return;
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const id = foundry.utils.randomID();
+    const source = {
+      _id: id,
+      name: "Custom Equipment",
+      type: "equipment",
+      img: "icons/svg/item-bag.svg",
+      system: {
+        description: { value: "", chat: "" },
+        source: { custom: "Item Creator", rules: "2024", revision: 1 },
+        identified: true,
+        unidentified: { description: "" },
+        container: null,
+        quantity: 1,
+        weight: { value: 0, units: "lb" },
+        price: { value: 0, denomination: "gp" },
+        rarity: "",
+        attunement: "",
+        attuned: false,
+        equipped: false,
+        armor: { value: 0, magicalBonus: "", dex: null },
+        proficient: null,
+        properties: [],
+        strength: 0,
+        type: { value: "wondrous", baseItem: "" },
+        activities: {},
+        identifier: "custom-equipment"
+      },
+      effects: [],
+      flags: { [MODULE_ID]: { customSeed: true } }
+    };
+    const document = new ItemClass(source, { temporary: true });
+    this.selectedWeaponUuid = document.uuid;
+    this.selectedWeaponDocument = document;
+    this.selectedBaseWeaponUuid = document.uuid;
+    this.selectedBaseWeaponDocument = document;
+    this.inheritedBaseWeaponUuid = document.uuid;
+    this.baseWeaponRequired = false;
+    this.equipmentForm = "accessory";
+    this.itemName = "Custom Equipment";
+    this.selectedIcon = source.img;
+    this.templateCategory = "wondrous";
+    this.customized = { nativeType: true };
+    this.overrides = { nativeType: "wondrous" };
+    this.#resetEnhancements();
+    this.#resetGrantedEffects();
+    this.templateDescriptionRaw = "";
+    this.templateDescription = "";
+    this.customDescription = "";
+    this.descriptionCustomized = true;
+    this.restoreScrollTop = 0;
+    this.render({ force: true });
+  }
+
+  #selectEquipmentForm(event) {
+    if (this.selectedType !== "equipment") return;
+    const formId = String(event.currentTarget.value ?? "accessory");
+    const form = EQUIPMENT_FORMS.find(entry => entry.id === formId) ?? EQUIPMENT_FORMS.find(entry => entry.id === "accessory");
+    this.equipmentForm = form.id;
+    this.customized.nativeType = true;
+    let nativeType = form.nativeType;
+    if (form.id === "armor") {
+      const current = this.#effectiveValues()?.nativeType;
+      nativeType = ["light", "medium", "heavy", "natural"].includes(current) ? current : "light";
+    }
+    this.overrides.nativeType = nativeType;
+
+    const properties = new Set(this.#effectiveValues()?.properties ?? []);
+    properties.delete("foc");
+    if (["armor", "shield"].includes(form.id)) {
+      const current = this.#effectiveValues()?.armor ?? {};
+      this.customized.armor = true;
+      this.overrides.armor = {
+        value: Number(current.value) || (form.id === "shield" ? 2 : 10),
+        dex: form.id === "shield" ? 0 : (current.dex ?? defaultDexCap(nativeType)),
+        magicalBonus: String(current.magicalBonus ?? "")
+      };
+    } else {
+      this.customized.armor = true;
+      this.overrides.armor = { value: 0, dex: null, magicalBonus: "" };
+      this.customized.strength = true;
+      this.overrides.strength = 0;
+      properties.delete("stealthDisadvantage");
+      if (form.id === "focus") properties.add("foc");
+    }
+    this.customized.properties = true;
+    this.overrides.properties = [...properties];
+    this.#resetEnhancements();
+    this.#renderPreservingScroll();
+  }
+
   #filterTemplates(event) {
     this.templateCategory = String(event.currentTarget.value ?? "all");
     this.#applyTemplateFilter();
@@ -1782,11 +1972,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const uuid = await CompendiumBrowser.selectOne({
         mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
         tab: "items",
-        hint: "Select a Weapon document to use as the Base Item template.",
+        hint: `Select an ${this.selectedType === "equipment" ? "Equipment" : "Weapon"} document to use as the Base Item template.`,
         filters: {
           locked: {
             documentClass: "Item",
-            types: new Set(["weapon"])
+            types: new Set([this.selectedType === "equipment" ? "equipment" : "weapon"])
           }
         },
         window: { modal: true }
@@ -1827,19 +2017,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.loadingWeapon = true;
     try {
       const registry = ItemCreatorSourceRegistry.instance;
-      let document = await registry.getWeaponDocument(uuid);
+      const equipment = this.selectedType === "equipment";
+      let document = equipment ? await registry.getEquipmentDocument(uuid) : await registry.getWeaponDocument(uuid);
       document ??= await fromUuid(uuid);
-      if (!isWeaponItemDocument(document)) {
-        throw new Error("The selected document is not a Weapon Item.");
+      if (equipment ? !isEquipmentItemDocument(document) : !isWeaponItemDocument(document)) {
+        throw new Error(`The selected document is not an ${equipment ? "Equipment" : "Weapon"} Item.`);
       }
-      const option = registry.findWeapon(uuid);
+      const option = equipment ? registry.findEquipment(uuid) : registry.findWeapon(uuid);
       this.selectedWeaponUuid = uuid;
       this.selectedWeaponDocument = document;
       this.itemName = document.name;
-      this.selectedIcon = document.img || "icons/svg/sword.svg";
-      this.templateCategory = option?.weaponType || document.system?.type?.value || "all";
+      this.selectedIcon = document.img || (equipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg");
+      this.templateCategory = option?.[equipment ? "equipmentType" : "weaponType"] || document.system?.type?.value || "all";
       this.customized = {};
       this.overrides = {};
+      this.equipmentForm = equipmentFormForDocument(document);
       this.#resetEnhancements();
       this.#resetGrantedEffects();
       this.templateDescriptionRaw = rawTemplateDescription(document);
@@ -1847,18 +2039,25 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.customDescription = this.templateDescriptionRaw;
       this.descriptionCustomized = false;
 
-      const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
-      this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
-      this.selectedBaseWeaponUuid = inherited?.uuid ?? null;
-      this.selectedBaseWeaponDocument = inherited ? await registry.getWeaponDocument(inherited.uuid) : null;
-      this.baseWeaponRequired = !this.selectedBaseWeaponDocument;
-      if (this.baseWeaponRequired) {
-        this.customized.baseWeapon = true;
-        this.overrides.baseWeapon = "";
+      if (equipment) {
+        this.inheritedBaseWeaponUuid = uuid;
+        this.selectedBaseWeaponUuid = uuid;
+        this.selectedBaseWeaponDocument = document;
+        this.baseWeaponRequired = false;
+      } else {
+        const inherited = registry.findBaseWeaponByIdentifier(document.system?.type?.baseItem);
+        this.inheritedBaseWeaponUuid = inherited?.uuid ?? null;
+        this.selectedBaseWeaponUuid = inherited?.uuid ?? null;
+        this.selectedBaseWeaponDocument = inherited ? await registry.getWeaponDocument(inherited.uuid) : null;
+        this.baseWeaponRequired = !this.selectedBaseWeaponDocument;
+        if (this.baseWeaponRequired) {
+          this.customized.baseWeapon = true;
+          this.overrides.baseWeapon = "";
+        }
       }
     } catch (error) {
-      console.error(`${MODULE_ID} | Unable to select weapon template.`, error);
-      ui.notifications.error("Item Creator could not load the selected weapon template.");
+      console.error(`${MODULE_ID} | Unable to select item template.`, error);
+      ui.notifications.error(`Item Creator could not load the selected ${this.selectedType === "equipment" ? "Equipment" : "Weapon"} template.`);
       return false;
     } finally {
       this.loadingWeapon = false;
@@ -1890,6 +2089,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedBaseWeaponUuid = null;
     this.selectedBaseWeaponDocument = null;
     this.baseWeaponRequired = false;
+    this.equipmentForm = "accessory";
     this.itemName = "";
     this.selectedIcon = "";
     this.customized = {};
@@ -1950,7 +2150,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const enabled = event.currentTarget.checked;
     this.customized[field] = enabled;
 
-    if (field === "baseWeapon") {
+    if (field === "baseWeapon" && this.selectedType === "weapon") {
       if (!enabled && this.baseWeaponRequired) {
         this.customized.baseWeapon = true;
         event.currentTarget.checked = true;
@@ -1966,10 +2166,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           : null;
       }
     } else if (field === "icon") {
-      if (enabled) this.overrides.icon = this.selectedIcon || this.selectedWeaponDocument.img || "icons/svg/sword.svg";
+      const fallbackIcon = this.selectedType === "equipment" ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg";
+      if (enabled) this.overrides.icon = this.selectedIcon || this.selectedWeaponDocument.img || fallbackIcon;
       else {
         delete this.overrides.icon;
-        this.selectedIcon = this.selectedWeaponDocument.img || "icons/svg/sword.svg";
+        this.selectedIcon = this.selectedWeaponDocument.img || fallbackIcon;
         this.iconBrowserApp?.close?.();
         this.iconBrowserApp = null;
       }
@@ -1979,13 +2180,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else if (enabled) {
       const source = this.#sourceValues();
       this.overrides[field] = clone(source?.[field]);
-      if (field === "properties") {
+      if (field === "properties" && this.selectedType === "weapon") {
         this.overrides.versatile = clone(source?.versatile);
         this.overrides.ammunitionType = source?.ammunitionType ?? "";
       }
     } else {
       delete this.overrides[field];
-      if (field === "properties") {
+      if (field === "properties" && this.selectedType === "weapon") {
         delete this.overrides.versatile;
         delete this.overrides.ammunitionType;
       }
@@ -2017,7 +2218,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     else properties.delete(property);
     this.overrides.properties = [...properties];
 
-    if (property === "ver") {
+    if (this.selectedType === "weapon" && property === "ver") {
       if (checked) {
         const source = this.#sourceValues();
         this.overrides.versatile = {
@@ -2028,7 +2229,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         };
       } else delete this.overrides.versatile;
     }
-    if (property === "amm") {
+    if (this.selectedType === "weapon" && property === "amm") {
       if (checked) this.overrides.ammunitionType = "";
       else delete this.overrides.ammunitionType;
     }
@@ -2058,6 +2259,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   async #selectBaseWeapon(event) {
+    if (this.selectedType !== "weapon") return;
     const uuid = String(event.currentTarget.value ?? "");
     if (!uuid) {
       if (this.baseWeaponRequired) {
@@ -2113,7 +2315,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     this.#setBrowserBlock(true);
     this.iconBrowserApp = new ItemCreatorIconBrowserApp({
-      itemType: "weapon",
+      itemType: this.selectedType === "equipment" ? "equipment" : "weapon",
       selectedIcon: this.selectedIcon,
       onSelect: img => {
         this.selectedIcon = img;
@@ -2187,16 +2389,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #isBaseComplete() {
     const effective = this.#effectiveValues();
-    const additionalDamageValid = !this.customized.additionalDamage
+    const additionalDamageValid = this.selectedType !== "weapon" || !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
         Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
         && (!row.useAbilityModifier || Boolean(row.ability))));
-    return Boolean(this.selectedWeaponUuid && this.selectedBaseWeaponUuid && this.itemName.trim() && additionalDamageValid);
+    return Boolean(this.selectedWeaponUuid
+      && (this.selectedType === "equipment" || this.selectedBaseWeaponUuid)
+      && this.itemName.trim() && additionalDamageValid);
   }
 
   #resetEnhancements() {
     this.enhancements = {};
-    this.enhancementValues = enhancementDefaults();
+    this.enhancementValues = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
   }
 
   #resetGrantedEffects() {
@@ -2207,24 +2411,30 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #validateEnhancements() {
     const errors = {};
     const values = this.enhancementValues;
-    if (this.enhancements.magicalWeapon && !values.magicalWeapon.rarity) errors.magicalWeapon = true;
-    if (this.enhancements.weaponEnhancement && ![1, 2, 3].includes(Number(values.weaponEnhancement.bonus))) errors.weaponEnhancement = true;
-    if (this.enhancements.attackBonus && !Number.isFinite(Number(values.attackBonus.bonus))) errors.attackBonus = true;
-    if (this.enhancements.damageBonus && !Number.isFinite(Number(values.damageBonus.bonus))) errors.damageBonus = true;
-    if (this.enhancements.criticalThreshold) {
-      const mode = values.criticalThreshold.mode;
-      const threshold = mode === "custom" ? Number(values.criticalThreshold.custom) : Number(mode);
-      if (!Number.isFinite(threshold) || threshold < 1 || threshold > 20) errors.criticalThreshold = true;
-    }
-    if (this.enhancements.extraCriticalDamage) {
-      const critical = values.extraCriticalDamage;
-      if (!(Number(critical.number) > 0 && Number(critical.denomination) > 0 && critical.damageType)) errors.extraCriticalDamage = true;
+    if (this.selectedType === "equipment") {
+      if (this.enhancements.magicalItem && !values.magicalItem?.rarity) errors.magicalItem = true;
+      if (this.enhancements.armorEnhancement && ![1, 2, 3].includes(Number(values.armorEnhancement?.bonus))) errors.armorEnhancement = true;
+      if (this.enhancements.baseArmorClass && !(Number(values.baseArmorClass?.value) >= 0)) errors.baseArmorClass = true;
+    } else {
+      if (this.enhancements.magicalWeapon && !values.magicalWeapon.rarity) errors.magicalWeapon = true;
+      if (this.enhancements.weaponEnhancement && ![1, 2, 3].includes(Number(values.weaponEnhancement.bonus))) errors.weaponEnhancement = true;
+      if (this.enhancements.attackBonus && !Number.isFinite(Number(values.attackBonus.bonus))) errors.attackBonus = true;
+      if (this.enhancements.damageBonus && !Number.isFinite(Number(values.damageBonus.bonus))) errors.damageBonus = true;
+      if (this.enhancements.criticalThreshold) {
+        const mode = values.criticalThreshold.mode;
+        const threshold = mode === "custom" ? Number(values.criticalThreshold.custom) : Number(mode);
+        if (!Number.isFinite(threshold) || threshold < 1 || threshold > 20) errors.criticalThreshold = true;
+      }
+      if (this.enhancements.extraCriticalDamage) {
+        const critical = values.extraCriticalDamage;
+        if (!(Number(critical.number) > 0 && Number(critical.denomination) > 0 && critical.damageType)) errors.extraCriticalDamage = true;
+      }
     }
     if (this.enhancements.grantedSpellcasting) {
-      const spells = values.grantedSpellcasting.spells ?? [];
+      const spells = values.grantedSpellcasting?.spells ?? [];
       if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
     }
-    if (this.enhancements.ignoreResistance && !values.ignoreResistance.damageTypes.length) errors.ignoreResistance = true;
+    if (this.enhancements.ignoreResistance && !values.ignoreResistance?.damageTypes?.length) errors.ignoreResistance = true;
     if (this.enhancements.conditionalAdvantage) {
       const conditional = values.conditionalAdvantage;
       if (conditional.mode === "supported" && !conditional.supportedCondition) errors.conditionalAdvantage = true;
@@ -2244,6 +2454,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const validAvailability = key => ["owned", "equipped", "equippedAttuned"].includes(values[key]?.availability);
 
     if (this.grantedEffects.armorClassBonus && !(finite(values.armorClassBonus.bonus) && validAvailability("armorClassBonus"))) errors.armorClassBonus = true;
+    if (this.grantedEffects.criticalThreshold && !([18, 19, 20].includes(Number(values.criticalThreshold?.threshold))
+      && ["weapon", "spell", "all"].includes(values.criticalThreshold?.scope)
+      && validAvailability("criticalThreshold"))) errors.criticalThreshold = true;
     if (this.grantedEffects.savingThrowBonus && !(hasRows("savingThrowBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("savingThrowBonus"))) errors.savingThrowBonus = true;
     if (this.grantedEffects.savingThrowAdvantage && !(hasRows("savingThrowAdvantage", row => Boolean(row.target)) && validAvailability("savingThrowAdvantage"))) errors.savingThrowAdvantage = true;
     if (this.grantedEffects.abilityScoreAdjustment && !(hasRows("abilityScoreAdjustment", row => Boolean(row.ability) && ["add", "minimum", "fixed"].includes(row.operation) && finite(row.value)) && validAvailability("abilityScoreAdjustment"))) errors.abilityScoreAdjustment = true;
@@ -2426,7 +2639,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const uuid = await CompendiumBrowser.selectOne({
         mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
         tab: 'spells',
-        hint: 'Select a Spell to grant through this weapon.',
+        hint: 'Select a Spell to grant through this item.',
         filters: { locked: { documentClass: 'Item', types: new Set(['spell']) } },
         window: { modal: true }
       });
@@ -2450,7 +2663,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     const spells = this.enhancementValues.grantedSpellcasting.spells ??= [];
     if (spells.some(spell => spell.uuid === document.uuid)) {
-      ui.notifications.warn(`${document.name} is already granted by this weapon.`);
+      ui.notifications.warn(`${document.name} is already granted by this item.`);
       return false;
     }
     spells.push(this.#newGrantedSpell(document));
@@ -2532,10 +2745,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #toggleEnhancement(event) {
     const field = event.currentTarget.dataset.enhancementToggle;
-    if (!field || !(field in enhancementDefaults())) return;
+    const defaults = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    if (!field || !(field in defaults)) return;
     const enabled = event.currentTarget.checked;
     this.enhancements[field] = enabled;
-    if (!enabled) this.enhancementValues[field] = clone(enhancementDefaults()[field]);
+    if (!enabled) this.enhancementValues[field] = clone(defaults[field]);
     this.#renderPreservingScroll();
   }
 

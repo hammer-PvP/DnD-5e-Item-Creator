@@ -1,25 +1,37 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.1.6";
+export const MODULE_VERSION = "0.1.7";
 export const MODULE_STAGE = "Beta";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },
-  { id: "equipment", label: "Equipment", icon: "fa-shield-halved", available: false },
+  { id: "equipment", label: "Equipment", icon: "fa-shield-halved", available: true },
   { id: "consumable", label: "Consumable", icon: "fa-flask", available: false },
-  { id: "tool", label: "Tool", icon: "fa-hammer", available: false },
-  { id: "container", label: "Container", icon: "fa-box-open", available: false },
-  { id: "loot", label: "Loot", icon: "fa-coins", available: false },
-  { id: "spell", label: "Spell", icon: "fa-wand-sparkles", available: false },
-  { id: "feat", label: "Feature", icon: "fa-star", available: false }
+  { id: "tool", label: "Tool", icon: "fa-hammer", available: false }
 ]);
 
 export const STEPS = Object.freeze([
   { id: "itemType", label: "Item Type", icon: "fa-shapes", available: true },
-  { id: "baseItem", label: "Base Item", icon: "fa-khanda", available: true },
+  { id: "baseItem", label: "Base Item", icon: "fa-box-open", available: true },
   { id: "enhancements", label: "Enhancements", icon: "fa-wand-magic-sparkles", available: true },
   { id: "grantedEffects", label: "Granted Effects", icon: "fa-shield-heart", available: true },
   { id: "description", label: "Description", icon: "fa-scroll", available: true },
   { id: "review", label: "Review", icon: "fa-list-check", available: true }
+]);
+
+export const EQUIPMENT_FORMS = Object.freeze([
+  { id: "armor", label: "Armor", nativeType: "light", icon: "fa-shield" },
+  { id: "shield", label: "Shield", nativeType: "shield", icon: "fa-shield-halved" },
+  { id: "torso", label: "Torso / Robe", nativeType: "clothing", icon: "fa-shirt" },
+  { id: "cloak", label: "Cloak / Mantle", nativeType: "clothing", icon: "fa-user-ninja" },
+  { id: "headwear", label: "Headwear", nativeType: "clothing", icon: "fa-hat-wizard" },
+  { id: "neck", label: "Neck / Amulet", nativeType: "wondrous", icon: "fa-gem" },
+  { id: "hands", label: "Hands / Gloves", nativeType: "clothing", icon: "fa-mitten" },
+  { id: "ring", label: "Finger / Ring", nativeType: "ring", icon: "fa-ring" },
+  { id: "feet", label: "Feet / Boots", nativeType: "clothing", icon: "fa-shoe-prints" },
+  { id: "waist", label: "Waist / Belt", nativeType: "clothing", icon: "fa-link" },
+  { id: "focus", label: "Focus / Catalyst", nativeType: "wondrous", icon: "fa-wand-magic-sparkles" },
+  { id: "accessory", label: "Accessory", nativeType: "wondrous", icon: "fa-star" },
+  { id: "other", label: "Other Equipment", nativeType: "trinket", icon: "fa-cube" }
 ]);
 
 export function defaultSourceSettings() {
