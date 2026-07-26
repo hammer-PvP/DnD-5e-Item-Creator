@@ -1,27 +1,29 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.4 Beta  
+**Version:** 0.1.5 Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
 
-## v0.1.4 Beta
+## v0.1.5 Beta
 
-This Beta makes granted Spellbook entries follow the configured Item availability. Spells configured as **While Equipped** or **While Equipped and Attuned** are hidden while the weapon is inactive and become visible automatically when the matching Actor Item copy satisfies its condition. Each copy remains independently linked to its own native D&D5e Cast Activities and use counters.
+This Beta adds assisted editing for **world Weapon Items** directly from the Foundry Items Directory. A GM can right-click a supported Item and choose **Edit with Item Creator** to reopen the existing creation workflow with the Item's current configuration loaded.
 
-This Beta retains the complete assisted Weapon creation path and the v0.1.3 Description improvements:
+Editing supports two sources:
 
-- native D&D5e Compendium Browser selection for Weapon Templates and granted Spells;
-- separate special Template and physical Base Weapon composition;
-- checkbox-gated Base Item overrides, Enhancements, Granted Spellcasting, and Granted Effects;
-- Template-only Description inheritance with a cleaned preview and full original HTML loaded into Foundry's native rich-text editor when customization is enabled;
-- automatic English Item Properties and Granted Spellcasting sections in full and chat descriptions;
-- final Review with a native D&D5e chat-card preview, compact inventory presentation, activity list, and configuration summary;
-- protected `Save Item` confirmation and blocking processing overlay;
-- creation of the final world Weapon Item with Attack and Cast Activities, generated Active Effect blueprints, source metadata, and Item Creator runtime flags;
-- runtime mirroring of Granted Effects and conditional Spellbook visibility for Owned, Equipped, or Equipped and Attuned availability.
+- Items previously created by Item Creator restore their saved Template, Base Weapon, overrides, Enhancements, Granted Spellcasting, Granted Effects, availability rules, and custom Description draft.
+- Native D&D5e or earlier homebrew Weapon Items import their current system data into the same interface. Supported weapon fields, additional damage, Cast Activities, and recognized Active Effects are loaded, while unrecognized Activities, Effects, and module flags are preserved.
 
-Weapon is the only available creation type in this Beta. Equipment, Consumable, and other Item types remain locked until the Weapon workflow is validated.
+The Review stage provides two protected final actions:
+
+- **Update Item** modifies the selected world Item in place while preserving its folder, ID, ownership, and unrelated external data.
+- **Save as Copy** creates a separate world Item from the edited configuration and leaves the original unchanged.
+
+Updating a world Item does not automatically replace copies that were already placed on Actors.
+
+This Beta also retains the complete assisted Weapon creation path, the native Description editor, automatic Item Properties and Granted Spellcasting text, conditional Spellbook visibility, and runtime Granted Effects.
+
+Weapon is the only available creation and editing type in this Beta. Equipment, Consumable, and other Item types remain locked until the Weapon workflow is validated.
 
 ## Installation
 
@@ -37,10 +39,16 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.4 creates world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.5 creates and edits world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+
+## Runtime dependency
+
+Items created by Item Creator remain valid D&D5e Item documents if the module is disabled. Native data such as name, image, Description, damage, properties, magical bonus, Attack and Cast Activities, uses, and native recovery remains stored on the Item.
+
+Dynamic mechanics require Item Creator to remain active, including conditional Spellbook visibility based on equipped or attuned state, runtime Granted Effects, Ignore Damage Resistance, Conditional Advantage, and state reconciliation between multiple Actor Item copies. Disabling the module can leave the last applied Actor state in place until Item Creator is enabled again and performs reconciliation.
 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.4 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.4/item-creator.zip`
+- v0.1.5 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.5/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

@@ -894,7 +894,14 @@ export class ItemCreatorItemBuilder {
     }
 
     const templateActivities = objectActivities(draft.template);
-    const nonAttackActivities = Object.values(templateActivities).filter(activity => activity?.type !== "attack");
+    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
+    const managedPrimaryAttackId = draft.managedPrimaryAttackId ?? null;
+    const preservedActivities = Object.values(templateActivities).filter(activity => {
+      const id = activity?._id ?? activity?.id;
+      if (managedActivityIds.has(id)) return false;
+      if (activity?.type !== "attack") return true;
+      return Boolean(draft.preserveAdditionalAttackActivities && managedPrimaryAttackId && id !== managedPrimaryAttackId);
+    });
     const attack = primaryAttackData(draft.baseWeapon, draft.template);
     attack.attack.ability = effective.attackAbility || "";
     attack.attack.bonus = enhancements.attackBonus ? String(enhancementValues.attackBonus.bonus ?? "") : String(attack.attack.bonus ?? "");
@@ -908,6 +915,7 @@ export class ItemCreatorItemBuilder {
       const critical = enhancementValues.extraCriticalDamage;
       attack.damage.critical.bonus = `${Number(critical.number) || 1}d${Number(critical.denomination) || 8}[${critical.damageType}]`;
     }
+    if (draft.replaceAttackDamageParts) attack.damage.parts = [];
     for (const row of effective.additionalDamage ?? []) {
       attack.damage.parts.push(damagePart({
         ...row,
@@ -915,7 +923,7 @@ export class ItemCreatorItemBuilder {
       }));
     }
 
-    const provisionalActivities = [...nonAttackActivities, attack];
+    const provisionalActivities = [...preservedActivities, attack];
     data.system.activities = Object.fromEntries(provisionalActivities.map(activity => [activity._id, activity]));
 
     // Create an isolated provisional parent only when native Cast Activity models are needed.
@@ -929,7 +937,9 @@ export class ItemCreatorItemBuilder {
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
-    data.effects = objectEffects(draft.template).map(effect => {
+    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
+    data.effects = objectEffects(draft.template).filter(effect =>
+      !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
       const clean = clone(effect);
       delete clean.origin;
       return clean;
@@ -943,6 +953,7 @@ export class ItemCreatorItemBuilder {
       moduleVersion: MODULE_VERSION,
       templateUuid: draft.template.uuid,
       baseWeaponUuid: draft.baseWeapon.uuid,
+      editedFromUuid: draft.editingSourceUuid ?? null,
       runtime: {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,

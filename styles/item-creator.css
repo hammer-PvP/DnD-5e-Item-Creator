@@ -2155,3 +2155,57 @@ body.ic-protected-active { overflow: hidden; }
   }
   .item-creator-generated .item-creator-property-grid td + td { margin-top: .35rem; }
 }
+
+/* World Item editing ------------------------------------------------------ */
+.ic-edit-mode-banner {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid rgba(209, 176, 107, .45);
+  border-radius: 5px;
+  background: rgba(209, 176, 107, .07);
+}
+.ic-edit-mode-banner > i {
+  color: var(--ic-gold);
+  font-size: 18px;
+  text-align: center;
+}
+.ic-edit-mode-banner small,
+.ic-edit-mode-banner strong,
+.ic-edit-mode-banner em { display: block; }
+.ic-edit-mode-banner small {
+  color: var(--ic-gold);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.ic-edit-mode-banner strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ic-edit-mode-banner em {
+  margin-top: 2px;
+  font-size: 10px;
+  font-style: normal;
+  opacity: .65;
+}
+.ic-edit-save-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.ic-save-copy {
+  min-width: 150px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-color: rgba(209, 176, 107, .5);
+  background: rgba(209, 176, 107, .08);
+  color: #f0dfb7;
+  font-weight: 700;
+}

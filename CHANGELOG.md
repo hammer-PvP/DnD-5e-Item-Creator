@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.5 — Beta
+
+- Added the GM-only `Edit with Item Creator` context-menu action for Weapon Items in the world Items Directory.
+- Reused the existing Item Creator creation workflow for editing; no separate import or edit screen was introduced.
+- Restored full saved drafts for Items originally created by Item Creator, including Template, Base Weapon, overrides, Enhancements, Granted Spellcasting, Granted Effects, availability, icon, name, and custom Description.
+- Added interpreted import for native D&D5e and earlier homebrew Weapon Items using their current world-document data.
+- Imported supported core weapon fields, additional Attack Activity damage parts, magical bonus, rarity, attunement, attack bonus, critical threshold, extra critical damage, linked Cast Activities, and recognized Active Effects.
+- Preserved unrecognized Activities, Active Effects, system data, and third-party module flags when editing imported Items.
+- Preserved additional Attack Activities on imported Items while rebuilding only the primary weapon Attack Activity managed by the editor.
+- Added protected `Update Item` and `Save as Copy` actions to Review.
+- `Update Item` keeps the original world Item ID, folder, ownership, and sort position; existing Actor copies are not automatically replaced.
+- `Save as Copy` creates a new world Item in the original folder while leaving the source Item unchanged.
+- Added explicit Activity and Active Effect replacement during updates so removed or changed configuration does not leave stale embedded data.
+- Added best-effort transactional rollback if updating the Item or rebuilding its embedded Activities or Active Effects fails.
+- Documented which native Item mechanics remain usable without the module and which conditional runtime mechanics require Item Creator to stay active.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.5`.
+
 ## 0.1.4 — Beta
 
 - Added runtime reconciliation for granted Spellbook entries so `Owned`, `Equipped`, and `Equipped and Attuned` availability is enforced in the Actor spellbook.

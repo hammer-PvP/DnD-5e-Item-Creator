@@ -29,7 +29,8 @@ Hooks.once("init", () => {
 
   game.itemCreator = {
     get app() { return appInstance; },
-    open: openItemCreator,
+    open: () => openItemCreator(),
+    edit: item => openItemCreator({ item }),
     version: MODULE_VERSION
   };
 });
@@ -39,14 +40,58 @@ Hooks.on("renderApplicationV2", (app, element) => {
 });
 
 Hooks.on("renderItemDirectory", (app, html) => injectItemDirectoryButton(app, html));
+Hooks.on("getItemContextOptions", (_application, options) => addEditContextOption(options));
+// Legacy directory hooks remain registered as harmless compatibility fallbacks.
+Hooks.on("getItemDirectoryEntryContext", (_html, options) => addEditContextOption(options));
+Hooks.on("getItemDirectoryEntryContextOptions", (_app, options) => addEditContextOption(options));
 
-function openItemCreator() {
+function contextElement(target) {
+  if (target instanceof HTMLElement) return target;
+  return target?.[0] instanceof HTMLElement ? target[0] : null;
+}
+
+function contextItem(target) {
+  const element = contextElement(target);
+  const id = element?.dataset?.entryId
+    ?? element?.dataset?.documentId
+    ?? element?.dataset?.itemId
+    ?? target?.data?.("entry-id")
+    ?? target?.data?.("document-id")
+    ?? target?.data?.("item-id");
+  return id ? game.items.get(String(id)) : null;
+}
+
+function isEditableWorldWeapon(item) {
+  return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && item.type === "weapon" && !item.parent && !item.pack);
+}
+
+function addEditContextOption(options) {
+  if (!game.user.isGM || !Array.isArray(options)) return;
+  if (options.some(option => option?.itemCreatorEdit)) return;
+  options.push({
+    itemCreatorEdit: true,
+    name: "Edit with Item Creator",
+    icon: '<i class="fa-solid fa-hammer"></i>',
+    condition: target => isEditableWorldWeapon(contextItem(target)),
+    callback: target => {
+      const item = contextItem(target);
+      if (isEditableWorldWeapon(item)) openItemCreator({ item });
+    }
+  });
+}
+
+function openItemCreator({ item = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Item Creator.");
+  if (item && !isEditableWorldWeapon(item)) return ui.notifications.warn("Only world Weapon Items can be edited with Item Creator.");
+
   if (appInstance?.element?.isConnected) {
+    const sameTarget = (appInstance.editingItemId ?? null) === (item?.id ?? null);
     appInstance.bringToFront?.();
+    if (!sameTarget) ui.notifications.warn("Close the current Item Creator draft before opening another Item.");
     return appInstance;
   }
-  appInstance = new ItemCreatorApp();
+
+  appInstance = new ItemCreatorApp({ editItem: item });
   appInstance.render({ force: true });
   return appInstance;
 }

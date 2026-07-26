@@ -110,7 +110,15 @@ function weaponSourceData(document) {
       damageType: versatileTypes[0] ?? damageTypes[0] ?? ""
     },
     ammunitionType: system.ammunition?.type ?? "",
-    additionalDamage: []
+    additionalDamage: valuesOf(activity?.damage?.parts).map(part => ({
+      id: foundry.utils.randomID(),
+      number: Number(part?.number) || 0,
+      denomination: Number(part?.denomination) || 0,
+      damageType: valuesOf(part?.types)[0] ?? "",
+      useAbilityModifier: false,
+      ability: "",
+      bonus: String(part?.bonus ?? "")
+    })).filter(part => part.number > 0 && part.denomination > 0 && part.damageType)
   };
 }
 
@@ -207,6 +215,199 @@ function cleanTemplateDescription(item) {
     removed += 1;
   }
   return host.innerHTML.trim();
+}
+
+function stripGeneratedDescription(html) {
+  const source = String(html ?? "").trim();
+  if (!source) return "";
+  const host = globalThis.document?.createElement?.("div");
+  if (!host) return source;
+  host.innerHTML = source;
+  host.querySelectorAll('[data-item-creator-generated], .item-creator-runtime-rules').forEach(node => node.remove());
+  return host.innerHTML.trim();
+}
+
+function mergeWithDefaults(defaults, stored) {
+  return foundry.utils.mergeObject(clone(defaults), clone(stored ?? {}), {
+    inplace: false,
+    recursive: true,
+    overwrite: true,
+    insertKeys: true,
+    insertValues: true
+  });
+}
+
+function numericValue(value) {
+  const text = String(value ?? "").trim();
+  if (!text || !/^[+-]?(?:\d+|\d*[.]\d+)$/.test(text)) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function parseCriticalDamageFormula(value) {
+  const match = String(value ?? "").trim().match(/^(\d+)d(\d+)(?:\[([^\]]+)\])?$/i);
+  if (!match) return null;
+  return {
+    number: Number(match[1]),
+    denomination: Number(match[2]),
+    damageType: match[3] ?? Object.keys(CONFIG.DND5E.damageTypes ?? {})[0] ?? ""
+  };
+}
+
+function recoveryName(activity) {
+  const period = valuesOf(activity?.uses?.recovery)[0]?.period;
+  return period === "sr" ? "shortRest" : "longRest";
+}
+
+function spellbookIntent(activity) {
+  const moduleFlags = activity?.flags?.[MODULE_ID] ?? {};
+  if (typeof moduleFlags.showInSpellbook === "boolean") return moduleFlags.showInSpellbook;
+  return Boolean(activity?.spell?.spellbook);
+}
+
+function inferredAvailability(activity) {
+  const configured = activity?.flags?.[MODULE_ID]?.availability;
+  if (["owned", "equipped", "equippedAttuned"].includes(configured)) return configured;
+  if (activity?.visibility?.requireAttunement) return "equippedAttuned";
+  return "owned";
+}
+
+async function grantedSpellFromCastActivity(activity) {
+  const uuid = activity?.spell?.uuid;
+  if (!uuid) return null;
+  let spellDocument = null;
+  try { spellDocument = await fromUuid(uuid); } catch (_error) { /* Preserve the Activity even when the source is unavailable. */ }
+  const source = spellDocument ? spellSourceData(spellDocument) : null;
+  const level = Number(activity?.flags?.[MODULE_ID]?.baseLevel ?? source?.level ?? activity?.spell?.level ?? 0);
+  const useMax = Number(activity?.uses?.max ?? 0);
+  const limited = Number.isFinite(useMax) && useMax > 0;
+  const targets = valuesOf(activity?.consumption?.targets);
+  const slotTarget = targets.find(target => target?.type === "spellSlots");
+  const consumeSlot = Boolean(activity?.consumption?.spellSlot || slotTarget);
+  const moduleFlags = activity?.flags?.[MODULE_ID] ?? {};
+  const fixedChallenge = Boolean(activity?.spell?.challenge?.override);
+  const attackRaw = activity?.spell?.challenge?.attack;
+  const saveRaw = activity?.spell?.challenge?.save;
+  const attack = attackRaw === null || attackRaw === undefined || attackRaw === "" ? null : Number(attackRaw);
+  const save = saveRaw === null || saveRaw === undefined || saveRaw === "" ? null : Number(saveRaw);
+  const castLevel = Number(activity?.spell?.level ?? level);
+  return {
+    id: foundry.utils.randomID(),
+    uuid,
+    name: activity?.name || spellDocument?.name || "Granted Spell",
+    img: activity?.img || spellDocument?.img || "icons/svg/book.svg",
+    source: spellDocument ? `${ItemCreatorSourceRegistry.instance.describeDocument(spellDocument).sourceLabel} — ${ItemCreatorSourceRegistry.instance.describeDocument(spellDocument).packLabel}` : "Imported Cast Activity",
+    level: Number.isFinite(level) ? Math.clamp(level, 0, 9) : 0,
+    school: source?.school ?? spellDocument?.system?.school ?? "",
+    hasAttack: source?.hasAttack ?? (attack !== null && Number.isFinite(attack)),
+    hasSave: source?.hasSave ?? (save !== null && Number.isFinite(save)),
+    useLimit: limited ? "limited" : "unlimited",
+    maxUses: limited ? useMax : 1,
+    recovery: recoveryName(activity),
+    consumeSlot,
+    eligibility: moduleFlags.eligibility ?? (consumeSlot ? "compatibleSlot" : "independent"),
+    castLevelMode: moduleFlags.castLevelMode ?? (consumeSlot && slotTarget?.scaling?.mode === "level" ? "slot" : castLevel > level ? "fixed" : "base"),
+    fixedCastLevel: Number.isFinite(castLevel) ? castLevel : level,
+    spellcastingMode: moduleFlags.spellcastingMode ?? (fixedChallenge ? "fixed" : activity?.spell?.ability || "actorDefault"),
+    fixedAttackBonus: attack !== null && Number.isFinite(attack) ? attack : 5,
+    fixedSaveDc: save !== null && Number.isFinite(save) ? save : 13,
+    showInSpellbook: spellbookIntent(activity),
+    availability: inferredAvailability(activity),
+    importedActivityId: activity?._id ?? activity?.id ?? null
+  };
+}
+
+function effectChanges(effect) {
+  return valuesOf(effect?.system?.changes ?? effect?.changes);
+}
+
+function effectModeName(mode) {
+  if (Number(mode) === Number(CONST.ACTIVE_EFFECT_MODES.UPGRADE)) return "minimum";
+  if (Number(mode) === Number(CONST.ACTIVE_EFFECT_MODES.OVERRIDE)) return "fixed";
+  return "add";
+}
+
+function inferGrantedEffects(item) {
+  const enabled = {};
+  const values = grantedEffectDefaults();
+  const managedEffectIds = [];
+  for (const effect of valuesOf(item?.effects)) {
+    const changes = effectChanges(effect);
+    if (!changes.length) continue;
+    const availability = effect?.flags?.[MODULE_ID]?.availability ?? "owned";
+    const effectId = effect?.id ?? effect?._id;
+    const keys = changes.map(change => change.key);
+
+    if (changes.length === 1 && keys[0] === "system.attributes.ac.bonus") {
+      enabled.armorClassBonus = true;
+      values.armorClassBonus = { bonus: Number(changes[0].value) || 0, availability };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    if (changes.every(change => /^system[.]abilities[.][a-z]{3}[.]value$/.test(change.key))) {
+      enabled.abilityScoreAdjustment = true;
+      values.abilityScoreAdjustment = {
+        entries: changes.map(change => effectRow({
+          ability: change.key.split(".")[2],
+          operation: effectModeName(change.mode ?? change.type),
+          value: Number(change.value) || 0
+        })),
+        availability
+      };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    if (changes.length === 2 && keys.includes("system.bonuses.msak.attack") && keys.includes("system.bonuses.rsak.attack")) {
+      enabled.spellAttackBonus = true;
+      values.spellAttackBonus = { bonus: Number(changes[0].value) || 0, availability };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    if (changes.length === 1 && keys[0] === "system.bonuses.spell.dc") {
+      enabled.spellSaveDcBonus = true;
+      values.spellSaveDcBonus = { bonus: Number(changes[0].value) || 0, availability };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    const senseChanges = changes.filter(change => /^system[.]attributes[.]senses[.]ranges[.]/.test(change.key));
+    if (senseChanges.length === changes.length) {
+      enabled.grantedSense = true;
+      values.grantedSense = {
+        entries: senseChanges.map(change => effectRow({
+          sense: change.key.split(".").at(-1),
+          range: Number(change.value) || 0,
+          units: "ft",
+          operation: effectModeName(change.mode ?? change.type)
+        })),
+        availability
+      };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    const movementChanges = changes.filter(change => /^system[.]attributes[.]movement[.]/.test(change.key));
+    if (movementChanges.length === changes.length) {
+      const speedChanges = movementChanges.filter(change => !change.key.endsWith(".hover"));
+      if (speedChanges.length) {
+        enabled.grantMovementType = true;
+        values.grantMovementType = {
+          entries: speedChanges.map(change => effectRow({
+            type: change.key.split(".").at(-1),
+            speed: Number(change.value) || 0,
+            units: "ft",
+            hover: movementChanges.some(entry => entry.key.endsWith(".hover") && String(entry.value) !== "false")
+          })),
+          availability
+        };
+        managedEffectIds.push(effectId);
+      }
+    }
+  }
+  return { enabled, values, managedEffectIds: managedEffectIds.filter(Boolean) };
 }
 
 async function enrichDescription(html, relativeTo) {
@@ -412,9 +613,20 @@ function effectEntryOptions(key, row) {
 }
 
 export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
-  constructor(options = {}) {
+  constructor({ editItem = null, ...options } = {}) {
     super(options);
-    this.step = "itemType";
+    this.editingItem = editItem;
+    this.editingItemId = editItem?.id ?? null;
+    this.editingManagedItem = false;
+    this.editingImportedItem = false;
+    this.editStateInitialized = false;
+    this.originalItemSource = editItem?.toObject?.() ? clone(editItem.toObject()) : null;
+    this.replaceAttackDamageParts = false;
+    this.managedActivityIds = [];
+    this.managedPrimaryAttackId = null;
+    this.preserveAdditionalAttackActivities = false;
+    this.managedEffectIds = [];
+    this.step = editItem ? "baseItem" : "itemType";
     this.selectedType = null;
     this.selectedWeaponUuid = null;
     this.selectedWeaponDocument = null;
@@ -456,9 +668,136 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     main: { template: `modules/${MODULE_ID}/templates/item-creator.hbs` }
   };
 
+  async #initializeEditState(registry) {
+    if (this.editStateInitialized || !this.editingItem) return;
+    const item = this.editingItem;
+    if (item.parent || item.pack || item.type !== "weapon") throw new Error("Only world Weapon Items can be edited with Item Creator.");
+
+    this.selectedType = "weapon";
+    this.itemName = item.name ?? "";
+    this.selectedIcon = item.img ?? "";
+    const flags = item.flags?.[MODULE_ID] ?? {};
+    const savedDraft = flags.draft;
+    this.editingManagedItem = Boolean(flags.created && savedDraft);
+    this.editingImportedItem = !this.editingManagedItem;
+
+    if (this.editingManagedItem) {
+      this.selectedWeaponUuid = flags.templateUuid || item.uuid;
+      this.selectedBaseWeaponUuid = flags.baseWeaponUuid || item.uuid;
+      this.selectedWeaponDocument = await registry.getWeaponDocument(this.selectedWeaponUuid) ?? item;
+      this.selectedBaseWeaponDocument = await registry.getWeaponDocument(this.selectedBaseWeaponUuid) ?? item;
+      this.customized = clone(savedDraft.customized ?? {});
+      this.overrides = clone(savedDraft.overrides ?? {});
+      this.enhancements = clone(savedDraft.enhancements ?? {});
+      this.enhancementValues = mergeWithDefaults(enhancementDefaults(), savedDraft.enhancementValues);
+      this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
+      this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
+      this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
+      this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
+      this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
+      this.customDescription = this.descriptionCustomized
+        ? stripGeneratedDescription(item.system?.description?.value)
+        : this.templateDescriptionRaw;
+
+      if (this.selectedWeaponDocument === item) {
+        this.replaceAttackDamageParts = Boolean(this.customized.additionalDamage);
+        this.managedActivityIds = valuesOf(item.system?.activities)
+          .filter(activity => activity?.type === "cast")
+          .map(activity => activity.id ?? activity._id)
+          .filter(Boolean);
+        const primary = attackActivity(item);
+        this.managedPrimaryAttackId = primary?.id ?? primary?._id ?? null;
+        this.preserveAdditionalAttackActivities = true;
+      }
+      this.managedEffectIds = valuesOf(item.effects)
+        .filter(effect => effect?.flags?.[MODULE_ID]?.blueprint)
+        .map(effect => effect.id ?? effect._id)
+        .filter(Boolean);
+    } else {
+      this.selectedWeaponUuid = item.uuid;
+      this.selectedWeaponDocument = item;
+      this.selectedBaseWeaponUuid = item.uuid;
+      this.selectedBaseWeaponDocument = item;
+      this.inheritedBaseWeaponUuid = item.uuid;
+      this.customized = {};
+      this.overrides = {};
+
+      const source = weaponSourceData(item);
+      if (source?.additionalDamage?.length) {
+        this.customized.additionalDamage = true;
+        this.overrides.additionalDamage = clone(source.additionalDamage);
+        this.replaceAttackDamageParts = true;
+      }
+
+      const activity = attackActivity(item);
+      this.managedPrimaryAttackId = activity?.id ?? activity?._id ?? null;
+      this.preserveAdditionalAttackActivities = true;
+      const properties = valuesOf(item.system?.properties);
+      const enhancementValues = enhancementDefaults();
+      this.enhancements = {};
+      if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
+        this.enhancements.magicalWeapon = true;
+        enhancementValues.magicalWeapon = {
+          rarity: item.system?.rarity || "uncommon",
+          attunement: item.system?.attunement || ""
+        };
+      }
+      const magicalBonus = Number(item.system?.magicalBonus);
+      if (Number.isFinite(magicalBonus) && magicalBonus !== 0) {
+        this.enhancements.weaponEnhancement = true;
+        enhancementValues.weaponEnhancement.bonus = magicalBonus;
+      }
+      const attackBonus = numericValue(activity?.attack?.bonus);
+      if (attackBonus !== null && attackBonus !== 0) {
+        this.enhancements.attackBonus = true;
+        enhancementValues.attackBonus.bonus = attackBonus;
+      }
+      const threshold = Number(activity?.attack?.critical?.threshold);
+      if (Number.isInteger(threshold) && threshold > 0) {
+        this.enhancements.criticalThreshold = true;
+        enhancementValues.criticalThreshold = {
+          mode: [18, 19, 20].includes(threshold) ? String(threshold) : "custom",
+          custom: threshold
+        };
+      }
+      const criticalDamage = parseCriticalDamageFormula(activity?.damage?.critical?.bonus);
+      if (criticalDamage) {
+        this.enhancements.extraCriticalDamage = true;
+        enhancementValues.extraCriticalDamage = criticalDamage;
+      }
+
+      const grantedSpells = [];
+      for (const cast of valuesOf(item.system?.activities).filter(entry => entry?.type === "cast")) {
+        const imported = await grantedSpellFromCastActivity(cast);
+        if (!imported) continue;
+        grantedSpells.push(imported);
+        const activityId = cast.id ?? cast._id;
+        if (activityId) this.managedActivityIds.push(activityId);
+      }
+      if (grantedSpells.length) {
+        this.enhancements.grantedSpellcasting = true;
+        enhancementValues.grantedSpellcasting.spells = grantedSpells;
+      }
+      this.enhancementValues = enhancementValues;
+
+      const importedEffects = inferGrantedEffects(item);
+      this.grantedEffects = importedEffects.enabled;
+      this.grantedEffectValues = importedEffects.values;
+      this.managedEffectIds = importedEffects.managedEffectIds;
+      this.templateDescriptionRaw = rawTemplateDescription(item);
+      this.templateDescription = this.templateDescriptionRaw;
+      this.descriptionCustomized = true;
+      this.customDescription = stripGeneratedDescription(item.system?.description?.value);
+    }
+
+    this.baseWeaponRequired = false;
+    this.editStateInitialized = true;
+  }
+
   async _prepareContext() {
     const registry = ItemCreatorSourceRegistry.instance;
     await registry.loadWeapons();
+    await this.#initializeEditState(registry);
 
     if (this.selectedWeaponUuid && !this.selectedWeaponDocument) {
       try {
@@ -591,6 +930,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         optionLabel: option.name
       }))
     }));
+    if (this.selectedBaseWeaponDocument && !registry.findWeapon(this.selectedBaseWeaponUuid)) {
+      baseWeaponOptionGroups.unshift({
+        label: selectedBaseSource?.sourceLabel ?? "World Item",
+        items: [{
+          uuid: this.selectedBaseWeaponUuid,
+          name: this.selectedBaseWeaponDocument.name,
+          selected: true,
+          optionLabel: this.selectedBaseWeaponDocument.name
+        }]
+      });
+    }
     const manualTemplateCount = templateOptionGroups.reduce((count, group) => count + group.items.length, 0);
     const selectedBaseWeapon = this.selectedBaseWeaponDocument ? {
       uuid: this.selectedBaseWeaponUuid,
@@ -726,6 +1076,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return {
       stage: MODULE_STAGE,
       version: MODULE_VERSION,
+      editMode: Boolean(this.editingItem),
+      editingManagedItem: this.editingManagedItem,
+      editingImportedItem: this.editingImportedItem,
+      editingItemName: this.editingItem?.name ?? "",
       step: this.step,
       steps,
       itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
@@ -858,7 +1212,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         grantedEffects: grantedEffectCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
-      savingItem: this.savingItem
+      savingItem: this.savingItem,
+      readyStatus: this.editingItem ? "Ready to update" : "Ready to create"
     };
   }
 
@@ -869,6 +1224,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="continue"]')?.addEventListener("click", event => this.#continue(event));
     root.querySelector('[data-action="back"]')?.addEventListener("click", event => this.#back(event));
     root.querySelector('[data-action="save-item"]')?.addEventListener("click", event => this.#saveItem(event));
+    root.querySelector('[data-action="update-item"]')?.addEventListener("click", event => this.#updateItem(event));
+    root.querySelector('[data-action="save-copy"]')?.addEventListener("click", event => this.#saveCopy(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
@@ -1008,12 +1365,105 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       grantedEffects: clone(this.grantedEffects),
       grantedEffectValues: clone(this.grantedEffectValues),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
-      descriptionCustomized: this.descriptionCustomized
+      descriptionCustomized: this.descriptionCustomized,
+      editingSourceUuid: this.editingItem?.uuid ?? null,
+      importedItem: this.editingImportedItem,
+      replaceAttackDamageParts: this.replaceAttackDamageParts,
+      managedActivityIds: clone(this.managedActivityIds),
+      managedPrimaryAttackId: this.managedPrimaryAttackId,
+      preserveAdditionalAttackActivities: this.preserveAdditionalAttackActivities,
+      managedEffectIds: clone(this.managedEffectIds)
     };
   }
 
   async #saveItem(event) {
     event.preventDefault();
+    return this.#commitItem("create");
+  }
+
+  async #updateItem(event) {
+    event.preventDefault();
+    if (!this.editingItem) return;
+    return this.#commitItem("update");
+  }
+
+  async #saveCopy(event) {
+    event.preventDefault();
+    if (!this.editingItem) return;
+    return this.#commitItem("copy");
+  }
+
+  #mergeOriginalFlags(data) {
+    if (!this.originalItemSource) return data;
+    data.flags = foundry.utils.mergeObject(clone(this.originalItemSource.flags ?? {}), clone(data.flags ?? {}), {
+      inplace: false,
+      recursive: true,
+      overwrite: true,
+      insertKeys: true,
+      insertValues: true
+    });
+    return data;
+  }
+
+  async #replaceActivities(activities) {
+    const currentIds = valuesOf(this.editingItem?.system?.activities)
+      .map(activity => activity?.id ?? activity?._id)
+      .filter(Boolean);
+    if (currentIds.length) {
+      const deletions = {};
+      for (const id of currentIds) deletions[`system.activities.-=${id}`] = null;
+      await this.editingItem.update(deletions, { render: false });
+    }
+    if (activities && Object.keys(activities).length) {
+      await this.editingItem.update({ "system.activities": clone(activities) }, { render: false });
+    }
+  }
+
+  async #replaceEffects(effects) {
+    const existingEffectIds = valuesOf(this.editingItem?.effects).map(effect => effect.id).filter(Boolean);
+    if (existingEffectIds.length) await this.editingItem.deleteEmbeddedDocuments("ActiveEffect", existingEffectIds);
+    if (effects?.length) await this.editingItem.createEmbeddedDocuments("ActiveEffect", clone(effects), { keepId: true });
+  }
+
+  async #updateWorldItem(data) {
+    if (!this.editingItem || this.editingItem.parent || this.editingItem.pack) throw new Error("The original world Item is no longer available for updating.");
+    const rollbackSource = clone(this.originalItemSource ?? this.editingItem.toObject());
+    const rollbackEffects = clone(rollbackSource.effects ?? []);
+    const rollbackActivities = clone(rollbackSource.system?.activities ?? {});
+    const desiredEffects = clone(data.effects ?? []);
+    const desiredActivities = clone(data.system?.activities ?? {});
+    const updateData = clone(data);
+    delete updateData.effects;
+    if (updateData.system) delete updateData.system.activities;
+
+    try {
+      await this.editingItem.update(updateData, { render: false });
+      await this.#replaceActivities(desiredActivities);
+      await this.#replaceEffects(desiredEffects);
+      return this.editingItem;
+    } catch (error) {
+      console.error(`${MODULE_ID} | Item update failed; attempting rollback.`, error);
+      try {
+        const rollbackData = clone(rollbackSource);
+        delete rollbackData._id;
+        delete rollbackData.effects;
+        delete rollbackData.folder;
+        delete rollbackData.sort;
+        delete rollbackData.ownership;
+        delete rollbackData._stats;
+        if (rollbackData.system) delete rollbackData.system.activities;
+        await this.editingItem.update(rollbackData, { render: false });
+        await this.#replaceActivities(rollbackActivities);
+        await this.#replaceEffects(rollbackEffects);
+      } catch (rollbackError) {
+        console.error(`${MODULE_ID} | Item update rollback failed.`, rollbackError);
+        error.rollbackError = rollbackError;
+      }
+      throw error;
+    }
+  }
+
+  async #commitItem(mode) {
     if (this.savingItem) return;
     this.#syncDescriptionFromEditor();
     if (!this.#isBaseComplete() || !this.#validateEnhancements().valid || !this.#validateGrantedEffects().valid) {
@@ -1030,13 +1480,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     const itemName = this.itemName.trim();
+    const isUpdate = mode === "update";
+    const isCopy = mode === "copy";
+    const title = isUpdate ? "Confirm Item Update" : "Confirm Item Creation";
+    const heading = title;
+    const message = isUpdate
+      ? `Update <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong> in the Items Directory? Existing copies already placed on Actors will not be changed.`
+      : isCopy
+        ? `Create a new World Item based on <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong>? The original Item will remain unchanged.`
+        : `Create <strong>${foundry.utils.escapeHTML(itemName)}</strong> in the Items Directory?`;
     const confirmed = await ProtectedTransactionDialogService.confirm({
-      key: "create-item",
+      key: isUpdate ? `update-item-${this.editingItemId}` : isCopy ? `copy-item-${this.editingItemId}` : "create-item",
       matchClass: "ic-confirm-item-dialog",
       dialogOptions: {
         classes: ["ic-confirm-item-dialog"],
-        window: { title: "Confirm Item Creation", modal: true },
-        content: `<div class="ic-confirm-item-content"><i class="fa-solid fa-hammer"></i><div><h2>Confirm Item Creation</h2><p>Create <strong>${foundry.utils.escapeHTML(itemName)}</strong> in the Items Directory?</p></div></div>`,
+        window: { title, modal: true },
+        content: `<div class="ic-confirm-item-content"><i class="fa-solid ${isUpdate ? "fa-pen-to-square" : "fa-hammer"}"></i><div><h2>${heading}</h2><p>${message}</p></div></div>`,
         yes: { label: "OK", icon: "fa-solid fa-check" },
         no: { label: "Cancel", icon: "fa-solid fa-xmark" }
       }
@@ -1044,24 +1503,39 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!confirmed) return;
 
     this.savingItem = true;
+    const processingTitle = isUpdate ? "Updating Item…" : isCopy ? "Creating Item Copy…" : "Creating Item…";
+    const processingMessage = isUpdate
+      ? "Updating the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait."
+      : "Building the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait.";
     try {
-      const created = await ProtectedTransactionDialogService.runProcessing({
-        title: "Creating Item…",
-        message: "Building the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait.",
+      const result = await ProtectedTransactionDialogService.runProcessing({
+        title: processingTitle,
+        message: processingMessage,
         operation: async () => {
-          const { data } = await ItemCreatorItemBuilder.build(this.#builderDraft());
+          const { data: builtData } = await ItemCreatorItemBuilder.build(this.#builderDraft());
+          const data = this.#mergeOriginalFlags(clone(builtData));
+          if (isUpdate) return this.#updateWorldItem(data);
+
+          if (isCopy && this.originalItemSource) {
+            data.folder = this.editingItem?.folder?.id ?? this.originalItemSource.folder ?? null;
+            data.ownership = clone(this.originalItemSource.ownership ?? { default: 0 });
+          }
           const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
           const item = await ItemClass.create(data, { renderSheet: false });
           if (!item) throw new Error("Foundry did not return the created Item document.");
           return item;
         }
       });
-      ui.notifications.info(`${created.name} was created successfully.`);
+      ui.notifications.info(isUpdate
+        ? `${result.name} was updated successfully.`
+        : `${result.name} was created successfully${isCopy ? " as a new copy" : ""}.`);
       await this.close();
       ui.items?.render?.();
     } catch (error) {
-      console.error(`${MODULE_ID} | Item creation failed.`, error);
-      ui.notifications.error(`Item creation failed. No Item was created: ${error?.message ?? "Unknown error"}`);
+      console.error(`${MODULE_ID} | Item ${isUpdate ? "update" : "creation"} failed.`, error);
+      ui.notifications.error(isUpdate
+        ? `Item update failed. The original Item was not intentionally replaced: ${error?.message ?? "Unknown error"}`
+        : `Item creation failed. No new Item was created: ${error?.message ?? "Unknown error"}`);
       this.savingItem = false;
       this.step = "review";
       this.render({ force: true });

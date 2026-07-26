@@ -8,6 +8,17 @@
       </div>
     </header>
 
+    {{#if editMode}}
+    <section class="ic-edit-mode-banner">
+      <i class="fa-solid fa-pen-to-square"></i>
+      <span>
+        <small>Editing World Item</small>
+        <strong>{{editingItemName}}</strong>
+        <em>{{#if editingManagedItem}}Full Item Creator draft restored{{else}}Native D&D5e data imported{{/if}}</em>
+      </span>
+    </section>
+    {{/if}}
+
     <nav class="ic-steps" aria-label="Item creation steps">
       {{#each steps}}
       <button type="button"
@@ -32,7 +43,7 @@
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
       <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
-      <p><strong>Status:</strong> {{#if reviewReady}}Ready to create{{else}}Beta draft{{/if}}</p>
+      <p><strong>Status:</strong> {{#if reviewReady}}{{readyStatus}}{{else}}Beta draft{{/if}}</p>
     </section>
   </aside>
 
@@ -65,7 +76,7 @@
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
         <div>
-          <strong>v0.1.4 Beta flow</strong>
+          <strong>v{{version}} Beta flow</strong>
           <p>This Beta supports the complete Weapon creation flow: Base Item, Enhancements, Granted Effects, Description, Review, and protected creation in the Items Directory.</p>
         </div>
       </aside>
@@ -872,7 +883,7 @@
         <div>
           <span class="ic-kicker">Final Validation</span>
           <h2>Review Item</h2>
-          <p>Review the native-style chat presentation and the compact inventory appearance before creating the Item in the world Items Directory.</p>
+          <p>{{#if editMode}}Review the native-style chat presentation and compact inventory appearance before updating the original World Item or saving the current configuration as a new copy.{{else}}Review the native-style chat presentation and the compact inventory appearance before creating the Item in the world Items Directory.{{/if}}</p>
         </div>
       </header>
 
@@ -934,16 +945,27 @@
           <div><dt>Granted Effects</dt><dd>{{reviewSummary.grantedEffects}}</dd></div>
           <div><dt>Description</dt><dd>{{reviewSummary.description}}</dd></div>
         </dl>
-        <aside><i class="fa-solid fa-circle-info"></i><p>Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.</p></aside>
+        <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editMode}}Update Item modifies the selected World Item in place. Save as Copy creates a separate World Item and leaves the original unchanged. Existing copies already placed on Actors are not automatically updated.{{else}}Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.{{/if}}</p></aside>
       </section>
       {{/if}}
     </section>
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
+      {{#if editMode}}
+      <div class="ic-edit-save-actions">
+        <button type="button" class="ic-save-copy" data-action="save-copy" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-copy"></i><span>{{#if savingItem}}Working…{{else}}Save as Copy{{/if}}</span>
+        </button>
+        <button type="button" class="ic-primary-continue ic-save-item" data-action="update-item" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Updating…{{else}}Update Item{{/if}}</span>
+        </button>
+      </div>
+      {{else}}
       <button type="button" class="ic-primary-continue ic-save-item" data-action="save-item" {{#unless reviewReady}}disabled{{/unless}}>
         <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Creating…{{else}}Save Item{{/if}}</span>
       </button>
+      {{/if}}
     </footer>
     {{/if}}
 
