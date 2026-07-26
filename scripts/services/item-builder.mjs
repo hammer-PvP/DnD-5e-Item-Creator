@@ -294,10 +294,20 @@ function buildGrantedEffects(enabled, values) {
   return effects;
 }
 
+function activitySource(activity) {
+  if (!activity) return null;
+  if (activity._source && typeof activity._source === "object") return clone(activity._source);
+  if (activity.toObject instanceof Function) {
+    try { return clone(activity.toObject(false)); } catch (_error) { /* Fall through. */ }
+    try { return clone(activity.toObject()); } catch (_error) { /* Fall through. */ }
+  }
+  return clone(activity);
+}
+
 function primaryAttackData(baseWeapon, template) {
   const baseAttack = firstActivity(baseWeapon, "attack");
   const templateAttack = firstActivity(template, "attack");
-  const source = baseAttack?.toObject?.() ?? templateAttack?.toObject?.() ?? {
+  const source = activitySource(baseAttack) ?? activitySource(templateAttack) ?? {
     _id: foundry.utils.randomID(), type: "attack", name: "Attack",
     attack: { ability: "", bonus: "", critical: { threshold: null }, flat: false, type: { value: "", classification: "weapon" } },
     damage: { critical: { bonus: "" }, includeBase: true, parts: [] }
@@ -321,7 +331,7 @@ function primaryAttackData(baseWeapon, template) {
 
   // Preserve special non-base damage configured on the Template attack.
   if (templateAttack) {
-    const templateSource = templateAttack.toObject?.() ?? {};
+    const templateSource = activitySource(templateAttack) ?? {};
     source.damage.parts = clone(templateSource.damage?.parts ?? []);
     source.description = clone(templateSource.description ?? source.description ?? {});
     source.activation = clone(templateSource.activation ?? source.activation ?? {});
@@ -915,12 +925,21 @@ export class ItemCreatorItemBuilder {
       const critical = enhancementValues.extraCriticalDamage;
       attack.damage.critical.bonus = `${Number(critical.number) || 1}d${Number(critical.denomination) || 8}[${critical.damageType}]`;
     }
-    if (draft.replaceAttackDamageParts) attack.damage.parts = [];
-    for (const row of effective.additionalDamage ?? []) {
-      attack.damage.parts.push(damagePart({
-        ...row,
-        ability: row.useAbilityModifier ? row.ability : null
-      }));
+    const replaceAttackDamageParts = Boolean(draft.replaceAttackDamageParts || draft.customized?.additionalDamage);
+    if (replaceAttackDamageParts) attack.damage.parts = [];
+
+    // When damage parts are replaced, the current active draft is authoritative.
+    // Otherwise the source Attack already contains its own parts; only combine
+    // Base Weapon parts with a different special Template once.
+    const shouldAppendEffectiveDamage = replaceAttackDamageParts
+      || draft.template?.uuid !== draft.baseWeapon?.uuid;
+    if (shouldAppendEffectiveDamage) {
+      for (const row of effective.additionalDamage ?? []) {
+        attack.damage.parts.push(damagePart({
+          ...row,
+          ability: row.useAbilityModifier ? row.ability : null
+        }));
+      }
     }
 
     const provisionalActivities = [...preservedActivities, attack];
@@ -954,6 +973,7 @@ export class ItemCreatorItemBuilder {
       templateUuid: draft.template.uuid,
       baseWeaponUuid: draft.baseWeapon.uuid,
       editedFromUuid: draft.editingSourceUuid ?? null,
+      importedItem: Boolean(draft.importedItem),
       runtime: {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,

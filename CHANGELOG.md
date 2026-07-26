@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.6 — Beta
+
+- Fixed native D&D5e and earlier homebrew Weapon import incorrectly treating the prepared base-damage part as Item Creator Additional Damage.
+- Read Attack Activity damage from the unprepared source data so `includeBase` no longer produces a false extra damage row.
+- Rebuilt imported primary Attack damage deterministically instead of preserving old managed parts and appending them again on each update.
+- Removed disabled Additional Damage overrides from the saved draft and from future Item builds.
+- Added backward repair for the v0.1.5 self-import signature, including false base-damage copies and accumulated duplicate damage parts.
+- Preserved legitimate additional Attack Activities, Cast Activities, Active Effects, and unrelated external Item data during repair.
+- Added an imported-Item marker to keep future edits on the safe interpreted-edit path.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.6`.
+
 ## 0.1.5 — Beta
 
 - Added the GM-only `Edit with Item Creator` context-menu action for Weapon Items in the world Items Directory.

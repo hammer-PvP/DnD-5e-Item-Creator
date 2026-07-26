@@ -60,6 +60,48 @@ function attackActivity(document) {
   return valuesOf(document?.system?.activities).find(activity => activity?.type === "attack") ?? null;
 }
 
+function rawActivitySource(activity) {
+  if (!activity) return {};
+  if (activity._source && typeof activity._source === "object") return activity._source;
+  if (activity.toObject instanceof Function) {
+    try { return activity.toObject(false); } catch (_error) { /* Fall through. */ }
+    try { return activity.toObject(); } catch (_error) { /* Fall through. */ }
+  }
+  return activity;
+}
+
+function rawActivityDamageParts(activity) {
+  return valuesOf(rawActivitySource(activity)?.damage?.parts);
+}
+
+function damageRowMatchesBase(row, baseDamage, damageType) {
+  if (!row || !baseDamage) return false;
+  return Number(row.number) === Number(baseDamage.number)
+    && Number(row.denomination) === Number(baseDamage.denomination)
+    && String(row.damageType ?? valuesOf(row.types)[0] ?? "") === String(damageType ?? "")
+    && !String(row.bonus ?? "").trim();
+}
+
+function isSelfImportedItem(item, flags = {}) {
+  const uuid = item?.uuid;
+  return Boolean(uuid
+    && flags.editedFromUuid === uuid
+    && flags.templateUuid === uuid
+    && flags.baseWeaponUuid === uuid);
+}
+
+function isV015FalseBaseDamageImport(item, flags, savedDraft) {
+  if (flags?.moduleVersion !== "0.1.5" || !isSelfImportedItem(item, flags)) return false;
+  const rows = valuesOf(savedDraft?.overrides?.additionalDamage);
+  if (rows.length !== 1) return false;
+  const baseDamage = item?.system?.damage?.base ?? {};
+  const damageType = valuesOf(baseDamage.types)[0] ?? "";
+  if (!damageRowMatchesBase(rows[0], baseDamage, damageType)) return false;
+
+  const parts = rawActivityDamageParts(attackActivity(item));
+  return parts.length > 0 && parts.every(part => damageRowMatchesBase(part, baseDamage, damageType));
+}
+
 function weaponSourceData(document) {
   if (!document) return null;
   const system = document.system ?? {};
@@ -110,7 +152,9 @@ function weaponSourceData(document) {
       damageType: versatileTypes[0] ?? damageTypes[0] ?? ""
     },
     ammunitionType: system.ammunition?.type ?? "",
-    additionalDamage: valuesOf(activity?.damage?.parts).map(part => ({
+    // D&D5e prepends the weapon's base damage to the prepared Activity model when
+    // includeBase is enabled. Only source-level parts are actual additional damage.
+    additionalDamage: rawActivityDamageParts(activity).map(part => ({
       id: foundry.utils.randomID(),
       number: Number(part?.number) || 0,
       denomination: Number(part?.denomination) || 0,
@@ -679,7 +723,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const flags = item.flags?.[MODULE_ID] ?? {};
     const savedDraft = flags.draft;
     this.editingManagedItem = Boolean(flags.created && savedDraft);
-    this.editingImportedItem = !this.editingManagedItem;
+    this.editingImportedItem = !this.editingManagedItem || Boolean(flags.importedItem) || isSelfImportedItem(item, flags);
 
     if (this.editingManagedItem) {
       this.selectedWeaponUuid = flags.templateUuid || item.uuid;
@@ -688,6 +732,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.selectedBaseWeaponDocument = await registry.getWeaponDocument(this.selectedBaseWeaponUuid) ?? item;
       this.customized = clone(savedDraft.customized ?? {});
       this.overrides = clone(savedDraft.overrides ?? {});
+
+      // v0.1.5 could persist a disabled Additional Damage override and could also
+      // misread D&D5e's prepared base-damage part as a real extra damage row.
+      if (!this.customized.additionalDamage || isV015FalseBaseDamageImport(item, flags, savedDraft)) {
+        this.customized.additionalDamage = false;
+        delete this.overrides.additionalDamage;
+      }
       this.enhancements = clone(savedDraft.enhancements ?? {});
       this.enhancementValues = mergeWithDefaults(enhancementDefaults(), savedDraft.enhancementValues);
       this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
@@ -699,8 +750,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         ? stripGeneratedDescription(item.system?.description?.value)
         : this.templateDescriptionRaw;
 
-      if (this.selectedWeaponDocument === item) {
-        this.replaceAttackDamageParts = Boolean(this.customized.additionalDamage);
+      if (this.selectedWeaponDocument?.uuid === item.uuid) {
+        // A self-referenced imported Item must rebuild its primary Attack damage
+        // deterministically instead of preserving and appending to prior parts.
+        this.replaceAttackDamageParts = true;
         this.managedActivityIds = valuesOf(item.system?.activities)
           .filter(activity => activity?.type === "cast")
           .map(activity => activity.id ?? activity._id)
@@ -723,10 +776,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides = {};
 
       const source = weaponSourceData(item);
+      // Imported primary Attack damage is always rebuilt from the interpreted
+      // source state, even when the Item has no additional damage.
+      this.replaceAttackDamageParts = true;
       if (source?.additionalDamage?.length) {
         this.customized.additionalDamage = true;
         this.overrides.additionalDamage = clone(source.additionalDamage);
-        this.replaceAttackDamageParts = true;
       }
 
       const activity = attackActivity(item);
@@ -1352,14 +1407,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #builderDraft(effective = this.#effectiveValues()) {
+    const customized = clone(this.customized);
+    const overrides = clone(this.overrides);
+    for (const [field, enabled] of Object.entries(customized)) {
+      if (!enabled) delete overrides[field];
+    }
+    if (!customized.additionalDamage) delete overrides.additionalDamage;
+
     return {
       template: this.selectedWeaponDocument,
       baseWeapon: this.selectedBaseWeaponDocument,
       itemName: this.itemName,
       icon: this.selectedIcon || this.selectedWeaponDocument?.img,
       effective,
-      customized: clone(this.customized),
-      overrides: clone(this.overrides),
+      customized,
+      overrides,
       enhancements: clone(this.enhancements),
       enhancementValues: clone(this.enhancementValues),
       grantedEffects: clone(this.grantedEffects),
@@ -1556,6 +1618,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.customized.properties) {
       if ("versatile" in this.overrides) effective.versatile = clone(this.overrides.versatile);
       if ("ammunitionType" in this.overrides) effective.ammunitionType = this.overrides.ammunitionType;
+    }
+
+    // Once an external world Item has been imported, its current Activity source
+    // is also the document being replaced. Do not feed old managed damage parts
+    // back into the next build. The active draft is the sole source of truth.
+    if (this.editingImportedItem && this.editingItem
+      && this.selectedBaseWeaponDocument?.uuid === this.editingItem.uuid) {
+      effective.additionalDamage = this.customized.additionalDamage
+        ? clone(this.overrides.additionalDamage ?? [])
+        : [];
     }
     return effective;
   }

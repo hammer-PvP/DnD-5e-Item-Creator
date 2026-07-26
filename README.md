@@ -1,9 +1,17 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.5 Beta  
+**Version:** 0.1.6 Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
+
+## v0.1.6 Beta
+
+This Beta fixes native and earlier homebrew Weapon import so D&D5e's prepared base-damage part is never misclassified as Item Creator Additional Damage. A normal Longsword now imports as 1d8 Slashing with 1d10 Versatile damage and no extra damage row.
+
+Primary Attack damage is now rebuilt deterministically when an imported world Item is updated. Disabled Additional Damage values are removed from the saved draft, existing managed damage parts are replaced instead of appended, and repeated edits no longer increase the attack damage.
+
+The correction also repairs the v0.1.5 self-import signature. Opening and updating an affected Item removes the false base-damage copy and accumulated duplicate parts while preserving legitimate unrelated Activities and external data.
 
 ## v0.1.5 Beta
 
@@ -39,7 +47,7 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.5 creates and edits world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.6 creates and edits world Weapon Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
 
 ## Runtime dependency
 
@@ -50,5 +58,5 @@ Dynamic mechanics require Item Creator to remain active, including conditional S
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.5 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.5/item-creator.zip`
+- v0.1.6 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.6/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.
