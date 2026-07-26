@@ -362,7 +362,9 @@ function availabilityFlags(availability) {
   return {
     requireAttunement: availability === "equippedAttuned",
     requireIdentification: false,
-    requireMagic: true,
+    // Item Creator owns availability through Owned / Equipped / Equipped and
+    // Attuned. Native requireMagic must not add a second hidden gate.
+    requireMagic: false,
     level: { min: null, max: null }
   };
 }
@@ -906,6 +908,11 @@ export class ItemCreatorItemBuilder {
       data.system.properties.push("mgc");
       data.system.magicalBonus = String(Number(enhancementValues.weaponEnhancement.bonus) || 0);
     }
+    // Any Item that grants a Spell is inherently magical, but this does not
+    // imply a numeric enchantment bonus or an attunement requirement.
+    if (enhancements.grantedSpellcasting && (enhancementValues.grantedSpellcasting?.spells ?? []).length) {
+      data.system.properties.push("mgc");
+    }
     data.system.properties = [...new Set(data.system.properties)];
 
     if (enhancements.damageBonus) {
@@ -993,6 +1000,7 @@ export class ItemCreatorItemBuilder {
         overrides: draft.overrides,
         enhancements: draft.enhancements,
         enhancementValues: draft.enhancementValues,
+        magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         descriptionCustomized: draft.descriptionCustomized
@@ -1058,6 +1066,11 @@ export class ItemCreatorItemBuilder {
       data.system.properties.push("mgc");
       data.system.armor.magicalBonus = String(Number(enhancementValues.armorEnhancement?.bonus) || 0);
     }
+    // Granted Spellcasting marks Equipment as magical without applying an
+    // Armor Enhancement bonus and without requiring attunement.
+    if (enhancements.grantedSpellcasting && (enhancementValues.grantedSpellcasting?.spells ?? []).length) {
+      data.system.properties.push("mgc");
+    }
     if (enhancements.baseArmorClass) data.system.armor.value = Number(enhancementValues.baseArmorClass?.value) || 0;
     if (enhancements.removeStrengthRequirement) data.system.strength = 0;
     if (enhancements.removeStealthDisadvantage) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
@@ -1106,6 +1119,7 @@ export class ItemCreatorItemBuilder {
         overrides: draft.overrides,
         enhancements: draft.enhancements,
         enhancementValues: draft.enhancementValues,
+        magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         descriptionCustomized: draft.descriptionCustomized

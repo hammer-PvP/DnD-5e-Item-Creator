@@ -1,9 +1,17 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.7 Beta  
+**Version:** 0.1.8 Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
+
+## v0.1.8 Beta
+
+This patch fixes two regressions discovered during Equipment validation. The reusable Icon Selection browser now exposes the same complete, type-agnostic icon catalog for Equipment that was already available to Weapon. A GM may choose any indexed Item icon from active compendiums while retaining source-name search and compendium filters.
+
+Granted Spellcasting now automatically marks its parent Weapon or Equipment as magical when the first Spell is added. This automatic state does not grant a numeric `+1`, `+2`, or `+3` enhancement and does not require Attunement. Rarity and Attunement remain editable GM choices. If every granted Spell is removed, the automatic magical state is removed only when it was not subsequently made a manual GM choice.
+
+Generated Cast Activities no longer use D&D5e's separate `requireMagic` visibility gate. Spellbook visibility is controlled only by Item Creator's `Owned`, `Equipped`, and `Equipped and Attuned` availability rules. On world load, the runtime repairs managed pre-v0.1.8 world Items and Actor copies by adding the magical property where Granted Spellcasting exists and removing the obsolete gate.
 
 ## v0.1.7 Beta
 
@@ -62,7 +70,7 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.7 creates and edits world Weapon and Equipment Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.8 creates and edits world Weapon and Equipment Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
 
 ## Runtime dependency
 
@@ -73,5 +81,5 @@ Dynamic mechanics require Item Creator to remain active, including conditional S
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.7 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.7/item-creator.zip`
+- v0.1.8 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

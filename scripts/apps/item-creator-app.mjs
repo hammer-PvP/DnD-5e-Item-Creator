@@ -797,6 +797,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = {};
     this.enhancements = {};
     this.enhancementValues = editItem?.type === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    this.magicalAutoFromGrantedSpellcasting = false;
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
     this.templateDescription = "";
@@ -849,6 +850,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.overrides = clone(savedDraft.overrides ?? {});
         this.enhancements = clone(savedDraft.enhancements ?? {});
         this.enhancementValues = mergeWithDefaults(equipmentEnhancementDefaults(), savedDraft.enhancementValues);
+        this.magicalAutoFromGrantedSpellcasting = Boolean(savedDraft.magicAutomation?.magicalFromGrantedSpellcasting);
         this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
         this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
@@ -916,6 +918,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.customDescription = stripGeneratedDescription(item.system?.description?.value);
       }
 
+      this.#syncGrantedSpellMagicalState();
       this.baseWeaponRequired = false;
       this.editStateInitialized = true;
       return;
@@ -937,6 +940,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       this.enhancements = clone(savedDraft.enhancements ?? {});
       this.enhancementValues = mergeWithDefaults(enhancementDefaults(), savedDraft.enhancementValues);
+      this.magicalAutoFromGrantedSpellcasting = Boolean(savedDraft.magicAutomation?.magicalFromGrantedSpellcasting);
       this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
       this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
       this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
@@ -1031,6 +1035,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.customDescription = stripGeneratedDescription(item.system?.description?.value);
     }
 
+    this.#syncGrantedSpellMagicalState();
     this.baseWeaponRequired = false;
     this.editStateInitialized = true;
   }
@@ -1304,12 +1309,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       armorDexValue: effective?.armor?.dex ?? 0,
 
       enhancement: this.enhancements, enhancementValues: this.enhancementValues,
+      magicalAutoFromGrantedSpellcasting: this.magicalAutoFromGrantedSpellcasting,
       enhancementCount: Object.values(this.enhancements).filter(Boolean).length,
       grantedSpellCount: grantedSpellRows.length, grantedSpellRows,
       enhancementsComplete, enhancementErrors: enhancementValidation.errors,
       effectiveMagical: Boolean(isEquipment
-        ? (this.enhancements.magicalItem || this.enhancements.armorEnhancement)
-        : (this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement)),
+        ? (this.enhancements.magicalItem || this.enhancements.armorEnhancement || grantedSpellRows.length)
+        : (this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement || grantedSpellRows.length)),
       rarityOptions: configOptions(CONFIG.DND5E.itemRarity, isEquipment ? this.enhancementValues.magicalItem?.rarity : this.enhancementValues.magicalWeapon?.rarity),
       attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, isEquipment ? this.enhancementValues.magicalItem?.attunement : this.enhancementValues.magicalWeapon?.attunement, { blankValue: "", blankLabel: "None" }),
       enhancementBonusOptions: fixedOptions([[1, "+1"], [2, "+2"], [3, "+3"]], isEquipment ? this.enhancementValues.armorEnhancement?.bonus : this.enhancementValues.weaponEnhancement?.bonus),
@@ -1510,6 +1516,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       overrides,
       enhancements: clone(this.enhancements),
       enhancementValues: clone(this.enhancementValues),
+      magicAutomation: { magicalFromGrantedSpellcasting: this.magicalAutoFromGrantedSpellcasting },
       grantedEffects: clone(this.grantedEffects),
       grantedEffectValues: clone(this.grantedEffectValues),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
@@ -2401,11 +2408,42 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #resetEnhancements() {
     this.enhancements = {};
     this.enhancementValues = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    this.magicalAutoFromGrantedSpellcasting = false;
   }
 
   #resetGrantedEffects() {
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
+  }
+
+  #magicalEnhancementKey() {
+    return this.selectedType === "equipment" ? "magicalItem" : "magicalWeapon";
+  }
+
+  #hasGrantedSpells() {
+    return Boolean(this.enhancements.grantedSpellcasting
+      && (this.enhancementValues.grantedSpellcasting?.spells ?? []).length);
+  }
+
+  #syncGrantedSpellMagicalState() {
+    const key = this.#magicalEnhancementKey();
+    const defaults = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    const hasSpells = this.#hasGrantedSpells();
+
+    if (hasSpells) {
+      if (!this.enhancements[key]) {
+        this.enhancements[key] = true;
+        this.enhancementValues[key] = mergeWithDefaults(defaults[key], this.enhancementValues[key]);
+        this.magicalAutoFromGrantedSpellcasting = true;
+      }
+      return;
+    }
+
+    if (this.magicalAutoFromGrantedSpellcasting) {
+      this.enhancements[key] = false;
+      this.enhancementValues[key] = clone(defaults[key]);
+      this.magicalAutoFromGrantedSpellcasting = false;
+    }
   }
 
   #validateEnhancements() {
@@ -2667,6 +2705,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return false;
     }
     spells.push(this.#newGrantedSpell(document));
+    this.#syncGrantedSpellMagicalState();
     this.#renderPreservingScroll();
     return true;
   }
@@ -2710,6 +2749,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const id = event.currentTarget.dataset.spellId;
     this.enhancementValues.grantedSpellcasting.spells = (this.enhancementValues.grantedSpellcasting.spells ?? [])
       .filter(spell => spell.id !== id);
+    this.#syncGrantedSpellMagicalState();
     this.#renderPreservingScroll();
   }
 
@@ -2748,8 +2788,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const defaults = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
     if (!field || !(field in defaults)) return;
     const enabled = event.currentTarget.checked;
+    const magicalKey = this.#magicalEnhancementKey();
+
+    if (field === magicalKey && !enabled && this.#hasGrantedSpells()) {
+      event.currentTarget.checked = true;
+      ui.notifications.warn("Granted Spellcasting automatically keeps this Item magical.");
+      return;
+    }
+
     this.enhancements[field] = enabled;
     if (!enabled) this.enhancementValues[field] = clone(defaults[field]);
+    if (field === magicalKey) this.magicalAutoFromGrantedSpellcasting = false;
+    if (field === "grantedSpellcasting") this.#syncGrantedSpellMagicalState();
     this.#renderPreservingScroll();
   }
 
@@ -2761,6 +2811,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (event.currentTarget.dataset.valueType === "number") value = value === "" ? 0 : Number(value);
     this.enhancementValues[field] ??= {};
     this.enhancementValues[field][part] = value;
+    if (field === this.#magicalEnhancementKey() && this.magicalAutoFromGrantedSpellcasting) {
+      // Editing rarity or attunement is an explicit GM decision to retain the
+      // magical state even if all granted Spells are removed later.
+      this.magicalAutoFromGrantedSpellcasting = false;
+      this.#renderPreservingScroll();
+      return;
+    }
     if (field === "criticalThreshold" && part === "mode") this.#renderPreservingScroll();
     if (field === "conditionalAdvantage" && part === "mode") this.#renderPreservingScroll();
   }

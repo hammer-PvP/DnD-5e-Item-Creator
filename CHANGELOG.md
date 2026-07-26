@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.8 — Beta
+
+- Fixed the Equipment Icon Selection browser returning an empty `0 / 0` catalog.
+- Reused the same type-agnostic icon catalog already available to Weapon so Weapon and Equipment can select any indexed Item icon from active compendiums.
+- Preserved icon search by source Item name, compendium filtering, selected-icon preview, modal interaction protection, and custom icons already assigned to the Item.
+- Automatically marks a Weapon or Equipment as magical when its first Granted Spellcasting entry is added.
+- Kept numeric Weapon or Armor Enhancement bonuses independent; automatic magical status does not apply `+1`, `+2`, or `+3`.
+- Kept Attunement independent; automatic magical status leaves Attunement as `None` unless the GM explicitly changes it.
+- Prevented Magical Weapon or Magical Equipment from being disabled while Granted Spellcasting still contains Spells.
+- Removed an automatically applied magical state when the last granted Spell is removed, while preserving magical status when the GM selected or edited it manually.
+- Set generated Cast Activities to `visibility.requireMagic: false` so native D&D5e visibility does not conflict with Item Creator's `Owned`, `Equipped`, and `Equipped and Attuned` rules.
+- Added runtime migration for managed world Items and Actor Item copies created before v0.1.8, restoring the magical property and removing the obsolete native magic-visibility gate.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.8`.
+
 ## 0.1.7 — Beta
 
 - Added the complete assisted Equipment creation flow using the existing Item Type, Base Item, Enhancements, Granted Effects, Description, and Review stages.

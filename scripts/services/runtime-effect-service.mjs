@@ -71,6 +71,10 @@ export class ItemCreatorRuntimeEffectService {
     });
     Hooks.once("ready", async () => {
       if (!game.user.isGM) return;
+      // Repair managed world Items created before v0.1.8 as well as Actor copies.
+      for (const item of game.items) {
+        if (isManagedItem(item)) await this.syncItem(item);
+      }
       for (const actor of game.actors) {
         for (const item of actor.items) {
           if (isManagedItem(item)) await this.syncItem(item);
@@ -84,15 +88,43 @@ export class ItemCreatorRuntimeEffectService {
   }
 
   static async syncItem(item) {
-    if (!game.user.isGM || !isManagedItem(item) || item.parent?.documentName !== "Actor") return;
+    if (!game.user.isGM || !isManagedItem(item)) return;
     if (this.#syncingItems.has(item.uuid)) return;
 
     this.#syncingItems.add(item.uuid);
     try {
+      await this.#normalizeGrantedSpellcasting(item);
+      if (item.parent?.documentName !== "Actor") return;
       await this.#syncGrantedSpellbook(item);
       await this.#syncGrantedEffects(item);
     } finally {
       this.#syncingItems.delete(item.uuid);
+    }
+  }
+
+  static async #normalizeGrantedSpellcasting(item) {
+    const activities = grantedSpellActivities(item);
+    if (!activities.length) return;
+
+    const updates = {};
+    const properties = valuesOf(item.system?.properties);
+    if (!properties.includes("mgc")) updates["system.properties"] = [...new Set([...properties, "mgc"])];
+
+    for (const activity of activities) {
+      const activityId = activity.id ?? activity._id;
+      if (!activityId) continue;
+      if (activity.visibility?.requireMagic !== false) {
+        updates[`system.activities.${activityId}.visibility.requireMagic`] = false;
+      }
+    }
+
+    if (Object.keys(updates).length) {
+      await item.update(updates, {
+        itemCreatorRuntime: true,
+        diff: true,
+        recursive: true,
+        render: true
+      });
     }
   }
 

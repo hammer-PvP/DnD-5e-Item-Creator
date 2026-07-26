@@ -32,8 +32,26 @@ export class ItemCreatorIconBrowserApp extends HandlebarsApplicationMixin(Applic
 
   async _prepareContext() {
     const registry = ItemCreatorSourceRegistry.instance;
-    await registry.loadWeapons();
-    const iconOptions = this.itemType === "weapon" ? registry.iconOptions : [];
+    await registry.loadAll();
+    // Icon choice is intentionally type-agnostic. A Weapon, Equipment, and future
+    // supported Item flows may reuse any indexed Item icon from active sources.
+    const iconOptions = [...registry.iconOptions];
+    // Keep an already assigned custom or external icon selectable even when its
+    // source Item is not part of the currently indexed compendiums.
+    if (this.pendingIcon && !iconOptions.some(option => option.img === this.pendingIcon)) {
+      iconOptions.unshift({
+        img: this.pendingIcon,
+        name: "Current Item Icon",
+        uuid: "",
+        itemType: "current",
+        collection: "current",
+        packLabel: "Current Item",
+        sourceLabel: "Current Item",
+        priority: -1,
+        source: "Current Item",
+        search: "current item icon"
+      });
+    }
     const selected = iconOptions.find(option => option.img === this.pendingIcon) ?? null;
     const sourceOptions = [{
       value: "all",
@@ -46,7 +64,7 @@ export class ItemCreatorIconBrowserApp extends HandlebarsApplicationMixin(Applic
     }))];
 
     return {
-      itemTypeLabel: this.itemType === "weapon" ? "Weapon" : "Item",
+      itemTypeLabel: this.itemType === "weapon" ? "Weapon" : this.itemType === "equipment" ? "Equipment" : "Item",
       search: this.search,
       sourceOptions,
       iconOptions: iconOptions.map(option => ({
