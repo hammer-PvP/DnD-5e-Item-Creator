@@ -140,6 +140,20 @@ function buildGrantedEffects(enabled, values) {
     addEffect("armorClassBonus", "Armor Class Bonus", values.armorClassBonus.availability, changes);
   }
 
+  if (enabled.weaponAttackBonus) {
+    const changes = [];
+    addChange(changes, "system.bonuses.mwak.attack", add, values.weaponAttackBonus.bonus);
+    addChange(changes, "system.bonuses.rwak.attack", add, values.weaponAttackBonus.bonus);
+    addEffect("weaponAttackBonus", "Weapon Attack Roll Bonus", values.weaponAttackBonus.availability, changes);
+  }
+
+  if (enabled.weaponDamageBonus) {
+    const changes = [];
+    addChange(changes, "system.bonuses.mwak.damage", add, values.weaponDamageBonus.bonus);
+    addChange(changes, "system.bonuses.rwak.damage", add, values.weaponDamageBonus.bonus);
+    addEffect("weaponDamageBonus", "Weapon Damage Roll Bonus", values.weaponDamageBonus.availability, changes);
+  }
+
   if (enabled.savingThrowBonus) {
     const changes = [];
     for (const row of values.savingThrowBonus.entries ?? []) {
@@ -712,6 +726,12 @@ function itemPropertyEntries(draft) {
     const attunement = setting.attunement === "required" ? "; requires attunement" : "";
     add("Magical Equipment", `${rarity || "Magical"}${attunement}`);
   }
+  if (enhancements.magicalTool) {
+    const setting = enhancementValues.magicalTool ?? {};
+    const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
+    const attunement = setting.attunement === "required" ? "; requires attunement" : "";
+    add("Magical Tool", `${rarity || "Magical"}${attunement}`);
+  }
   if (enhancements.armorEnhancement) add("Armor Enhancement", `${signedValue(enhancementValues.armorEnhancement?.bonus)} AC`);
   if (enhancements.baseArmorClass) add("Base Armor Class", String(Number(enhancementValues.baseArmorClass?.value) || 0));
   if (enhancements.removeStrengthRequirement) add("Strength Requirement", "Removed");
@@ -741,11 +761,13 @@ function itemPropertyEntries(draft) {
       wielderDimLight: "the wielder is in dim light",
       targetNotActed: "the target has not acted in this combat"
     }[setting.supportedCondition];
-    const sourceLabel = draft.itemType === "equipment" ? "while this item is active" : "with this weapon";
+    const sourceLabel = draft.itemType === "weapon" ? "with this weapon" : "while this item is active";
     add("Conditional Advantage", condition ? `Advantage on attacks ${sourceLabel} when ${condition}` : "");
   }
 
   if (effects.armorClassBonus) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
+  if (effects.weaponAttackBonus) add("Weapon Attacks", `${signedValue(effectValues.weaponAttackBonus?.bonus)} to all weapon attack rolls`, effectValues.weaponAttackBonus?.availability);
+  if (effects.weaponDamageBonus) add("Weapon Damage", `${signedValue(effectValues.weaponDamageBonus?.bonus)} to all weapon damage rolls`, effectValues.weaponDamageBonus?.availability);
   if (effects.criticalThreshold) {
     const setting = effectValues.criticalThreshold ?? {};
     const threshold = Number(setting.threshold) || 20;
@@ -854,6 +876,7 @@ function composeGrantedSpellcastingText(data, draft) {
 export class ItemCreatorItemBuilder {
   static async build(draft) {
     if (draft?.itemType === "equipment") return this.#buildEquipment(draft);
+    if (draft?.itemType === "tool") return this.#buildTool(draft);
     return this.#buildWeapon(draft);
   }
 
@@ -1037,6 +1060,7 @@ export class ItemCreatorItemBuilder {
     data.system.description ??= {};
     data.system.description.value = draft.description ?? "";
     data.system.description.chat = data.system.description.chat ?? "";
+
     data.system.type = clone(baseSource.system?.type ?? data.system.type ?? {});
     data.system.type.value = effective.nativeType || "wondrous";
     data.system.type.baseItem = effective.baseItem ?? baseSource.system?.type?.baseItem ?? baseSource.system?.identifier ?? "";
@@ -1115,6 +1139,137 @@ export class ItemCreatorItemBuilder {
       },
       draft: plain({
         equipmentForm: draft.equipmentForm ?? "accessory",
+        customized: draft.customized,
+        overrides: draft.overrides,
+        enhancements: draft.enhancements,
+        enhancementValues: draft.enhancementValues,
+        magicAutomation: draft.magicAutomation,
+        grantedEffects: draft.grantedEffects,
+        grantedEffectValues: draft.grantedEffectValues,
+        descriptionCustomized: draft.descriptionCustomized
+      })
+    };
+
+    composeItemPropertiesText(data, draft);
+    composeGrantedSpellcastingText(data, draft);
+
+    const finalSource = cleanDocumentSource(data);
+    const temporary = new ItemClass(finalSource, { temporary: true });
+    const finalData = cleanDocumentSource(temporary.toObject());
+    delete finalData._id;
+    return { data: finalData, temporary };
+  }
+
+  static async #buildTool(draft) {
+    if (!draft?.template || !draft?.effective) throw new Error("Template and effective Tool values are required.");
+
+    const template = draft.template;
+    const baseTool = draft.baseTool ?? draft.baseWeapon ?? template;
+    const data = sanitizeDocumentData(template.toObject());
+    const baseSource = baseTool.toObject();
+    const effective = clone(draft.effective);
+    const enhancements = draft.enhancements ?? {};
+    const enhancementValues = draft.enhancementValues ?? {};
+
+    data.name = draft.itemName.trim();
+    data.img = draft.icon || template.img || baseTool.img || "systems/dnd5e/icons/svg/items/tool.svg";
+    data.type = "tool";
+    data.system ??= {};
+    data.system.description ??= {};
+    data.system.description.value = draft.description ?? "";
+    data.system.description.chat = data.system.description.chat ?? "";
+
+    // A Tool remains a Tool even when its source document contains custom or
+    // legacy weapon/armor fields. Those structures are intentionally omitted.
+    delete data.system.damage;
+    delete data.system.armor;
+    delete data.system.mastery;
+    delete data.system.range;
+    delete data.system.magicalBonus;
+    delete data.system.strength;
+    delete data.system.ammunition;
+
+    data.system.type = clone(baseSource.system?.type ?? data.system.type ?? {});
+    data.system.type.value = effective.toolType || "art";
+    data.system.type.baseItem = effective.baseItem ?? baseSource.system?.type?.baseItem ?? baseSource.system?.identifier ?? "";
+    data.system.ability = effective.ability ?? baseSource.system?.ability ?? "";
+    data.system.bonus = String(effective.bonus ?? baseSource.system?.bonus ?? "");
+    data.system.proficient = effective.proficiency === "automatic" ? null
+      : effective.proficiency === "expertise" ? 2
+        : effective.proficiency === "proficient" ? 1 : 0;
+    data.system.quantity = Math.max(1, Number(effective.quantity) || 1);
+    data.system.weight = { value: Number(effective.weight?.value) || 0, units: effective.weight?.units || "lb" };
+    data.system.price = { value: Number(effective.price?.value) || 0, denomination: effective.price?.denomination || "gp" };
+    data.system.properties = [...new Set(effective.properties ?? [])].filter(property => property !== "mgc");
+    data.system.rarity = template.system?.rarity ?? data.system.rarity ?? "";
+    data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
+    data.system.equipped = false;
+    data.system.attuned = false;
+
+    if (enhancements.magicalTool) {
+      data.system.properties.push("mgc");
+      data.system.rarity = enhancementValues.magicalTool?.rarity || "uncommon";
+      data.system.attunement = enhancementValues.magicalTool?.attunement || "";
+    } else if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+
+    // Granted Spellcasting makes the Tool magical, but never adds a weapon/armor
+    // enchantment and never requires attunement unless the GM selected it.
+    if (enhancements.grantedSpellcasting && (enhancementValues.grantedSpellcasting?.spells ?? []).length) {
+      data.system.properties.push("mgc");
+    }
+    data.system.properties = [...new Set(data.system.properties)];
+
+    const templateActivities = objectActivities(template);
+    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
+    data.system.activities = Object.fromEntries(Object.values(templateActivities)
+      .filter(activity => activity?.type !== "attack")
+      .filter(activity => !managedActivityIds.has(activity?._id ?? activity?.id))
+      .map(activity => [activity._id, cleanDocumentSource(activity)]));
+
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const hasToolCheck = Object.values(data.system.activities).some(activity => activity?.type === "check");
+    if (!hasToolCheck) {
+      const CheckClass = CONFIG.DND5E.activityTypes?.check?.documentClass;
+      if (CheckClass) {
+        const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+        const check = new CheckClass({}, { parent: provisionalItem });
+        const checkSource = cleanDocumentSource(check.toObject?.() ?? check);
+        checkSource._id ??= foundry.utils.randomID();
+        checkSource.type = "check";
+        data.system.activities[checkSource._id] = checkSource;
+      }
+    }
+
+    if (enhancements.grantedSpellcasting) {
+      const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? []);
+      for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
+    }
+
+    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
+    data.effects = objectEffects(template).filter(effect => !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
+      const clean = clone(effect);
+      delete clean.origin;
+      return clean;
+    });
+    data.effects.push(...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {}));
+
+    data.flags ??= {};
+    data.flags[MODULE_ID] = {
+      created: true,
+      schemaVersion: 1,
+      moduleVersion: MODULE_VERSION,
+      itemType: "tool",
+      templateUuid: template.uuid,
+      baseToolUuid: baseTool.uuid,
+      editedFromUuid: draft.editingSourceUuid ?? null,
+      importedItem: Boolean(draft.importedItem),
+      runtime: {
+        ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
+        conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
+        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : []
+      },
+      draft: plain({
         customized: draft.customized,
         overrides: draft.overrides,
         enhancements: draft.enhancements,

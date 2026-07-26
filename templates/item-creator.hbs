@@ -34,8 +34,8 @@
     <section class="ic-draft-summary">
       <h3>Current Draft</h3>
       <p><strong>Type:</strong> {{#if selectedType}}{{itemTypeLabel}}{{else}}—{{/if}}</p>
-      <p><strong>{{#if isEquipment}}Base Item{{else}}Template{{/if}}:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
-      {{#if isWeapon}}<p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>{{else if isEquipment}}<p><strong>Equipment Form:</strong> {{equipmentFormLabel}}</p>{{/if}}
+      <p><strong>{{#if isWeapon}}Template{{else}}Base Item{{/if}}:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
+      {{#if isWeapon}}<p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>{{else if isEquipment}}<p><strong>Equipment Form:</strong> {{equipmentFormLabel}}</p>{{else if isTool}}<p><strong>Tool Category:</strong> {{reviewSummary.baseWeapon}}</p>{{/if}}
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
@@ -54,7 +54,7 @@
         <div>
           <span class="ic-kicker">Assisted Item Creation</span>
           <h2>Choose Item Type</h2>
-          <p>Create Weapons and Equipment with the same assisted workflow. Consumables and Tools will be added in later stages.</p>
+          <p>Create Weapons, Equipment, and Tools with the same assisted workflow. Consumables will be added in a later stage.</p>
         </div>
       </header>
 
@@ -77,7 +77,7 @@
         <i class="fa-solid fa-flask"></i>
         <div>
           <strong>v{{version}} Beta flow</strong>
-          <p>This Beta supports complete Weapon and Equipment flows, including native base data, enhancements, granted effects, granted spells, protected creation, and world-item editing.</p>
+          <p>This Beta supports complete Weapon, Equipment, and Tool flows, including native base data, type-safe enhancements, granted effects, granted spells, protected creation, and world-item editing.</p>
         </div>
       </aside>
     </section>
@@ -424,7 +424,7 @@
         <p>Use the native D&D5e Compendium Browser or the manual dropdowns to load the starting name, icon, damage, properties, range, Mastery, weight, price, and other core values.</p>
       </div>
       {{/if}}
-      {{else}}
+      {{else if isEquipment}}
       <header class="ic-section-header">
         <div>
           <span class="ic-kicker">Equipment Creation</span>
@@ -489,6 +489,47 @@
       </div>
       {{else}}
       <div class="ic-empty-state ic-template-empty"><i class="fa-solid fa-shirt"></i><strong>Choose equipment or create a custom shell</strong><p>Armor, shields, robes, cloaks, rings, amulets, boots, gloves, focuses, catalysts, and other equipable objects all use this flow.</p></div>
+      {{/if}}
+      {{else if isTool}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Tool Creation</span><h2>Base Item</h2><p>Select an existing Tool or start from a custom Tool shell. This step defines native Tool check data; combat support and other bearer benefits belong in Granted Effects.</p></div></header>
+      <section class="ic-template-panel">
+        <header><div><span class="ic-kicker">Base Tool</span><h3>Choose a Starting Model</h3></div><small><strong>{{weaponCount}}</strong> matching tools</small></header>
+        <div class="ic-template-browser-entry ic-equipment-browser-actions">
+          <button type="button" class="ic-browse-template-button" data-action="browse-templates"><i class="fa-solid fa-books"></i><span><strong>Browse Tools</strong><small>Open the native D&amp;D5e Compendium Browser restricted to Tool Items.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button type="button" class="ic-browse-template-button ic-custom-equipment-button" data-action="custom-tool"><i class="fa-solid fa-plus"></i><span><strong>Create Custom Tool</strong><small>Start with a clean native Tool document for a unique implement, instrument, kit, or magical object.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+        <div class="ic-manual-template-divider"><span>or select manually</span></div>
+        <div class="ic-template-controls ic-template-manual-controls">
+          <label><span>Tool Category</span><select data-template-category>{{#each templateCategoryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+          <label class="ic-template-select-field"><span>Base Tool</span><select data-template-select {{#unless weaponCount}}disabled{{/unless}}><option value="">Select a tool…</option>{{#each templateOptionGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{uuid}}" data-template-option data-category="{{templateCategory}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+        </div>
+      </section>
+      {{#if selectedWeapon}}
+      <div class="ic-base-form-layout">
+        <section class="ic-identity-panel">
+          <header><span class="ic-kicker">Identity</span><h3>Tool Identity</h3></header>
+          <div class="ic-template-summary"><button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="open-icon-browser" {{#unless iconCustomized}}disabled{{/unless}}><img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}"><span><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span></button><div><strong>{{selectedWeapon.name}}</strong><small>{{selectedWeapon.sourceLabel}}</small><small>{{selectedWeapon.packLabel}}</small></div></div>
+          <label class="ic-field"><span>Item Name</span><input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off"></label>
+          <label class="ic-identity-toggle"><input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}><span><strong>Customize Icon</strong><small>Enable the icon button to select any indexed Item icon.</small></span></label>
+          <dl class="ic-template-metadata"><div><dt>Tool Category</dt><dd>{{reviewSummary.baseWeapon}}</dd></div><div><dt>Base Tool</dt><dd>{{#if effective.baseItem}}{{effective.baseItem}}{{else}}Custom{{/if}}</dd></div><div><dt>Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div></dl>
+        </section>
+        <section class="ic-core-fields-panel">
+          <header><span class="ic-kicker">Native Tool Structure</span><h3>Tool Fields</h3></header>
+          <div class="ic-override-grid">
+            <section class="ic-override-card {{#if custom.toolType}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="toolType" {{#if custom.toolType}}checked{{/if}}><span><strong>Customize Tool Category</strong><small>Artisan's Tools, Gaming Set, or Musical Instrument.</small></span></label><select data-override-input="toolType" {{#unless custom.toolType}}disabled{{/unless}}>{{#each toolTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.baseItem}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="baseItem" {{#if custom.baseItem}}checked{{/if}}><span><strong>Customize Base Tool</strong><small>Native D&amp;D5e base-tool identifier.</small></span></label><select data-override-input="baseItem" {{#unless custom.baseItem}}disabled{{/unless}}>{{#each baseToolOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.ability}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="ability" {{#if custom.ability}}checked{{/if}}><span><strong>Customize Default Ability</strong><small>Ability used by the native Tool Check Activity.</small></span></label><select data-override-input="ability" {{#unless custom.ability}}disabled{{/unless}}>{{#each toolAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.proficiency}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="proficiency" {{#if custom.proficiency}}checked{{/if}}><span><strong>Customize Proficiency Handling</strong><small>Automatic uses the Actor's Tool proficiency; fixed options override it.</small></span></label><select data-override-input="proficiency" {{#unless custom.proficiency}}disabled{{/unless}}>{{#each proficiencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.bonus}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="bonus" {{#if custom.bonus}}checked{{/if}}><span><strong>Customize Tool Check Bonus</strong><small>Formula applied only to checks made with this Tool.</small></span></label><input type="text" value="{{effective.bonus}}" placeholder="e.g. +1 or 1d4" data-override-input="bonus" {{#unless custom.bonus}}disabled{{/unless}}></section>
+            <section class="ic-override-card {{#if custom.quantity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="quantity" {{#if custom.quantity}}checked{{/if}}><span><strong>Customize Quantity</strong><small>Initial stack quantity.</small></span></label><input type="number" min="1" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}></section>
+            <section class="ic-override-card {{#if custom.weight}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="weight" {{#if custom.weight}}checked{{/if}}><span><strong>Customize Weight</strong><small>Weight of one Tool.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.weight.value}}" data-override-input="weight" data-override-part="value" data-value-type="number" {{#unless custom.weight}}disabled{{/unless}}></label><label><span>Unit</span><select data-override-input="weight" data-override-part="units" {{#unless custom.weight}}disabled{{/unless}}>{{#each weightUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+            <section class="ic-override-card {{#if custom.price}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="price" {{#if custom.price}}checked{{/if}}><span><strong>Customize Price</strong><small>Market value and currency.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.price.value}}" data-override-input="price" data-override-part="value" data-value-type="number" {{#unless custom.price}}disabled{{/unless}}></label><label><span>Currency</span><select data-override-input="price" data-override-part="denomination" {{#unless custom.price}}disabled{{/unless}}>{{#each currencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+            <section class="ic-override-card ic-span-two {{#if custom.properties}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="properties" {{#if custom.properties}}checked{{/if}}><span><strong>Customize Tool Properties</strong><small>Only native properties valid for Tool Items are shown, such as Spellcasting Focus.</small></span></label><div class="ic-property-grid">{{#each propertyOptions}}<label class="ic-property-option {{#if selected}}selected{{/if}}"><input type="checkbox" data-property-key="{{value}}" {{#if selected}}checked{{/if}} {{#unless ../custom.properties}}disabled{{/unless}}><span>{{label}}</span></label>{{/each}}</div></section>
+          </div>
+        </section>
+      </div>
+      {{else}}
+      <div class="ic-empty-state ic-template-empty"><i class="fa-solid fa-screwdriver-wrench"></i><strong>Choose a Tool or create a custom shell</strong><p>Tools remain non-weapons. Their own check bonus belongs here; AC, attack bonuses, spell statistics, and other bearer benefits belong in Granted Effects.</p></div>
       {{/if}}
       {{/if}}
     </section>
@@ -596,7 +637,7 @@
         </div>
       </section>
 
-      {{else}}
+      {{else if isEquipment}}
       <header class="ic-section-header"><div><span class="ic-kicker">Equipment Creation</span><h2>Enhancements</h2><p>Configure only structural properties of the Equipment document here. Actor-facing powers belong in Granted Effects.</p></div></header>
       <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-layer-group"></i><div><strong>Filtered for Equipment</strong><p>Weapon-only attack, damage, Mastery, and weapon critical fields are hidden. Armor-specific options appear only for Armor and Shield forms.</p></div></aside>
       <section class="ic-enhancement-group"><header><span class="ic-kicker">Magical Configuration</span><h3>Magical Nature and Armor Data</h3></header><div class="ic-enhancement-grid">
@@ -607,6 +648,12 @@
         <section class="ic-enhancement-card {{#if enhancement.removeStrengthRequirement}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="removeStrengthRequirement" {{#if enhancement.removeStrengthRequirement}}checked{{/if}}><span><strong>Remove Strength Requirement</strong><small>Set the native Strength requirement to none.</small></span></label></section>
         <section class="ic-enhancement-card {{#if enhancement.removeStealthDisadvantage}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="removeStealthDisadvantage" {{#if enhancement.removeStealthDisadvantage}}checked{{/if}}><span><strong>Remove Stealth Disadvantage</strong><small>Remove the native Stealth Disadvantage property.</small></span></label></section>
         {{/if}}
+      </div></section>
+      {{else if isTool}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Tool Creation</span><h2>Enhancements</h2><p>Configure only structural properties of the Tool document here. Tool Check Bonus belongs in Base Item; Actor-facing powers belong in Granted Effects.</p></div></header>
+      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-layer-group"></i><div><strong>Filtered for Tools</strong><p>Weapon damage, attack Activities, Mastery, Armor Class structure, and enchantment bonuses are unavailable because this document remains a Tool.</p></div></aside>
+      <section class="ic-enhancement-group"><header><span class="ic-kicker">Magical Configuration</span><h3>Magical Nature</h3></header><div class="ic-enhancement-grid">
+        <section class="ic-enhancement-card ic-span-two {{#if enhancement.magicalTool}}enabled{{/if}} {{#if enhancementErrors.magicalTool}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="magicalTool" {{#if enhancement.magicalTool}}checked{{/if}}><span><strong>Magical Tool</strong><small>Set rarity and optional attunement without adding any weapon or armor enchantment.</small></span></label>{{#if magicalAutoFromGrantedSpellcasting}}<small class="ic-mechanical-note"><i class="fa-solid fa-wand-magic-sparkles"></i> Enabled automatically by Granted Spellcasting. No enchantment bonus or attunement is added.</small>{{/if}}<div class="ic-enhancement-fields two-columns"><label><span>Rarity</span><select data-enhancement-input="magicalTool" data-enhancement-part="rarity" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Attunement</span><select data-enhancement-input="magicalTool" data-enhancement-part="attunement" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each attunementOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
       </div></section>
       {{/if}}
 
@@ -768,7 +815,7 @@
         <div>
           <span class="ic-kicker">{{itemTypeLabel}} Creation</span>
           <h2>Granted Effects</h2>
-          <p>Enable only the passive effects this item grants to its bearer. The complete library is available to both Weapons and Equipment.</p>
+          <p>Enable only the passive effects this item grants to its bearer. The complete Actor-facing library is available to Weapons, Equipment, and Tools.</p>
         </div>
       </header>
 
@@ -790,6 +837,9 @@
               <label><span>Active While</span><select data-effect-input="armorClassBonus" data-effect-part="availability">{{#each effectAvailability.armorClassBonus}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             </fieldset>
           </section>
+
+          <section class="ic-effect-card {{#if grantedEffects.weaponAttackBonus}}enabled{{/if}} {{#if grantedEffectErrors.weaponAttackBonus}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-effect-toggle="weaponAttackBonus" {{#if grantedEffects.weaponAttackBonus}}checked{{/if}}><span><strong>Weapon Attack Roll Bonus</strong><small>Add a global bonus to melee and ranged weapon attack rolls made by the Actor.</small></span></label><fieldset class="ic-effect-body" {{#unless grantedEffects.weaponAttackBonus}}disabled{{/unless}}><label><span>Modifier</span><input type="number" step="1" value="{{grantedEffectValues.weaponAttackBonus.bonus}}" data-effect-input="weaponAttackBonus" data-effect-part="bonus" data-value-type="number"></label><label><span>Active While</span><select data-effect-input="weaponAttackBonus" data-effect-part="availability">{{#each effectAvailability.weaponAttackBonus}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></fieldset></section>
+          <section class="ic-effect-card {{#if grantedEffects.weaponDamageBonus}}enabled{{/if}} {{#if grantedEffectErrors.weaponDamageBonus}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-effect-toggle="weaponDamageBonus" {{#if grantedEffects.weaponDamageBonus}}checked{{/if}}><span><strong>Weapon Damage Roll Bonus</strong><small>Add a global bonus to melee and ranged weapon damage rolls made by the Actor.</small></span></label><fieldset class="ic-effect-body" {{#unless grantedEffects.weaponDamageBonus}}disabled{{/unless}}><label><span>Modifier</span><input type="number" step="1" value="{{grantedEffectValues.weaponDamageBonus.bonus}}" data-effect-input="weaponDamageBonus" data-effect-part="bonus" data-value-type="number"></label><label><span>Active While</span><select data-effect-input="weaponDamageBonus" data-effect-part="availability">{{#each effectAvailability.weaponDamageBonus}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></fieldset></section>
 
           <section class="ic-effect-card {{#if grantedEffects.criticalThreshold}}enabled{{/if}} {{#if grantedEffectErrors.criticalThreshold}}invalid{{/if}}">
             <label class="ic-override-heading"><input type="checkbox" data-effect-toggle="criticalThreshold" {{#if grantedEffects.criticalThreshold}}checked{{/if}}><span><strong>Critical Hit Threshold</strong><small>Reduce the Actor's weapon, spell, or combined critical threshold.</small></span></label>
@@ -997,7 +1047,7 @@
               <div class="ic-inventory-title"><strong>{{reviewInventory.name}}</strong>{{#if reviewInventory.magical}}<i class="fa-solid fa-sparkles" title="Magical"></i>{{/if}}</div>
               <p>{{reviewInventory.type}} · {{reviewInventory.rarity}}</p>
               <dl>
-                {{#if isWeapon}}<div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>{{else}}<div><dt>Equipment Type</dt><dd>{{reviewInventory.equipmentType}}</dd></div>{{#if reviewInventory.armor}}<div><dt>Armor Class</dt><dd>{{reviewInventory.armor}}</dd></div>{{/if}}{{/if}}
+                {{#if isWeapon}}<div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>{{else if isEquipment}}<div><dt>Equipment Type</dt><dd>{{reviewInventory.equipmentType}}</dd></div>{{#if reviewInventory.armor}}<div><dt>Armor Class</dt><dd>{{reviewInventory.armor}}</dd></div>{{/if}}{{else if isTool}}<div><dt>Tool Category</dt><dd>{{reviewInventory.toolType}}</dd></div><div><dt>Tool Check Bonus</dt><dd>{{reviewInventory.toolBonus}}</dd></div>{{/if}}
                 <div><dt>Attunement</dt><dd>{{reviewInventory.attunement}}</dd></div>
                 <div><dt>Quantity</dt><dd>{{reviewInventory.quantity}}</dd></div>
                 <div><dt>Effects</dt><dd>{{reviewInventory.effects}}</dd></div>
@@ -1025,8 +1075,8 @@
       <section class="ic-review-summary">
         <header><span class="ic-kicker">Configuration Summary</span><h3>Final Draft</h3></header>
         <dl>
-          <div><dt>{{#if isEquipment}}Base Item{{else}}Template{{/if}}</dt><dd>{{reviewSummary.template}}</dd></div>
-          <div><dt>{{#if isWeapon}}Base Weapon{{else}}Equipment Form{{/if}}</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
+          <div><dt>{{#if isWeapon}}Template{{else}}Base Item{{/if}}</dt><dd>{{reviewSummary.template}}</dd></div>
+          <div><dt>{{#if isWeapon}}Base Weapon{{else if isEquipment}}Equipment Form{{else}}Tool Category{{/if}}</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
           <div><dt>Final Name</dt><dd>{{reviewSummary.name}}</dd></div>
           <div><dt>Base Overrides</dt><dd>{{reviewSummary.baseOverrides}}</dd></div>
           <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>

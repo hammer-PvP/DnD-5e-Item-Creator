@@ -64,7 +64,7 @@ export class ItemCreatorIconBrowserApp extends HandlebarsApplicationMixin(Applic
     }))];
 
     return {
-      itemTypeLabel: this.itemType === "weapon" ? "Weapon" : this.itemType === "equipment" ? "Equipment" : "Item",
+      itemTypeLabel: this.itemType === "weapon" ? "Weapon" : this.itemType === "equipment" ? "Equipment" : this.itemType === "tool" ? "Tool" : "Item",
       search: this.search,
       sourceOptions,
       iconOptions: iconOptions.map(option => ({

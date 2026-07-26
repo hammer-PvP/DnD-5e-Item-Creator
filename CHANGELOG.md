@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.8a — Beta
+
+- Added the complete Tool creation and editing flow using the shared Item Type → Base Item → Enhancements → Granted Effects → Description → Review workflow.
+- Added native Tool base fields for category, base tool, default ability, proficiency handling, Tool Check Bonus formula, quantity, weight, price, and Tool-valid properties.
+- Added selection from configured Tool compendiums, native D&D5e Compendium Browser support, and a Custom Tool shell.
+- Added automatic native Check Activity creation when a Tool template has no Tool Check Activity.
+- Kept Tools type-safe: no Attack Activity, weapon damage, Weapon Enhancement, Mastery, weapon properties, range, Armor Enhancement, or armor calculation fields are exposed.
+- Added Magical Tool with rarity and optional Attunement. It never grants a weapon or armor enhancement bonus.
+- Added Granted Spellcasting to Tools, including automatic magical status without automatic Attunement or numeric enchantment.
+- Added the full Actor-facing Granted Effects library to Tools with Owned, Equipped, and Equipped and Attuned availability.
+- Added global Weapon Attack Roll Bonus and Weapon Damage Roll Bonus Granted Effects for any supported Item type. These affect the Actor's melee and ranged weapon rolls while active, not the Tool's own check.
+- Added Tool support to runtime effect reconciliation, granted spellbook visibility, Ignore Resistance, Conditional Advantage, world-item editing, Update Item, and Save as Copy.
+- Added Tool support to the shared type-agnostic Icon Selection catalog.
+- Preserved the intentionally simple runtime model: narrative conditions are controlled manually through Item availability; no context-specific weapon, Bardic Inspiration, or per-Activity automation is added.
+- Updated manifest, documentation, interface version label, and versioned download URL for tag `v0.1.8a`.
+
 ## 0.1.8 — Beta
 
 - Fixed the Equipment Icon Selection browser returning an empty `0 / 0` catalog.

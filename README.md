@@ -1,9 +1,21 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8 Beta  
+**Version:** 0.1.8a Beta
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
+
+## v0.1.8a Beta
+
+This Beta adds the complete **Tool** creation and editing flow. Tools use the same six stages as Weapon and Equipment while preserving the native D&D5e Tool document structure. A GM can select a Tool from configured compendiums, use the native D&D5e Compendium Browser, or start from a Custom Tool shell.
+
+The Base Item stage supports Tool Category, Base Tool, Default Ability, Proficiency Handling, Tool Check Bonus, quantity, weight, price, and Tool-valid properties. Tool Check Bonus modifies checks made with that Tool only. A native Check Activity is created when the selected Tool has none.
+
+Tool Enhancements are intentionally type-safe. A Tool can be magical, have rarity, require Attunement, and grant existing Spells, but it cannot gain weapon damage, an Attack Activity, Weapon Enhancement, Mastery, range, weapon properties, Armor Enhancement, or native armor calculation fields.
+
+Tools have access to the complete Actor-facing Granted Effects library. This includes Armor Class, Weapon Attack Roll Bonus, Weapon Damage Roll Bonus, Spell Attack, Spell Save DC, ability scores, saves, checks, skills, resistances, movement, senses, Critical Hit Threshold, and Granted Spellcasting. Availability remains `Owned`, `Equipped`, or `Equipped and Attuned`. `Equipped` may be used as a simple manual on/off switch for narrative conditions. Item Creator does not inspect the currently used weapon, Bardic Inspiration, or individual Activities.
+
+World Tool Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy. Tool icons use the same complete type-agnostic catalog as Weapon and Equipment.
 
 ## v0.1.8 Beta
 
@@ -70,7 +82,7 @@ The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md
 
 ## Scope discipline
 
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.8 creates and edits world Weapon and Equipment Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
+The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.8a creates and edits world Weapon, Equipment, and Tool Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
 
 ## Runtime dependency
 
@@ -81,5 +93,5 @@ Dynamic mechanics require Item Creator to remain active, including conditional S
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8 Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8/item-creator.zip`
+- v0.1.8a Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8a/item-creator.zip`
 - Every new build must update the versioned download URL to match its exact Git tag.

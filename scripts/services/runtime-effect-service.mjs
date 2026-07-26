@@ -11,7 +11,7 @@ function valuesOf(value) {
 }
 
 function isManagedItem(item) {
-  return item?.documentName === "Item" && ["weapon", "equipment"].includes(item.type) && Boolean(item.getFlag(MODULE_ID, "created"));
+  return item?.documentName === "Item" && ["weapon", "equipment", "tool"].includes(item.type) && Boolean(item.getFlag(MODULE_ID, "created"));
 }
 
 function blueprintEffects(item) {
@@ -213,8 +213,8 @@ export class ItemCreatorRuntimeEffectService {
     return isManagedItem(item) ? item : null;
   }
 
-  static #runtimeEquipmentAvailable(item) {
-    if (!isManagedItem(item) || item.type !== "equipment") return false;
+  static #runtimePassiveItemAvailable(item) {
+    if (!isManagedItem(item) || !["equipment", "tool"].includes(item.type)) return false;
     if (!item.system?.equipped) return false;
     const requiresAttunement = Boolean(item.system?.attunement);
     return !requiresAttunement || Boolean(item.system?.attuned);
@@ -224,7 +224,7 @@ export class ItemCreatorRuntimeEffectService {
     const items = [];
     if (isManagedItem(originatingItem)) items.push(originatingItem);
     for (const item of actor?.items ?? []) {
-      if (item === originatingItem || !this.#runtimeEquipmentAvailable(item)) continue;
+      if (item === originatingItem || !this.#runtimePassiveItemAvailable(item)) continue;
       items.push(item);
     }
     return items;

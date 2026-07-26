@@ -22,8 +22,13 @@ function isEquipmentItemDocument(document) {
   return documentName === "Item" && document?.type === "equipment" && document?.system?.type?.value !== "vehicle";
 }
 
+function isToolItemDocument(document) {
+  const documentName = document?.documentName ?? document?.constructor?.documentName;
+  return documentName === "Item" && document?.type === "tool";
+}
+
 function isSupportedItemDocument(document) {
-  return isWeaponItemDocument(document) || isEquipmentItemDocument(document);
+  return isWeaponItemDocument(document) || isEquipmentItemDocument(document) || isToolItemDocument(document);
 }
 
 function isSpellItemDocument(document) {
@@ -259,6 +264,48 @@ function equipmentEnhancementDefaults() {
     ignoreResistance: clone(defaults.ignoreResistance),
     conditionalAdvantage: clone(defaults.conditionalAdvantage)
   };
+}
+
+function toolSourceData(document) {
+  if (!document) return null;
+  const system = document.system ?? {};
+  const baseItem = system.type?.baseItem ?? system.identifier ?? "";
+  const proficient = system.proficient;
+  return {
+    toolType: system.type?.value ?? "art",
+    baseItem,
+    ability: system.ability ?? CONFIG.DND5E.tools?.[baseItem]?.ability ?? "",
+    bonus: String(system.bonus ?? ""),
+    proficiency: proficient === null || proficient === undefined ? "automatic"
+      : Number(proficient) >= 2 ? "expertise"
+        : Number(proficient) >= 1 ? "proficient" : "notProficient",
+    quantity: Number(system.quantity) || 1,
+    weight: {
+      value: Number(system.weight?.value ?? system.weight ?? 0) || 0,
+      units: system.weight?.units ?? "lb"
+    },
+    price: {
+      value: Number(system.price?.value ?? 0) || 0,
+      denomination: system.price?.denomination ?? CONFIG.DND5E.defaultCurrency ?? "gp"
+    },
+    properties: valuesOf(system.properties).filter(property => property !== "mgc")
+  };
+}
+
+function toolEnhancementDefaults() {
+  const defaults = enhancementDefaults();
+  return {
+    magicalTool: clone(defaults.magicalWeapon),
+    grantedSpellcasting: clone(defaults.grantedSpellcasting),
+    ignoreResistance: clone(defaults.ignoreResistance),
+    conditionalAdvantage: clone(defaults.conditionalAdvantage)
+  };
+}
+
+function enhancementDefaultsForType(type) {
+  if (type === "equipment") return equipmentEnhancementDefaults();
+  if (type === "tool") return toolEnhancementDefaults();
+  return enhancementDefaults();
 }
 
 function clone(value) {
@@ -498,6 +545,20 @@ function inferGrantedEffects(item) {
       continue;
     }
 
+    if (changes.length === 2 && keys.includes("system.bonuses.mwak.attack") && keys.includes("system.bonuses.rwak.attack")) {
+      enabled.weaponAttackBonus = true;
+      values.weaponAttackBonus = { bonus: Number(changes[0].value) || 0, availability };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
+    if (changes.length === 2 && keys.includes("system.bonuses.mwak.damage") && keys.includes("system.bonuses.rwak.damage")) {
+      enabled.weaponDamageBonus = true;
+      values.weaponDamageBonus = { bonus: Number(changes[0].value) || 0, availability };
+      managedEffectIds.push(effectId);
+      continue;
+    }
+
     if (changes.length === 2 && keys.includes("system.bonuses.msak.attack") && keys.includes("system.bonuses.rsak.attack")) {
       enabled.spellAttackBonus = true;
       values.spellAttackBonus = { bonus: Number(changes[0].value) || 0, availability };
@@ -697,6 +758,8 @@ function grantedEffectDefaults() {
   const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
   return {
     armorClassBonus: { bonus: 1, availability: "equipped" },
+    weaponAttackBonus: { bonus: 1, availability: "equipped" },
+    weaponDamageBonus: { bonus: 1, availability: "equipped" },
     criticalThreshold: { threshold: 19, scope: "all", availability: "equipped" },
     savingThrowBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
     savingThrowAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
@@ -796,7 +859,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.customized = {};
     this.overrides = {};
     this.enhancements = {};
-    this.enhancementValues = editItem?.type === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    this.enhancementValues = enhancementDefaultsForType(editItem?.type);
     this.magicalAutoFromGrantedSpellcasting = false;
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
@@ -828,7 +891,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.editStateInitialized || !this.editingItem) return;
     const item = this.editingItem;
     if (item.parent || item.pack || !isSupportedItemDocument(item)) {
-      throw new Error("Only world Weapon and Equipment Items can be edited with Item Creator.");
+      throw new Error("Only world Weapon, Equipment, and Tool Items can be edited with Item Creator.");
     }
 
     this.selectedType = item.type;
@@ -839,17 +902,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.editingManagedItem = Boolean(flags.created && savedDraft);
     this.editingImportedItem = !this.editingManagedItem || Boolean(flags.importedItem) || (item.type === "weapon" && isSelfImportedItem(item, flags));
 
-    if (item.type === "equipment") {
-      this.equipmentForm = savedDraft?.equipmentForm ?? flags.equipmentForm ?? equipmentFormForDocument(item);
+    if (["equipment", "tool"].includes(item.type)) {
+      const isEquipment = item.type === "equipment";
+      const defaults = enhancementDefaultsForType(item.type);
+      const magicalKey = isEquipment ? "magicalItem" : "magicalTool";
+      const getDocument = uuid => isEquipment ? registry.getEquipmentDocument(uuid) : registry.getToolDocument(uuid);
+      if (isEquipment) this.equipmentForm = savedDraft?.equipmentForm ?? flags.equipmentForm ?? equipmentFormForDocument(item);
+
       if (this.editingManagedItem) {
         this.selectedWeaponUuid = flags.templateUuid || item.uuid;
-        this.selectedBaseWeaponUuid = flags.baseEquipmentUuid || flags.baseItemUuid || flags.templateUuid || item.uuid;
-        this.selectedWeaponDocument = await registry.getEquipmentDocument(this.selectedWeaponUuid) ?? item;
-        this.selectedBaseWeaponDocument = await registry.getEquipmentDocument(this.selectedBaseWeaponUuid) ?? item;
+        this.selectedBaseWeaponUuid = isEquipment
+          ? (flags.baseEquipmentUuid || flags.baseItemUuid || flags.templateUuid || item.uuid)
+          : (flags.baseToolUuid || flags.baseItemUuid || flags.templateUuid || item.uuid);
+        this.selectedWeaponDocument = await getDocument(this.selectedWeaponUuid) ?? item;
+        this.selectedBaseWeaponDocument = await getDocument(this.selectedBaseWeaponUuid) ?? item;
         this.customized = clone(savedDraft.customized ?? {});
         this.overrides = clone(savedDraft.overrides ?? {});
         this.enhancements = clone(savedDraft.enhancements ?? {});
-        this.enhancementValues = mergeWithDefaults(equipmentEnhancementDefaults(), savedDraft.enhancementValues);
+        this.enhancementValues = mergeWithDefaults(defaults, savedDraft.enhancementValues);
         this.magicalAutoFromGrantedSpellcasting = Boolean(savedDraft.magicAutomation?.magicalFromGrantedSpellcasting);
         this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
@@ -876,22 +946,26 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.customized = {};
         this.overrides = {};
 
-        const source = equipmentSourceData(item);
-        this.equipmentForm = source?.equipmentForm ?? this.equipmentForm;
-        const enhancementValues = equipmentEnhancementDefaults();
+        if (isEquipment) {
+          const source = equipmentSourceData(item);
+          this.equipmentForm = source?.equipmentForm ?? this.equipmentForm;
+        }
+        const enhancementValues = defaults;
         this.enhancements = {};
         const properties = valuesOf(item.system?.properties);
         if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
-          this.enhancements.magicalItem = true;
-          enhancementValues.magicalItem = {
+          this.enhancements[magicalKey] = true;
+          enhancementValues[magicalKey] = {
             rarity: item.system?.rarity || "uncommon",
             attunement: item.system?.attunement || ""
           };
         }
-        const armorBonus = Number(item.system?.armor?.magicalBonus);
-        if (Number.isFinite(armorBonus) && armorBonus !== 0) {
-          this.enhancements.armorEnhancement = true;
-          enhancementValues.armorEnhancement.bonus = armorBonus;
+        if (isEquipment) {
+          const armorBonus = Number(item.system?.armor?.magicalBonus);
+          if (Number.isFinite(armorBonus) && armorBonus !== 0) {
+            this.enhancements.armorEnhancement = true;
+            enhancementValues.armorEnhancement.bonus = armorBonus;
+          }
         }
 
         const grantedSpells = [];
@@ -1045,8 +1119,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     await registry.loadAll();
     await this.#initializeEditState(registry);
 
-    const expectedType = this.selectedType === "equipment" ? "equipment" : "weapon";
-    const documentValidator = expectedType === "equipment" ? isEquipmentItemDocument : isWeaponItemDocument;
+    const expectedType = ["equipment", "tool"].includes(this.selectedType) ? this.selectedType : "weapon";
+    const documentValidator = expectedType === "equipment" ? isEquipmentItemDocument
+      : expectedType === "tool" ? isToolItemDocument : isWeaponItemDocument;
     if (this.selectedWeaponUuid && !this.selectedWeaponDocument) {
       try {
         const document = await fromUuid(this.selectedWeaponUuid);
@@ -1069,8 +1144,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const isWeapon = this.selectedType === "weapon";
     const isEquipment = this.selectedType === "equipment";
-    const itemTypeLabel = isEquipment ? "Equipment" : "Weapon";
-    const source = isEquipment ? equipmentSourceData(this.selectedBaseWeaponDocument) : weaponSourceData(this.selectedBaseWeaponDocument);
+    const isTool = this.selectedType === "tool";
+    const itemTypeLabel = isEquipment ? "Equipment" : isTool ? "Tool" : "Weapon";
+    const source = isEquipment ? equipmentSourceData(this.selectedBaseWeaponDocument)
+      : isTool ? toolSourceData(this.selectedBaseWeaponDocument) : weaponSourceData(this.selectedBaseWeaponDocument);
     const effective = source ? this.#effectiveValues(source) : null;
     const additionalDamageValid = !isWeapon || !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
@@ -1078,7 +1155,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         && (!row.useAbilityModifier || Boolean(row.ability))));
     const typeComplete = Boolean(this.selectedType);
     const baseComplete = Boolean(this.selectedWeaponUuid
-      && (isEquipment || this.selectedBaseWeaponUuid)
+      && (!isWeapon || this.selectedBaseWeaponUuid)
       && this.itemName.trim() && additionalDamageValid);
     const enhancementValidation = this.#validateEnhancements();
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
@@ -1118,7 +1195,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         || (step.id === "review" && !descriptionComplete)
     }));
 
-    const findOption = uuid => isEquipment ? registry.findEquipment(uuid) : registry.findWeapon(uuid);
+    const findOption = uuid => isEquipment ? registry.findEquipment(uuid)
+      : isTool ? registry.findTool(uuid) : registry.findWeapon(uuid);
     const selectedOption = this.selectedWeaponUuid ? findOption(this.selectedWeaponUuid) : null;
     const selectedSource = this.selectedWeaponDocument
       ? (selectedOption ?? registry.describeDocument(this.selectedWeaponDocument)) : null;
@@ -1126,10 +1204,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const selectedBaseSource = this.selectedBaseWeaponDocument
       ? (selectedBaseOption ?? registry.describeDocument(this.selectedBaseWeaponDocument)) : null;
 
-    const templateOptions = isEquipment ? registry.equipmentTemplateOptions : registry.templateOptions;
-    const templateSourceGroupsSource = isEquipment ? registry.equipmentTemplateSourceGroups : registry.templateSourceGroups;
-    const sourceConfig = isEquipment ? CONFIG.DND5E.equipmentTypes : CONFIG.DND5E.weaponTypes;
-    const typeKey = isEquipment ? "equipmentType" : "weaponType";
+    const templateOptions = isEquipment ? registry.equipmentTemplateOptions
+      : isTool ? registry.toolTemplateOptions : registry.templateOptions;
+    const templateSourceGroupsSource = isEquipment ? registry.equipmentTemplateSourceGroups
+      : isTool ? registry.toolTemplateSourceGroups : registry.templateSourceGroups;
+    const sourceConfig = isEquipment ? CONFIG.DND5E.equipmentTypes
+      : isTool ? CONFIG.DND5E.toolTypes : CONFIG.DND5E.weaponTypes;
+    const typeKey = isEquipment ? "equipmentType" : isTool ? "toolType" : "weaponType";
     const templateCounts = new Map();
     for (const option of templateOptions) templateCounts.set(option[typeKey], (templateCounts.get(option[typeKey]) ?? 0) + 1);
     const templateCategoryOptions = [{
@@ -1148,7 +1229,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         templateCategory: option[typeKey]
       }))
     }));
-    const selectedInRegistry = isEquipment ? registry.findEquipment(this.selectedWeaponUuid) : registry.findTemplate(this.selectedWeaponUuid);
+    const selectedInRegistry = isEquipment ? registry.findEquipment(this.selectedWeaponUuid)
+      : isTool ? registry.findTool(this.selectedWeaponUuid) : registry.findTemplate(this.selectedWeaponUuid);
     if (this.selectedWeaponDocument && !selectedInRegistry) {
       templateOptionGroups.unshift({
         label: selectedSource?.sourceLabel ?? "Selected Source",
@@ -1160,7 +1242,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       });
     }
 
-    const baseSourceGroups = isEquipment ? registry.equipmentSourceGroups : registry.weaponSourceGroups;
+    const baseSourceGroups = isEquipment ? registry.equipmentSourceGroups
+      : isTool ? registry.toolSourceGroups : registry.weaponSourceGroups;
     const baseWeaponOptionGroups = baseSourceGroups.map(group => ({
       label: group.label,
       items: group.packs.flatMap(pack => pack.items).sort((a, b) => a.name.localeCompare(b.name, game.i18n.lang)).map(option => ({
@@ -1193,14 +1276,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ? localizedLabel(CONFIG.DND5E.damageTypes?.[effective.damageType], effective.damageType) : "";
     const selectedWeapon = this.selectedWeaponDocument ? {
       name: this.selectedWeaponDocument.name,
-      img: this.selectedIcon || this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg"),
-      sourceImg: this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg"),
+      img: this.selectedIcon || this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : isTool ? "systems/dnd5e/icons/svg/items/tool.svg" : "icons/svg/sword.svg"),
+      sourceImg: this.selectedWeaponDocument.img || (isEquipment ? "icons/svg/item-bag.svg" : isTool ? "systems/dnd5e/icons/svg/items/tool.svg" : "icons/svg/sword.svg"),
       source: selectedSource ? `${selectedSource.sourceLabel} — ${selectedSource.packLabel}` : "Compendium Item",
       sourceLabel: selectedSource?.sourceLabel ?? "Compendium",
       packLabel: selectedSource?.packLabel ?? "Items",
       identifier: this.selectedWeaponDocument.system?.identifier ?? "—",
       damageSummary: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : "—",
-      equipmentTypeLabel: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[effective?.nativeType], effective?.nativeType ?? "Equipment") : ""
+      equipmentTypeLabel: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[effective?.nativeType], effective?.nativeType ?? "Equipment") : "",
+      toolTypeLabel: isTool ? localizedLabel(CONFIG.DND5E.toolTypes?.[effective?.toolType], effective?.toolType ?? "Tool") : ""
     } : null;
 
     const customization = field => Boolean(this.customized[field]);
@@ -1257,6 +1341,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       damage: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : null,
       armor: isEquipment && Number(reviewItem.system?.armor?.value) ? reviewItem.system.armor.value : null,
       equipmentType: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[reviewItem.system?.type?.value], reviewItem.system?.type?.value ?? "Equipment") : null,
+      toolType: isTool ? localizedLabel(CONFIG.DND5E.toolTypes?.[reviewItem.system?.type?.value], reviewItem.system?.type?.value ?? "Tool") : null,
+      toolBonus: isTool ? String(reviewItem.system?.bonus ?? "") || "None" : null,
       properties: reviewProperties, activities: reviewActivities,
       effects: reviewItem.effects?.size ?? reviewItem.effects?.length ?? 0,
       magical: valuesOf(reviewItem.system?.properties).includes("mgc")
@@ -1270,6 +1356,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const isArmorForm = isEquipment && this.equipmentForm === "armor";
     const isShieldForm = isEquipment && this.equipmentForm === "shield";
     const hasArmorFields = isArmorForm || isShieldForm;
+    const toolTypeOptions = configOptions(CONFIG.DND5E.toolTypes, effective?.toolType);
+    const toolAbilityOptions = configOptions(CONFIG.DND5E.abilities, effective?.ability, { blankValue: "", blankLabel: "Default for Base Tool" });
+    const baseToolSeen = new Set();
+    const baseToolOptions = [{ value: "", label: "None / Custom Tool", selected: !effective?.baseItem }];
+    for (const option of registry.toolOptions ?? []) {
+      const value = option.baseItemIdentifier || option.identifier;
+      if (!value || baseToolSeen.has(value)) continue;
+      baseToolSeen.add(value);
+      baseToolOptions.push({ value, label: option.name, selected: effective?.baseItem === value });
+    }
+    baseToolOptions.splice(1, baseToolOptions.length - 1, ...baseToolOptions.slice(1).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)));
 
     return {
       stage: MODULE_STAGE, version: MODULE_VERSION,
@@ -1277,7 +1374,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       editingImportedItem: this.editingImportedItem, editingItemName: this.editingItem?.name ?? "",
       step: this.step, steps,
       itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
-      selectedType: this.selectedType, isWeapon, isEquipment, itemTypeLabel,
+      selectedType: this.selectedType, isWeapon, isEquipment, isTool, itemTypeLabel,
       weaponCount: manualTemplateCount, templateOptionGroups, templateCategoryOptions,
       templateCategory: this.templateCategory, selectedWeapon, selectedBaseWeapon,
       selectedBaseWeaponUuid: this.selectedBaseWeaponUuid, baseWeaponOptionGroups,
@@ -1289,7 +1386,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       weaponTypeOptions: configOptions(CONFIG.DND5E.weaponTypes, effective?.weaponType),
       attackTypeOptions: [{ value: "melee", label: "Melee", selected: effective?.attackType === "melee" }, { value: "ranged", label: "Ranged", selected: effective?.attackType === "ranged" }],
       abilityOptions: configOptions(CONFIG.DND5E.abilities, effective?.attackAbility, { blankValue: "", blankLabel: "Automatic" }),
-      proficiencyOptions: [{ value: "automatic", label: "Automatic", selected: effective?.proficiency === "automatic" }, { value: "proficient", label: "Always Proficient", selected: effective?.proficiency === "proficient" }, { value: "notProficient", label: "Not Proficient", selected: effective?.proficiency === "notProficient" }],
+      proficiencyOptions: [{ value: "automatic", label: "Automatic", selected: effective?.proficiency === "automatic" }, { value: "proficient", label: "Always Proficient", selected: effective?.proficiency === "proficient" }, ...(isTool ? [{ value: "expertise", label: "Always Expertise", selected: effective?.proficiency === "expertise" }] : []), { value: "notProficient", label: "Not Proficient", selected: effective?.proficiency === "notProficient" }],
       damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, effective?.damageType),
       versatileDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, effective?.versatile?.damageType),
       masteryOptions: configOptions(CONFIG.DND5E.weaponMasteries, effective?.mastery, { blankValue: "", blankLabel: "None" }),
@@ -1304,6 +1401,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
       equipmentForm: this.equipmentForm, equipmentFormOptions, equipmentTypeOptions, armorTypeOptions,
       isArmorForm, isShieldForm, hasArmorFields,
+      toolTypeOptions, toolAbilityOptions, baseToolOptions,
       equipmentFormLabel: EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment",
       armorDexFull: effective?.armor?.dex === null || effective?.armor?.dex === undefined,
       armorDexValue: effective?.armor?.dex ?? 0,
@@ -1315,16 +1413,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       enhancementsComplete, enhancementErrors: enhancementValidation.errors,
       effectiveMagical: Boolean(isEquipment
         ? (this.enhancements.magicalItem || this.enhancements.armorEnhancement || grantedSpellRows.length)
-        : (this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement || grantedSpellRows.length)),
-      rarityOptions: configOptions(CONFIG.DND5E.itemRarity, isEquipment ? this.enhancementValues.magicalItem?.rarity : this.enhancementValues.magicalWeapon?.rarity),
-      attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, isEquipment ? this.enhancementValues.magicalItem?.attunement : this.enhancementValues.magicalWeapon?.attunement, { blankValue: "", blankLabel: "None" }),
+        : isTool ? (this.enhancements.magicalTool || grantedSpellRows.length)
+          : (this.enhancements.magicalWeapon || this.enhancements.weaponEnhancement || grantedSpellRows.length)),
+      rarityOptions: configOptions(CONFIG.DND5E.itemRarity, isEquipment ? this.enhancementValues.magicalItem?.rarity : isTool ? this.enhancementValues.magicalTool?.rarity : this.enhancementValues.magicalWeapon?.rarity),
+      attunementOptions: configOptions(CONFIG.DND5E.attunementTypes, isEquipment ? this.enhancementValues.magicalItem?.attunement : isTool ? this.enhancementValues.magicalTool?.attunement : this.enhancementValues.magicalWeapon?.attunement, { blankValue: "", blankLabel: "None" }),
       enhancementBonusOptions: fixedOptions([[1, "+1"], [2, "+2"], [3, "+3"]], isEquipment ? this.enhancementValues.armorEnhancement?.bonus : this.enhancementValues.weaponEnhancement?.bonus),
       criticalThresholdOptions: fixedOptions([[20, "20 — Standard"], [19, "19 — Critical on 19–20"], [18, "18 — Critical on 18–20"], ["custom", "Custom"]], this.enhancementValues.criticalThreshold?.mode),
       criticalDamageDiceOptions: damageDiceOptions(this.enhancementValues.extraCriticalDamage?.denomination),
       criticalDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, this.enhancementValues.extraCriticalDamage?.damageType),
       resistanceDamageTypes: Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({ value, label: localizedLabel(entry, value), selected: this.enhancementValues.ignoreResistance?.damageTypes?.includes(value) })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)),
       conditionalModeOptions: fixedOptions([["supported", "Supported Condition"], ["custom", "Custom Rule Text"]], this.enhancementValues.conditionalAdvantage?.mode),
-      conditionalAppliesToOptions: fixedOptions([["attackRolls", isEquipment ? "All Attack Rolls" : "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage?.appliesTo),
+      conditionalAppliesToOptions: fixedOptions([["attackRolls", !isWeapon ? "All Attack Rolls" : "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage?.appliesTo),
       supportedConditionOptions: fixedOptions([["targetUndead", "Target is Undead"], ["targetFiend", "Target is a Fiend"], ["targetBloodied", "Target is below half its Hit Points"], ["wielderDimLight", "Wielder is in dim light"], ["targetNotActed", "Target has not acted this combat"]], this.enhancementValues.conditionalAdvantage?.supportedCondition),
       conditionalIsSupported: this.enhancementValues.conditionalAdvantage?.mode === "supported",
       conditionalSupportLabel: this.enhancementValues.conditionalAdvantage?.mode === "supported" ? "Item Creator Runtime" : "Description Only",
@@ -1349,7 +1448,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       reviewComplete, reviewReady: reviewComplete && Boolean(reviewData), reviewError, reviewChatCard, reviewInventory,
       reviewSummary: {
         template: this.selectedWeaponDocument?.name ?? "—",
-        baseWeapon: isEquipment ? (EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment") : (this.selectedBaseWeaponDocument?.name ?? "—"),
+        baseWeapon: isEquipment ? (EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment")
+          : isTool ? (localizedLabel(CONFIG.DND5E.toolTypes?.[effective?.toolType], effective?.toolType ?? "Tool"))
+            : (this.selectedBaseWeaponDocument?.name ?? "—"),
         name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
         enhancements: Object.values(this.enhancements).filter(Boolean).length,
         grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
@@ -1370,6 +1471,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="save-copy"]')?.addEventListener("click", event => this.#saveCopy(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-action="custom-equipment"]')?.addEventListener("click", event => this.#createCustomEquipment(event));
+    root.querySelector('[data-action="custom-tool"]')?.addEventListener("click", event => this.#createCustomTool(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
     root.querySelector('[data-base-weapon-select]')?.addEventListener("change", event => this.#selectBaseWeapon(event));
@@ -1509,6 +1611,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       template: this.selectedWeaponDocument,
       baseWeapon: this.selectedBaseWeaponDocument,
       baseEquipment: this.selectedBaseWeaponDocument,
+      baseTool: this.selectedBaseWeaponDocument,
       itemName: this.itemName,
       icon: this.selectedIcon || this.selectedWeaponDocument?.img,
       effective,
@@ -1698,9 +1801,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #sourceValues() {
-    return this.selectedType === "equipment"
-      ? equipmentSourceData(this.selectedBaseWeaponDocument)
-      : weaponSourceData(this.selectedBaseWeaponDocument);
+    if (this.selectedType === "equipment") return equipmentSourceData(this.selectedBaseWeaponDocument);
+    if (this.selectedType === "tool") return toolSourceData(this.selectedBaseWeaponDocument);
+    return weaponSourceData(this.selectedBaseWeaponDocument);
   }
 
   #effectiveValues(source = this.#sourceValues()) {
@@ -1718,7 +1821,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     // Once an external world Item has been imported, its current Activity source
     // is also the document being replaced. Do not feed old managed damage parts
     // back into the next build. The active draft is the sole source of truth.
-    if (this.editingImportedItem && this.editingItem
+    if (this.selectedType === "weapon" && this.editingImportedItem && this.editingItem
       && this.selectedBaseWeaponDocument?.uuid === this.editingItem.uuid) {
       effective.additionalDamage = this.customized.additionalDamage
         ? clone(this.overrides.additionalDamage ?? [])
@@ -1772,7 +1875,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #continue(event) {
     event.preventDefault();
     this.#syncDescriptionFromEditor();
-    if (this.step === "itemType" && ["weapon", "equipment"].includes(this.selectedType)) {
+    if (this.step === "itemType" && ["weapon", "equipment", "tool"].includes(this.selectedType)) {
       this.restoreScrollTop = null;
       this.step = "baseItem";
       this.render({ force: true });
@@ -1894,6 +1997,64 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
+  #createCustomTool(event) {
+    event.preventDefault();
+    if (this.selectedType !== "tool") return;
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const id = foundry.utils.randomID();
+    const source = {
+      _id: id,
+      name: "Custom Tool",
+      type: "tool",
+      img: "systems/dnd5e/icons/svg/items/tool.svg",
+      system: {
+        description: { value: "", chat: "" },
+        source: { custom: "Item Creator", rules: "2024", revision: 1 },
+        identified: true,
+        unidentified: { description: "" },
+        container: null,
+        quantity: 1,
+        weight: { value: 0, units: "lb" },
+        price: { value: 0, denomination: "gp" },
+        rarity: "",
+        attunement: "",
+        attuned: false,
+        equipped: false,
+        type: { value: "art", baseItem: "" },
+        ability: "",
+        bonus: "",
+        proficient: null,
+        properties: [],
+        chatFlavor: "",
+        uses: { max: "", spent: 0, recovery: [] },
+        activities: {},
+        identifier: "custom-tool"
+      },
+      effects: [],
+      flags: { [MODULE_ID]: { customSeed: true } }
+    };
+    const document = new ItemClass(source, { temporary: true });
+    this.selectedWeaponUuid = document.uuid;
+    this.selectedWeaponDocument = document;
+    this.selectedBaseWeaponUuid = document.uuid;
+    this.selectedBaseWeaponDocument = document;
+    this.inheritedBaseWeaponUuid = document.uuid;
+    this.baseWeaponRequired = false;
+    this.itemName = "Custom Tool";
+    this.selectedIcon = source.img;
+    this.templateCategory = "art";
+    this.customized = { toolType: true, baseItem: true, ability: true, bonus: true };
+    this.overrides = { toolType: "art", baseItem: "", ability: "", bonus: "" };
+    this.#resetEnhancements();
+    this.#resetGrantedEffects();
+    this.templateDescriptionRaw = "";
+    this.templateDescription = "";
+    this.customDescription = "";
+    this.descriptionCustomized = true;
+    this.restoreScrollTop = 0;
+    this.render({ force: true });
+  }
+
   #selectEquipmentForm(event) {
     if (this.selectedType !== "equipment") return;
     const formId = String(event.currentTarget.value ?? "accessory");
@@ -1979,11 +2140,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const uuid = await CompendiumBrowser.selectOne({
         mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
         tab: "items",
-        hint: `Select an ${this.selectedType === "equipment" ? "Equipment" : "Weapon"} document to use as the Base Item template.`,
+        hint: `Select a ${this.selectedType === "equipment" ? "Equipment" : this.selectedType === "tool" ? "Tool" : "Weapon"} document to use as the Base Item template.`,
         filters: {
           locked: {
             documentClass: "Item",
-            types: new Set([this.selectedType === "equipment" ? "equipment" : "weapon"])
+            types: new Set([this.selectedType === "equipment" ? "equipment" : this.selectedType === "tool" ? "tool" : "weapon"])
           }
         },
         window: { modal: true }
@@ -2025,20 +2186,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     try {
       const registry = ItemCreatorSourceRegistry.instance;
       const equipment = this.selectedType === "equipment";
-      let document = equipment ? await registry.getEquipmentDocument(uuid) : await registry.getWeaponDocument(uuid);
+      const tool = this.selectedType === "tool";
+      let document = equipment ? await registry.getEquipmentDocument(uuid)
+        : tool ? await registry.getToolDocument(uuid) : await registry.getWeaponDocument(uuid);
       document ??= await fromUuid(uuid);
-      if (equipment ? !isEquipmentItemDocument(document) : !isWeaponItemDocument(document)) {
-        throw new Error(`The selected document is not an ${equipment ? "Equipment" : "Weapon"} Item.`);
+      if (equipment ? !isEquipmentItemDocument(document) : tool ? !isToolItemDocument(document) : !isWeaponItemDocument(document)) {
+        throw new Error(`The selected document is not a ${equipment ? "Equipment" : tool ? "Tool" : "Weapon"} Item.`);
       }
-      const option = equipment ? registry.findEquipment(uuid) : registry.findWeapon(uuid);
+      const option = equipment ? registry.findEquipment(uuid) : tool ? registry.findTool(uuid) : registry.findWeapon(uuid);
       this.selectedWeaponUuid = uuid;
       this.selectedWeaponDocument = document;
       this.itemName = document.name;
-      this.selectedIcon = document.img || (equipment ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg");
-      this.templateCategory = option?.[equipment ? "equipmentType" : "weaponType"] || document.system?.type?.value || "all";
+      this.selectedIcon = document.img || (equipment ? "icons/svg/item-bag.svg" : tool ? "systems/dnd5e/icons/svg/items/tool.svg" : "icons/svg/sword.svg");
+      this.templateCategory = option?.[equipment ? "equipmentType" : tool ? "toolType" : "weaponType"] || document.system?.type?.value || "all";
       this.customized = {};
       this.overrides = {};
-      this.equipmentForm = equipmentFormForDocument(document);
+      if (equipment) this.equipmentForm = equipmentFormForDocument(document);
       this.#resetEnhancements();
       this.#resetGrantedEffects();
       this.templateDescriptionRaw = rawTemplateDescription(document);
@@ -2046,7 +2209,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.customDescription = this.templateDescriptionRaw;
       this.descriptionCustomized = false;
 
-      if (equipment) {
+      if (equipment || tool) {
         this.inheritedBaseWeaponUuid = uuid;
         this.selectedBaseWeaponUuid = uuid;
         this.selectedBaseWeaponDocument = document;
@@ -2064,7 +2227,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     } catch (error) {
       console.error(`${MODULE_ID} | Unable to select item template.`, error);
-      ui.notifications.error(`Item Creator could not load the selected ${this.selectedType === "equipment" ? "Equipment" : "Weapon"} template.`);
+      ui.notifications.error(`Item Creator could not load the selected ${this.selectedType === "equipment" ? "Equipment" : this.selectedType === "tool" ? "Tool" : "Weapon"} template.`);
       return false;
     } finally {
       this.loadingWeapon = false;
@@ -2173,7 +2336,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           : null;
       }
     } else if (field === "icon") {
-      const fallbackIcon = this.selectedType === "equipment" ? "icons/svg/item-bag.svg" : "icons/svg/sword.svg";
+      const fallbackIcon = this.selectedType === "equipment" ? "icons/svg/item-bag.svg"
+        : this.selectedType === "tool" ? "systems/dnd5e/icons/svg/items/tool.svg" : "icons/svg/sword.svg";
       if (enabled) this.overrides.icon = this.selectedIcon || this.selectedWeaponDocument.img || fallbackIcon;
       else {
         delete this.overrides.icon;
@@ -2322,7 +2486,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     this.#setBrowserBlock(true);
     this.iconBrowserApp = new ItemCreatorIconBrowserApp({
-      itemType: this.selectedType === "equipment" ? "equipment" : "weapon",
+      itemType: this.selectedType,
       selectedIcon: this.selectedIcon,
       onSelect: img => {
         this.selectedIcon = img;
@@ -2401,13 +2565,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
         && (!row.useAbilityModifier || Boolean(row.ability))));
     return Boolean(this.selectedWeaponUuid
-      && (this.selectedType === "equipment" || this.selectedBaseWeaponUuid)
+      && (this.selectedType !== "weapon" || this.selectedBaseWeaponUuid)
       && this.itemName.trim() && additionalDamageValid);
   }
 
   #resetEnhancements() {
     this.enhancements = {};
-    this.enhancementValues = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    this.enhancementValues = enhancementDefaultsForType(this.selectedType);
     this.magicalAutoFromGrantedSpellcasting = false;
   }
 
@@ -2417,7 +2581,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #magicalEnhancementKey() {
-    return this.selectedType === "equipment" ? "magicalItem" : "magicalWeapon";
+    return this.selectedType === "equipment" ? "magicalItem"
+      : this.selectedType === "tool" ? "magicalTool" : "magicalWeapon";
   }
 
   #hasGrantedSpells() {
@@ -2427,7 +2592,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #syncGrantedSpellMagicalState() {
     const key = this.#magicalEnhancementKey();
-    const defaults = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    const defaults = enhancementDefaultsForType(this.selectedType);
     const hasSpells = this.#hasGrantedSpells();
 
     if (hasSpells) {
@@ -2453,6 +2618,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (this.enhancements.magicalItem && !values.magicalItem?.rarity) errors.magicalItem = true;
       if (this.enhancements.armorEnhancement && ![1, 2, 3].includes(Number(values.armorEnhancement?.bonus))) errors.armorEnhancement = true;
       if (this.enhancements.baseArmorClass && !(Number(values.baseArmorClass?.value) >= 0)) errors.baseArmorClass = true;
+    } else if (this.selectedType === "tool") {
+      if (this.enhancements.magicalTool && !values.magicalTool?.rarity) errors.magicalTool = true;
     } else {
       if (this.enhancements.magicalWeapon && !values.magicalWeapon.rarity) errors.magicalWeapon = true;
       if (this.enhancements.weaponEnhancement && ![1, 2, 3].includes(Number(values.weaponEnhancement.bonus))) errors.weaponEnhancement = true;
@@ -2492,6 +2659,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const validAvailability = key => ["owned", "equipped", "equippedAttuned"].includes(values[key]?.availability);
 
     if (this.grantedEffects.armorClassBonus && !(finite(values.armorClassBonus.bonus) && validAvailability("armorClassBonus"))) errors.armorClassBonus = true;
+    if (this.grantedEffects.weaponAttackBonus && !(finite(values.weaponAttackBonus.bonus) && validAvailability("weaponAttackBonus"))) errors.weaponAttackBonus = true;
+    if (this.grantedEffects.weaponDamageBonus && !(finite(values.weaponDamageBonus.bonus) && validAvailability("weaponDamageBonus"))) errors.weaponDamageBonus = true;
     if (this.grantedEffects.criticalThreshold && !([18, 19, 20].includes(Number(values.criticalThreshold?.threshold))
       && ["weapon", "spell", "all"].includes(values.criticalThreshold?.scope)
       && validAvailability("criticalThreshold"))) errors.criticalThreshold = true;
@@ -2785,7 +2954,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #toggleEnhancement(event) {
     const field = event.currentTarget.dataset.enhancementToggle;
-    const defaults = this.selectedType === "equipment" ? equipmentEnhancementDefaults() : enhancementDefaults();
+    const defaults = enhancementDefaultsForType(this.selectedType);
     if (!field || !(field in defaults)) return;
     const enabled = event.currentTarget.checked;
     const magicalKey = this.#magicalEnhancementKey();

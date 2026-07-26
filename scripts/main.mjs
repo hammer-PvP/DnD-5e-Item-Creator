@@ -63,7 +63,8 @@ function contextItem(target) {
 
 function isEditableWorldItem(item) {
   const supported = item?.type === "weapon"
-    || (item?.type === "equipment" && item?.system?.type?.value !== "vehicle");
+    || (item?.type === "equipment" && item?.system?.type?.value !== "vehicle")
+    || item?.type === "tool";
   return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && supported && !item.parent && !item.pack);
 }
 
@@ -84,7 +85,7 @@ function addEditContextOption(options) {
 
 function openItemCreator({ item = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Item Creator.");
-  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon and Equipment Items can be edited with Item Creator.");
+  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon, Equipment, and Tool Items can be edited with Item Creator.");
 
   if (appInstance?.element?.isConnected) {
     const sameTarget = (appInstance.editingItemId ?? null) === (item?.id ?? null);

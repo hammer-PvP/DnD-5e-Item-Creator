@@ -1,12 +1,12 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.1.8";
+export const MODULE_VERSION = "0.1.8a";
 export const MODULE_STAGE = "Beta";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },
   { id: "equipment", label: "Equipment", icon: "fa-shield-halved", available: true },
   { id: "consumable", label: "Consumable", icon: "fa-flask", available: false },
-  { id: "tool", label: "Tool", icon: "fa-hammer", available: false }
+  { id: "tool", label: "Tool", icon: "fa-hammer", available: true }
 ]);
 
 export const STEPS = Object.freeze([
