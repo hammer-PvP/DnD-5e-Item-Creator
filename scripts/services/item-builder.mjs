@@ -1,4 +1,5 @@
 import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
+import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
 
@@ -91,7 +92,7 @@ function sanitizeDocumentData(source) {
   return data;
 }
 
-function effectData({ key, label, availability, changes, description = "" }) {
+function effectData({ key, label, availability, changes, description = "", progression = null }) {
   return {
     _id: foundry.utils.randomID(),
     type: "base",
@@ -106,7 +107,14 @@ function effectData({ key, label, availability, changes, description = "" }) {
       [MODULE_ID]: {
         blueprint: true,
         key,
-        availability
+        availability,
+        ...(progression ? {
+          unlockOnLevel: Boolean(progression.unlockOnLevel),
+          unlockLevel: Number(progression.unlockLevel) || 1,
+          progressionGroupId: progression.progressionGroupId,
+          progressionTierId: progression.tierId ?? "base",
+          progressionTierOrder: Number(progression.tierOrder) || 0
+        } : {})
       }
     }
   };
@@ -128,7 +136,17 @@ function expandSkills(target) {
 function buildGrantedEffects(enabled, values) {
   const effects = [];
   const addEffect = (key, label, availability, changes, description = "") => {
-    if (changes.length) effects.push(effectData({ key, label, availability, changes, description }));
+    if (!changes.length) return;
+    const setting = values[key] ?? {};
+    effects.push(effectData({
+      key, label, availability, changes, description,
+      progression: {
+        unlockOnLevel: Boolean(setting.unlockOnLevel),
+        unlockLevel: Number(setting.unlockLevel) || 1,
+        progressionGroupId: setting.progressionGroupId || `effect:${key}`,
+        tierId: "base", tierOrder: 0
+      }
+    }));
   };
   const add = MODES().ADD;
   const override = MODES().OVERRIDE;
@@ -314,6 +332,58 @@ function buildGrantedEffects(enabled, values) {
     addEffect("passiveScoreBonus", "Passive Score Bonus", values.passiveScoreBonus.availability, changes);
   }
 
+  const tierLabels = {
+    armorClassBonus: "Armor Class Bonus",
+    weaponAttackBonus: "Weapon Attack Roll Bonus",
+    weaponDamageBonus: "Weapon Damage Roll Bonus",
+    initiativeBonus: "Initiative Bonus",
+    proficiencyBonusModifier: "Proficiency Bonus Modifier",
+    maximumHitPointsBonus: "Maximum Hit Points Bonus",
+    spellAttackBonus: "Spell Attack Bonus",
+    spellSaveDcBonus: "Spell Save DC Bonus"
+  };
+  const tierChanges = (key, tier) => {
+    const changes = [];
+    if (key === "armorClassBonus") addChange(changes, "system.attributes.ac.bonus", add, tier.bonus);
+    if (key === "weaponAttackBonus") {
+      addChange(changes, "system.bonuses.mwak.attack", add, tier.bonus);
+      addChange(changes, "system.bonuses.rwak.attack", add, tier.bonus);
+    }
+    if (key === "weaponDamageBonus") {
+      addChange(changes, "system.bonuses.mwak.damage", add, tier.bonus);
+      addChange(changes, "system.bonuses.rwak.damage", add, tier.bonus);
+    }
+    if (key === "initiativeBonus") addChange(changes, "system.attributes.init.bonus", add, tier.bonus);
+    if (key === "proficiencyBonusModifier") addChange(changes, "system.attributes.prof", add, tier.bonus);
+    if (key === "maximumHitPointsBonus") addChange(changes, "system.attributes.hp.bonuses.overall", add, tier.bonus);
+    if (key === "spellAttackBonus") {
+      addChange(changes, "system.bonuses.msak.attack", add, tier.bonus);
+      addChange(changes, "system.bonuses.rsak.attack", add, tier.bonus);
+    }
+    if (key === "spellSaveDcBonus") addChange(changes, "system.bonuses.spell.dc", add, tier.bonus);
+    return changes;
+  };
+  for (const [key, label] of Object.entries(tierLabels)) {
+    if (!enabled[key]) continue;
+    const setting = values[key] ?? {};
+    for (const [index, tier] of (setting.tiers ?? []).entries()) {
+      const changes = tierChanges(key, tier);
+      if (!changes.length) continue;
+      effects.push(effectData({
+        key, label: `${label} — Tier ${index + 2}`,
+        availability: tier.availability ?? setting.availability ?? "equipped",
+        changes,
+        progression: {
+          unlockOnLevel: true,
+          unlockLevel: Number(tier.unlockLevel) || 1,
+          progressionGroupId: setting.progressionGroupId || `effect:${key}`,
+          tierId: tier.id ?? `tier-${index + 1}`,
+          tierOrder: index + 1
+        }
+      }));
+    }
+  }
+
   return effects;
 }
 
@@ -421,7 +491,7 @@ async function buildCastActivities(parentItem, spells = []) {
         // D&D5e caches linked spells for every Cast Activity, but only lists a
         // cached spell when this field is true. World items therefore start
         // conditional grants hidden until their Actor copy becomes available.
-        spellbook: Boolean(spell.showInSpellbook && spell.availability === "owned"),
+        spellbook: Boolean(spell.showInSpellbook && spell.availability === "owned" && !spell.unlockOnLevel),
         uuid: spell.uuid
       },
       uses: recovery.uses,
@@ -436,7 +506,10 @@ async function buildCastActivities(parentItem, spells = []) {
           availability: spell.availability,
           spellcastingMode: spell.spellcastingMode,
           baseLevel: Number(spell.level),
-          castLevelMode: spell.castLevelMode
+          castLevelMode: spell.castLevelMode,
+          unlockOnLevel: Boolean(spell.unlockOnLevel),
+          unlockLevel: Number(spell.unlockLevel) || 1,
+          progressionGroupId: spell.progressionGroupId || `spell:${spell.uuid}`
         }
       }
     };
@@ -703,7 +776,7 @@ function itemPropertyEntries(draft) {
   const effectValues = draft.grantedEffectValues ?? {};
 
   if (draft.customized?.additionalDamage) {
-    const text = formatRows(draft.overrides?.additionalDamage, row => {
+    const text = formatRows((draft.effective?.additionalDamage ?? draft.overrides?.additionalDamage ?? []).filter(row => !settingHasProgression(row)), row => {
       const ability = row.useAbilityModifier
         ? row.ability === "attack" ? " + attack ability modifier"
           : row.ability === "spellcasting" ? " + spellcasting ability modifier"
@@ -714,45 +787,45 @@ function itemPropertyEntries(draft) {
     add("Additional Damage", text ? `${text} on a hit` : "");
   }
 
-  if (enhancements.magicalWeapon) {
+  if (enhancements.magicalWeapon && !settingHasProgression(enhancementValues.magicalWeapon)) {
     const setting = enhancementValues.magicalWeapon ?? {};
     const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
     const attunement = setting.attunement === "required" ? "; requires attunement" : "";
     add("Magical Weapon", `${rarity || "Magical"}${attunement}`);
   }
-  if (enhancements.magicalItem) {
+  if (enhancements.magicalItem && !settingHasProgression(enhancementValues.magicalItem)) {
     const setting = enhancementValues.magicalItem ?? {};
     const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
     const attunement = setting.attunement === "required" ? "; requires attunement" : "";
     add("Magical Equipment", `${rarity || "Magical"}${attunement}`);
   }
-  if (enhancements.magicalTool) {
+  if (enhancements.magicalTool && !settingHasProgression(enhancementValues.magicalTool)) {
     const setting = enhancementValues.magicalTool ?? {};
     const rarity = configLabel(CONFIG.DND5E.itemRarity, setting.rarity, titleCase(setting.rarity));
     const attunement = setting.attunement === "required" ? "; requires attunement" : "";
     add("Magical Tool", `${rarity || "Magical"}${attunement}`);
   }
-  if (enhancements.armorEnhancement) add("Armor Enhancement", `${signedValue(enhancementValues.armorEnhancement?.bonus)} AC`);
-  if (enhancements.baseArmorClass) add("Base Armor Class", String(Number(enhancementValues.baseArmorClass?.value) || 0));
-  if (enhancements.removeStrengthRequirement) add("Strength Requirement", "Removed");
-  if (enhancements.removeStealthDisadvantage) add("Stealth Disadvantage", "Removed");
-  if (enhancements.weaponEnhancement) add("Weapon Enhancement", `${signedValue(enhancementValues.weaponEnhancement?.bonus)} to attack and damage rolls`);
-  if (enhancements.attackBonus) add("Attack Roll Bonus", `${signedValue(enhancementValues.attackBonus?.bonus)} to attack rolls`);
-  if (enhancements.damageBonus) add("Damage Roll Bonus", `${signedValue(enhancementValues.damageBonus?.bonus)} to damage rolls`);
-  if (enhancements.criticalThreshold) {
+  if (enhancements.armorEnhancement && !settingHasProgression(enhancementValues.armorEnhancement)) add("Armor Enhancement", `${signedValue(enhancementValues.armorEnhancement?.bonus)} AC`);
+  if (enhancements.baseArmorClass && !settingHasProgression(enhancementValues.baseArmorClass)) add("Base Armor Class", String(Number(enhancementValues.baseArmorClass?.value) || 0));
+  if (enhancements.removeStrengthRequirement && !settingHasProgression(enhancementValues.removeStrengthRequirement)) add("Strength Requirement", "Removed");
+  if (enhancements.removeStealthDisadvantage && !settingHasProgression(enhancementValues.removeStealthDisadvantage)) add("Stealth Disadvantage", "Removed");
+  if (enhancements.weaponEnhancement && !settingHasProgression(enhancementValues.weaponEnhancement)) add("Weapon Enhancement", `${signedValue(enhancementValues.weaponEnhancement?.bonus)} to attack and damage rolls`);
+  if (enhancements.attackBonus && !settingHasProgression(enhancementValues.attackBonus)) add("Attack Roll Bonus", `${signedValue(enhancementValues.attackBonus?.bonus)} to attack rolls`);
+  if (enhancements.damageBonus && !settingHasProgression(enhancementValues.damageBonus)) add("Damage Roll Bonus", `${signedValue(enhancementValues.damageBonus?.bonus)} to damage rolls`);
+  if (enhancements.criticalThreshold && !settingHasProgression(enhancementValues.criticalThreshold)) {
     const setting = enhancementValues.criticalThreshold ?? {};
     const threshold = Number(setting.mode === "custom" ? setting.custom : setting.mode) || 20;
     add("Critical Hit Range", threshold === 20 ? "Critical hit on a 20" : `Critical hit on ${threshold}–20`);
   }
-  if (enhancements.extraCriticalDamage) {
+  if (enhancements.extraCriticalDamage && !settingHasProgression(enhancementValues.extraCriticalDamage)) {
     const setting = enhancementValues.extraCriticalDamage ?? {};
     add("Extra Critical Damage", `${Number(setting.number) || 1}d${Number(setting.denomination) || 8} ${damageTypeLabel(setting.damageType)}`);
   }
-  if (enhancements.ignoreResistance) {
+  if (enhancements.ignoreResistance && !settingHasProgression(enhancementValues.ignoreResistance)) {
     const labels = (enhancementValues.ignoreResistance?.damageTypes ?? []).map(damageTypeLabel);
     add("Ignore Resistance", labels.length ? `${labels.join(", ")} damage ignores resistance, but not immunity` : "");
   }
-  if (enhancements.conditionalAdvantage) {
+  if (enhancements.conditionalAdvantage && !settingHasProgression(enhancementValues.conditionalAdvantage)) {
     const setting = enhancementValues.conditionalAdvantage ?? {};
     const condition = setting.mode === "custom" ? setting.customText : {
       targetUndead: "the target is Undead",
@@ -765,35 +838,35 @@ function itemPropertyEntries(draft) {
     add("Conditional Advantage", condition ? `Advantage on attacks ${sourceLabel} when ${condition}` : "");
   }
 
-  if (effects.armorClassBonus) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
-  if (effects.weaponAttackBonus) add("Weapon Attacks", `${signedValue(effectValues.weaponAttackBonus?.bonus)} to all weapon attack rolls`, effectValues.weaponAttackBonus?.availability);
-  if (effects.weaponDamageBonus) add("Weapon Damage", `${signedValue(effectValues.weaponDamageBonus?.bonus)} to all weapon damage rolls`, effectValues.weaponDamageBonus?.availability);
-  if (effects.criticalThreshold) {
+  if (effects.armorClassBonus && !settingHasProgression(effectValues.armorClassBonus)) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
+  if (effects.weaponAttackBonus && !settingHasProgression(effectValues.weaponAttackBonus)) add("Weapon Attacks", `${signedValue(effectValues.weaponAttackBonus?.bonus)} to all weapon attack rolls`, effectValues.weaponAttackBonus?.availability);
+  if (effects.weaponDamageBonus && !settingHasProgression(effectValues.weaponDamageBonus)) add("Weapon Damage", `${signedValue(effectValues.weaponDamageBonus?.bonus)} to all weapon damage rolls`, effectValues.weaponDamageBonus?.availability);
+  if (effects.criticalThreshold && !settingHasProgression(effectValues.criticalThreshold)) {
     const setting = effectValues.criticalThreshold ?? {};
     const threshold = Number(setting.threshold) || 20;
     const scope = setting.scope === "weapon" ? "weapon attacks" : setting.scope === "spell" ? "spell attacks" : "weapon and spell attacks";
     add("Critical Hit Threshold", `Critical hit on ${threshold === 20 ? "20" : `${threshold}–20`} for ${scope}`, setting.availability);
   }
-  if (effects.savingThrowBonus) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
+  if (effects.savingThrowBonus && !settingHasProgression(effectValues.savingThrowBonus)) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
     ? `${signedValue(row.bonus)} to all saving throws`
     : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowBonus?.availability);
-  if (effects.savingThrowAdvantage) add("Saving Throw Advantage", formatRows(effectValues.savingThrowAdvantage?.entries, row => row.target === "all"
+  if (effects.savingThrowAdvantage && !settingHasProgression(effectValues.savingThrowAdvantage)) add("Saving Throw Advantage", formatRows(effectValues.savingThrowAdvantage?.entries, row => row.target === "all"
     ? "Advantage on all saving throws"
     : `Advantage on ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowAdvantage?.availability);
-  if (effects.abilityScoreAdjustment) add("Ability Scores", formatRows(effectValues.abilityScoreAdjustment?.entries, row => {
+  if (effects.abilityScoreAdjustment && !settingHasProgression(effectValues.abilityScoreAdjustment)) add("Ability Scores", formatRows(effectValues.abilityScoreAdjustment?.entries, row => {
     const ability = abilityLabel(row.ability);
     if (row.operation === "fixed") return `${ability} set to ${row.value}`;
     if (row.operation === "minimum") return `${ability} minimum ${row.value}`;
     return `${ability} ${signedValue(row.value)}`;
   }), effectValues.abilityScoreAdjustment?.availability);
-  if (effects.abilityCheckBonus) add("Ability Checks", formatRows(effectValues.abilityCheckBonus?.entries, row => row.target === "all"
+  if (effects.abilityCheckBonus && !settingHasProgression(effectValues.abilityCheckBonus)) add("Ability Checks", formatRows(effectValues.abilityCheckBonus?.entries, row => row.target === "all"
     ? `${signedValue(row.bonus)} to all ability checks`
     : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} checks`), effectValues.abilityCheckBonus?.availability);
-  if (effects.skillBonus) add("Skill Checks", formatRows(effectValues.skillBonus?.entries, row => row.target === "all"
+  if (effects.skillBonus && !settingHasProgression(effectValues.skillBonus)) add("Skill Checks", formatRows(effectValues.skillBonus?.entries, row => row.target === "all"
     ? `${signedValue(row.bonus)} to all skill checks`
     : `${skillLabel(row.target)} ${signedValue(row.bonus)}`), effectValues.skillBonus?.availability);
-  if (effects.skillProficiency) add("Skill Training", formatRows(effectValues.skillProficiency?.entries, row => `${row.level === "expertise" ? "Expertise" : "Proficiency"} in ${skillLabel(row.skill)}`), effectValues.skillProficiency?.availability);
-  if (effects.abilityCheckAdvantage) add("Check Advantage", formatRows(effectValues.abilityCheckAdvantage?.entries, row => {
+  if (effects.skillProficiency && !settingHasProgression(effectValues.skillProficiency)) add("Skill Training", formatRows(effectValues.skillProficiency?.entries, row => `${row.level === "expertise" ? "Expertise" : "Proficiency"} in ${skillLabel(row.skill)}`), effectValues.skillProficiency?.availability);
+  if (effects.abilityCheckAdvantage && !settingHasProgression(effectValues.abilityCheckAdvantage)) add("Check Advantage", formatRows(effectValues.abilityCheckAdvantage?.entries, row => {
     if (row.target === "all") return "Advantage on all ability checks";
     if (row.target?.startsWith("ability:")) return `Advantage on ${abilityLabel(row.target.slice(8))} checks`;
     if (row.target?.startsWith("skill:")) return `Advantage on ${skillLabel(row.target.slice(6))} checks`;
@@ -801,25 +874,111 @@ function itemPropertyEntries(draft) {
   }), effectValues.abilityCheckAdvantage?.availability);
 
   for (const [key, label] of [["damageResistance", "Damage Resistance"], ["damageImmunity", "Damage Immunity"], ["damageVulnerability", "Damage Vulnerability"]]) {
-    if (!effects[key]) continue;
+    if (!effects[key] || settingHasProgression(effectValues[key])) continue;
     add(label, (effectValues[key]?.damageTypes ?? []).map(damageTypeLabel).join(", "), effectValues[key]?.availability);
   }
-  if (effects.conditionImmunity) add("Condition Immunity", (effectValues.conditionImmunity?.conditions ?? []).map(conditionLabel).join(", "), effectValues.conditionImmunity?.availability);
-  if (effects.initiativeBonus) add("Initiative", `${signedValue(effectValues.initiativeBonus?.bonus)} to initiative`, effectValues.initiativeBonus?.availability);
-  if (effects.initiativeAdvantage) add("Initiative Advantage", "Advantage on initiative rolls", effectValues.initiativeAdvantage?.availability);
-  if (effects.proficiencyBonusModifier) add("Proficiency Bonus", `${signedValue(effectValues.proficiencyBonusModifier?.bonus)} to the global Proficiency Bonus`, effectValues.proficiencyBonusModifier?.availability);
-  if (effects.maximumHitPointsBonus) add("Maximum Hit Points", `${signedValue(effectValues.maximumHitPointsBonus?.bonus)} maximum Hit Points`, effectValues.maximumHitPointsBonus?.availability);
-  if (effects.movementBonus) add("Movement", formatRows(effectValues.movementBonus?.entries, row => `${movementLabel(row.type)} speed ${signedValue(row.bonus)} ${row.units ?? "ft"}`), effectValues.movementBonus?.availability);
-  if (effects.grantMovementType) add("Granted Movement", formatRows(effectValues.grantMovementType?.entries, row => `${movementLabel(row.type)} speed minimum ${row.speed} ${row.units ?? "ft"}${row.hover ? " with hover" : ""}`), effectValues.grantMovementType?.availability);
-  if (effects.grantedSense) add("Senses", formatRows(effectValues.grantedSense?.entries, row => {
+  if (effects.conditionImmunity && !settingHasProgression(effectValues.conditionImmunity)) add("Condition Immunity", (effectValues.conditionImmunity?.conditions ?? []).map(conditionLabel).join(", "), effectValues.conditionImmunity?.availability);
+  if (effects.initiativeBonus && !settingHasProgression(effectValues.initiativeBonus)) add("Initiative", `${signedValue(effectValues.initiativeBonus?.bonus)} to initiative`, effectValues.initiativeBonus?.availability);
+  if (effects.initiativeAdvantage && !settingHasProgression(effectValues.initiativeAdvantage)) add("Initiative Advantage", "Advantage on initiative rolls", effectValues.initiativeAdvantage?.availability);
+  if (effects.proficiencyBonusModifier && !settingHasProgression(effectValues.proficiencyBonusModifier)) add("Proficiency Bonus", `${signedValue(effectValues.proficiencyBonusModifier?.bonus)} to the global Proficiency Bonus`, effectValues.proficiencyBonusModifier?.availability);
+  if (effects.maximumHitPointsBonus && !settingHasProgression(effectValues.maximumHitPointsBonus)) add("Maximum Hit Points", `${signedValue(effectValues.maximumHitPointsBonus?.bonus)} maximum Hit Points`, effectValues.maximumHitPointsBonus?.availability);
+  if (effects.movementBonus && !settingHasProgression(effectValues.movementBonus)) add("Movement", formatRows(effectValues.movementBonus?.entries, row => `${movementLabel(row.type)} speed ${signedValue(row.bonus)} ${row.units ?? "ft"}`), effectValues.movementBonus?.availability);
+  if (effects.grantMovementType && !settingHasProgression(effectValues.grantMovementType)) add("Granted Movement", formatRows(effectValues.grantMovementType?.entries, row => `${movementLabel(row.type)} speed minimum ${row.speed} ${row.units ?? "ft"}${row.hover ? " with hover" : ""}`), effectValues.grantMovementType?.availability);
+  if (effects.grantedSense && !settingHasProgression(effectValues.grantedSense)) add("Senses", formatRows(effectValues.grantedSense?.entries, row => {
     const operation = row.operation === "add" ? `+${row.range}` : row.operation === "fixed" ? `fixed ${row.range}` : `minimum ${row.range}`;
     return `${senseLabel(row.sense)} ${operation} ${row.units ?? "ft"}`;
   }), effectValues.grantedSense?.availability);
-  if (effects.spellAttackBonus) add("Spell Attacks", `${signedValue(effectValues.spellAttackBonus?.bonus)} to spell attack rolls`, effectValues.spellAttackBonus?.availability);
-  if (effects.spellSaveDcBonus) add("Spell Save DC", `${signedValue(effectValues.spellSaveDcBonus?.bonus)} to Spell Save DC`, effectValues.spellSaveDcBonus?.availability);
-  if (effects.passiveScoreBonus) add("Passive Scores", formatRows(effectValues.passiveScoreBonus?.entries, row => `${titleCase(row.score)} ${signedValue(row.bonus)}`), effectValues.passiveScoreBonus?.availability);
+  if (effects.spellAttackBonus && !settingHasProgression(effectValues.spellAttackBonus)) add("Spell Attacks", `${signedValue(effectValues.spellAttackBonus?.bonus)} to spell attack rolls`, effectValues.spellAttackBonus?.availability);
+  if (effects.spellSaveDcBonus && !settingHasProgression(effectValues.spellSaveDcBonus)) add("Spell Save DC", `${signedValue(effectValues.spellSaveDcBonus?.bonus)} to Spell Save DC`, effectValues.spellSaveDcBonus?.availability);
+  if (effects.passiveScoreBonus && !settingHasProgression(effectValues.passiveScoreBonus)) add("Passive Scores", formatRows(effectValues.passiveScoreBonus?.entries, row => `${titleCase(row.score)} ${signedValue(row.bonus)}`), effectValues.passiveScoreBonus?.availability);
 
   return entries;
+}
+
+function levelProgressionEntries(draft) {
+  const groups = [];
+  const addGroup = (kind, key, setting, { id = null, labelOverride = null } = {}) => {
+    if (!settingHasProgression(setting)) return;
+    const lines = [];
+    let resolvedLabel = labelOverride;
+    for (const variant of progressionVariants(setting)) {
+      const plainVariant = stripProgressionMetadata(variant);
+      const isolated = {
+        itemType: draft.itemType,
+        enhancements: {}, enhancementValues: {},
+        grantedEffects: {}, grantedEffectValues: {},
+        customized: {}, overrides: {}
+      };
+      if (kind === "enhancement") {
+        isolated.enhancements[key] = true;
+        isolated.enhancementValues[key] = plainVariant;
+      } else if (kind === "effect") {
+        isolated.grantedEffects[key] = true;
+        isolated.grantedEffectValues[key] = plainVariant;
+      } else if (kind === "damage") {
+        isolated.customized.additionalDamage = true;
+        isolated.overrides.additionalDamage = [{ ...plainVariant, id: id ?? variant.id ?? "progression" }];
+      }
+      const property = itemPropertyEntries(isolated)[0];
+      if (!property) continue;
+      resolvedLabel ||= property.label;
+      const availability = property.availability && property.availability !== "item"
+        ? ` (${availabilityTitle(property.availability)})` : "";
+      lines.push({
+        level: variantLevel(variant) || 1,
+        value: `${property.value}${availability}`
+      });
+    }
+    if (!lines.length) return;
+    lines.sort((left, right) => left.level - right.level);
+    groups.push({ label: resolvedLabel ?? key, lines });
+  };
+
+  for (const [key, enabled] of Object.entries(draft.enhancements ?? {})) {
+    if (!enabled || key === "grantedSpellcasting") continue;
+    addGroup("enhancement", key, draft.enhancementValues?.[key]);
+  }
+  for (const [key, enabled] of Object.entries(draft.grantedEffects ?? {})) {
+    if (!enabled) continue;
+    addGroup("effect", key, draft.grantedEffectValues?.[key]);
+  }
+  if (draft.customized?.additionalDamage) {
+    for (const row of draft.effective?.additionalDamage ?? draft.overrides?.additionalDamage ?? []) {
+      addGroup("damage", "additionalDamage", row, { id: row.id, labelOverride: `Additional ${damageTypeLabel(row.damageType)} Damage` });
+    }
+  }
+  if (draft.enhancements?.grantedSpellcasting) {
+    for (const spell of draft.enhancementValues?.grantedSpellcasting?.spells ?? []) {
+      if (!spell.unlockOnLevel) continue;
+      groups.push({
+        label: spell.name || "Granted Spell",
+        lines: [{ level: Number(spell.unlockLevel) || 1, value: "Granted Spellcasting becomes available" }]
+      });
+    }
+  }
+  return groups;
+}
+
+function composeLevelProgressionText(data, draft) {
+  data.system.description ??= {};
+  const groups = levelProgressionEntries(draft);
+  const currentValue = stripGeneratedSection(data.system.description.value, "level-progression");
+  const currentChat = stripGeneratedSection(data.system.description.chat, "level-progression");
+  if (!groups.length) {
+    data.system.description.value = currentValue;
+    data.system.description.chat = currentChat;
+    return;
+  }
+
+  const fullGroups = groups.map(group => {
+    const lines = group.lines.map(line => `<li>[Level ${line.level} — ${escapeHtml(line.value)}]</li>`).join("");
+    return `<article class="item-creator-progression-group"><h4>${escapeHtml(group.label)}</h4><ul>${lines}</ul></article>`;
+  }).join("");
+  const chatItems = groups.flatMap(group => group.lines.map(line => `<li><strong>${escapeHtml(group.label)}:</strong> [Level ${line.level} — ${escapeHtml(line.value)}]</li>`)).join("");
+  const fullSection = `<section class="item-creator-generated item-creator-level-progression" data-item-creator-generated="level-progression"><h3>Level Progression</h3>${fullGroups}</section>`;
+  const chatSection = `<section class="item-creator-generated item-creator-level-progression" data-item-creator-generated="level-progression"><h3>Level Progression</h3><ul>${chatItems}</ul></section>`;
+  data.system.description.value = appendGeneratedSection(currentValue, fullSection);
+  data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
 }
 
 function propertyGridHtml(entries) {
@@ -921,15 +1080,25 @@ export class ItemCreatorItemBuilder {
     data.system.attunement = draft.template.system?.attunement ?? data.system.attunement ?? "";
     data.system.magicalBonus = draft.template.system?.magicalBonus ?? data.system.magicalBonus ?? "";
     if (valuesOf(draft.template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+    data.system.properties = [...new Set(data.system.properties)];
+    const weaponStructuralBase = {
+      properties: clone(data.system.properties),
+      rarity: data.system.rarity ?? "",
+      attunement: data.system.attunement ?? "",
+      magicalBonus: String(data.system.magicalBonus ?? ""),
+      damageBaseBonus: String(data.system.damage?.base?.bonus ?? "")
+    };
+    const magicalWeaponTier = enhancements.magicalWeapon ? selectProgressionTier(enhancementValues.magicalWeapon, null) : null;
+    const weaponEnhancementTier = enhancements.weaponEnhancement ? selectProgressionTier(enhancementValues.weaponEnhancement, null) : null;
 
-    if (enhancements.magicalWeapon) {
+    if (magicalWeaponTier) {
       data.system.properties.push("mgc");
-      data.system.rarity = enhancementValues.magicalWeapon.rarity;
-      data.system.attunement = enhancementValues.magicalWeapon.attunement || "";
+      data.system.rarity = magicalWeaponTier.rarity;
+      data.system.attunement = magicalWeaponTier.attunement || "";
     }
-    if (enhancements.weaponEnhancement) {
+    if (weaponEnhancementTier) {
       data.system.properties.push("mgc");
-      data.system.magicalBonus = String(Number(enhancementValues.weaponEnhancement.bonus) || 0);
+      data.system.magicalBonus = String(Number(weaponEnhancementTier.bonus) || 0);
     }
     // Any Item that grants a Spell is inherently magical, but this does not
     // imply a numeric enchantment bonus or an attunement requirement.
@@ -938,8 +1107,9 @@ export class ItemCreatorItemBuilder {
     }
     data.system.properties = [...new Set(data.system.properties)];
 
-    if (enhancements.damageBonus) {
-      data.system.damage.base.bonus = appendFormula(data.system.damage.base.bonus, enhancementValues.damageBonus.bonus);
+    const damageBonusTier = enhancements.damageBonus ? selectProgressionTier(enhancementValues.damageBonus, null) : null;
+    if (damageBonusTier) {
+      data.system.damage.base.bonus = appendFormula(weaponStructuralBase.damageBaseBonus, damageBonusTier.bonus);
     }
 
     const templateActivities = objectActivities(draft.template);
@@ -953,16 +1123,23 @@ export class ItemCreatorItemBuilder {
     });
     const attack = primaryAttackData(draft.baseWeapon, draft.template);
     attack.attack.ability = effective.attackAbility || "";
-    attack.attack.bonus = enhancements.attackBonus ? String(enhancementValues.attackBonus.bonus ?? "") : String(attack.attack.bonus ?? "");
     attack.attack.type.value = effective.attackType || "";
     attack.attack.type.classification = "weapon";
-    if (enhancements.criticalThreshold) {
-      attack.attack.critical.threshold = Number(enhancementValues.criticalThreshold.mode === "custom"
-        ? enhancementValues.criticalThreshold.custom : enhancementValues.criticalThreshold.mode);
+    const weaponAttackBase = {
+      attackBonus: String(attack.attack.bonus ?? ""),
+      criticalThreshold: attack.attack.critical.threshold ?? null,
+      criticalDamageBonus: String(attack.damage.critical.bonus ?? "")
+    };
+    const attackBonusTier = enhancements.attackBonus ? selectProgressionTier(enhancementValues.attackBonus, null) : null;
+    const criticalThresholdTier = enhancements.criticalThreshold ? selectProgressionTier(enhancementValues.criticalThreshold, null) : null;
+    const extraCriticalDamageTier = enhancements.extraCriticalDamage ? selectProgressionTier(enhancementValues.extraCriticalDamage, null) : null;
+    attack.attack.bonus = attackBonusTier ? String(attackBonusTier.bonus ?? "") : weaponAttackBase.attackBonus;
+    if (criticalThresholdTier) {
+      attack.attack.critical.threshold = Number(criticalThresholdTier.mode === "custom"
+        ? criticalThresholdTier.custom : criticalThresholdTier.mode);
     }
-    if (enhancements.extraCriticalDamage) {
-      const critical = enhancementValues.extraCriticalDamage;
-      attack.damage.critical.bonus = `${Number(critical.number) || 1}d${Number(critical.denomination) || 8}[${critical.damageType}]`;
+    if (extraCriticalDamageTier) {
+      attack.damage.critical.bonus = `${Number(extraCriticalDamageTier.number) || 1}d${Number(extraCriticalDamageTier.denomination) || 8}[${extraCriticalDamageTier.damageType}]`;
     }
     const replaceAttackDamageParts = Boolean(draft.replaceAttackDamageParts || draft.customized?.additionalDamage);
     if (replaceAttackDamageParts) attack.damage.parts = [];
@@ -972,11 +1149,15 @@ export class ItemCreatorItemBuilder {
     // Base Weapon parts with a different special Template once.
     const shouldAppendEffectiveDamage = replaceAttackDamageParts
       || draft.template?.uuid !== draft.baseWeapon?.uuid;
+    const baseAttackDamageParts = clone(attack.damage.parts ?? []);
+    const progressionDamageRows = shouldAppendEffectiveDamage ? clone(effective.additionalDamage ?? []) : [];
     if (shouldAppendEffectiveDamage) {
-      for (const row of effective.additionalDamage ?? []) {
+      for (const row of progressionDamageRows) {
+        const tier = selectProgressionTier(row, null);
+        if (!tier) continue;
         attack.damage.parts.push(damagePart({
-          ...row,
-          ability: row.useAbilityModifier ? row.ability : null
+          ...tier,
+          ability: tier.useAbilityModifier ? tier.ability : null
         }));
       }
     }
@@ -1007,7 +1188,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       moduleVersion: MODULE_VERSION,
       templateUuid: draft.template.uuid,
       baseWeaponUuid: draft.baseWeapon.uuid,
@@ -1016,7 +1197,21 @@ export class ItemCreatorItemBuilder {
       runtime: {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
-        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting.spells ?? []) : []
+        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting.spells ?? []) : [],
+        structuralProgression: plain({
+          itemType: "weapon",
+          attackActivityId: attack._id,
+          base: { ...weaponStructuralBase, ...weaponAttackBase, additionalDamageParts: baseAttackDamageParts },
+          enhancements: {
+            magicalWeapon: enhancements.magicalWeapon ? enhancementValues.magicalWeapon : null,
+            weaponEnhancement: enhancements.weaponEnhancement ? enhancementValues.weaponEnhancement : null,
+            attackBonus: enhancements.attackBonus ? enhancementValues.attackBonus : null,
+            damageBonus: enhancements.damageBonus ? enhancementValues.damageBonus : null,
+            criticalThreshold: enhancements.criticalThreshold ? enhancementValues.criticalThreshold : null,
+            extraCriticalDamage: enhancements.extraCriticalDamage ? enhancementValues.extraCriticalDamage : null
+          },
+          additionalDamage: progressionDamageRows
+        })
       },
       draft: plain({
         customized: draft.customized,
@@ -1031,6 +1226,7 @@ export class ItemCreatorItemBuilder {
     };
 
     composeItemPropertiesText(data, draft);
+    composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.
@@ -1079,25 +1275,40 @@ export class ItemCreatorItemBuilder {
     data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
     data.system.equipped = false;
     data.system.attuned = false;
+    if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+    data.system.properties = [...new Set(data.system.properties)];
+    const equipmentStructuralBase = {
+      properties: clone(data.system.properties),
+      rarity: data.system.rarity ?? "",
+      attunement: data.system.attunement ?? "",
+      armorMagicalBonus: String(data.system.armor?.magicalBonus ?? ""),
+      armorValue: Number(data.system.armor?.value) || 0,
+      strength: Number(data.system.strength) || 0
+    };
+    const magicalItemTier = enhancements.magicalItem ? selectProgressionTier(enhancementValues.magicalItem, null) : null;
+    const armorEnhancementTier = enhancements.armorEnhancement ? selectProgressionTier(enhancementValues.armorEnhancement, null) : null;
 
-    if (enhancements.magicalItem) {
+    if (magicalItemTier) {
       data.system.properties.push("mgc");
-      data.system.rarity = enhancementValues.magicalItem?.rarity || "uncommon";
-      data.system.attunement = enhancementValues.magicalItem?.attunement || "";
-    } else if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+      data.system.rarity = magicalItemTier.rarity || "uncommon";
+      data.system.attunement = magicalItemTier.attunement || "";
+    }
 
-    if (enhancements.armorEnhancement) {
+    if (armorEnhancementTier) {
       data.system.properties.push("mgc");
-      data.system.armor.magicalBonus = String(Number(enhancementValues.armorEnhancement?.bonus) || 0);
+      data.system.armor.magicalBonus = String(Number(armorEnhancementTier.bonus) || 0);
     }
     // Granted Spellcasting marks Equipment as magical without applying an
     // Armor Enhancement bonus and without requiring attunement.
     if (enhancements.grantedSpellcasting && (enhancementValues.grantedSpellcasting?.spells ?? []).length) {
       data.system.properties.push("mgc");
     }
-    if (enhancements.baseArmorClass) data.system.armor.value = Number(enhancementValues.baseArmorClass?.value) || 0;
-    if (enhancements.removeStrengthRequirement) data.system.strength = 0;
-    if (enhancements.removeStealthDisadvantage) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
+    const baseArmorClassTier = enhancements.baseArmorClass ? selectProgressionTier(enhancementValues.baseArmorClass, null) : null;
+    const removeStrengthTier = enhancements.removeStrengthRequirement ? selectProgressionTier(enhancementValues.removeStrengthRequirement, null) : null;
+    const removeStealthTier = enhancements.removeStealthDisadvantage ? selectProgressionTier(enhancementValues.removeStealthDisadvantage, null) : null;
+    if (baseArmorClassTier) data.system.armor.value = Number(baseArmorClassTier.value) || 0;
+    if (removeStrengthTier) data.system.strength = 0;
+    if (removeStealthTier) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
     data.system.properties = [...new Set(data.system.properties)];
 
     const templateActivities = objectActivities(template);
@@ -1124,7 +1335,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       moduleVersion: MODULE_VERSION,
       itemType: "equipment",
       equipmentForm: draft.equipmentForm ?? "accessory",
@@ -1135,7 +1346,18 @@ export class ItemCreatorItemBuilder {
       runtime: {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
-        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : []
+        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
+        structuralProgression: plain({
+          itemType: "equipment",
+          base: equipmentStructuralBase,
+          enhancements: {
+            magicalItem: enhancements.magicalItem ? enhancementValues.magicalItem : null,
+            armorEnhancement: enhancements.armorEnhancement ? enhancementValues.armorEnhancement : null,
+            baseArmorClass: enhancements.baseArmorClass ? enhancementValues.baseArmorClass : null,
+            removeStrengthRequirement: enhancements.removeStrengthRequirement ? enhancementValues.removeStrengthRequirement : null,
+            removeStealthDisadvantage: enhancements.removeStealthDisadvantage ? enhancementValues.removeStealthDisadvantage : null
+          }
+        })
       },
       draft: plain({
         equipmentForm: draft.equipmentForm ?? "accessory",
@@ -1151,6 +1373,7 @@ export class ItemCreatorItemBuilder {
     };
 
     composeItemPropertiesText(data, draft);
+    composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
     const finalSource = cleanDocumentSource(data);
@@ -1205,12 +1428,20 @@ export class ItemCreatorItemBuilder {
     data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
     data.system.equipped = false;
     data.system.attuned = false;
+    if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+    data.system.properties = [...new Set(data.system.properties)];
+    const toolStructuralBase = {
+      properties: clone(data.system.properties),
+      rarity: data.system.rarity ?? "",
+      attunement: data.system.attunement ?? ""
+    };
+    const magicalToolTier = enhancements.magicalTool ? selectProgressionTier(enhancementValues.magicalTool, null) : null;
 
-    if (enhancements.magicalTool) {
+    if (magicalToolTier) {
       data.system.properties.push("mgc");
-      data.system.rarity = enhancementValues.magicalTool?.rarity || "uncommon";
-      data.system.attunement = enhancementValues.magicalTool?.attunement || "";
-    } else if (valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+      data.system.rarity = magicalToolTier.rarity || "uncommon";
+      data.system.attunement = magicalToolTier.attunement || "";
+    }
 
     // Granted Spellcasting makes the Tool magical, but never adds a weapon/armor
     // enchantment and never requires attunement unless the GM selected it.
@@ -1257,7 +1488,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       moduleVersion: MODULE_VERSION,
       itemType: "tool",
       templateUuid: template.uuid,
@@ -1267,7 +1498,12 @@ export class ItemCreatorItemBuilder {
       runtime: {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
-        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : []
+        grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
+        structuralProgression: plain({
+          itemType: "tool",
+          base: toolStructuralBase,
+          enhancements: { magicalTool: enhancements.magicalTool ? enhancementValues.magicalTool : null }
+        })
       },
       draft: plain({
         customized: draft.customized,
@@ -1282,6 +1518,7 @@ export class ItemCreatorItemBuilder {
     };
 
     composeItemPropertiesText(data, draft);
+    composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
     const finalSource = cleanDocumentSource(data);

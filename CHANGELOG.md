@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.8b — Beta
+
+- Added character-level Item progression to Weapon, Equipment, and Tool. Every compatible Enhancement, Granted Effect, Additional Damage row, and Granted Spell can now remain fixed or use `Unlock on Level`.
+- Uses the Actor's total character level, including multiclass totals. Class-specific levels are never used for Item progression.
+- Added replacement progression tiers for Weapon Enhancement, Armor Enhancement, Additional Damage, Spell Attack Bonus, Spell Save DC Bonus, Armor Class Bonus, Weapon Attack Roll Bonus, Weapon Damage Roll Bonus, Initiative Bonus, Proficiency Bonus Modifier, and Maximum Hit Points Bonus.
+- Kept progression groups non-stacking: the highest eligible tier replaces earlier tiers in the same group. Independent effects and independent Additional Damage rows continue to stack normally.
+- Added dynamic upward and downward reconciliation when Actor level, class levels, Item state, equipment state, Attunement, Actor import, or world load changes the active requirements. No restart or re-equip is required.
+- Added structural progression for Weapon magical bonus, attack bonus, damage bonus, critical threshold, extra critical damage, Additional Damage parts, Equipment magical bonus and armor fields, and magical rarity/Attunement state.
+- Added level-aware runtime Active Effect mirroring, Granted Spellbook visibility, spell-use validation, Ignore Resistance, and Conditional Advantage.
+- Added persistent automatic description sections below the GM's flavor text: fixed mechanics appear under `Item Properties`, and evolving mechanics appear under `Level Progression` using entries such as `[Level 3 — +1 to attack rolls]`.
+- Generated description sections are replaced on edit instead of duplicated, and disabled properties are removed from the generated text.
+- Added Level Progression counts to the draft sidebar and Review summary.
+- Removed generic Consumable creation from the Item Creator scope. The supported creator types are Weapon, Equipment, and Tool; the planned Scroll Factory remains a separate future tool.
+- Increased the managed Item draft schema to version 2 and updated the manifest, documentation, interface version label, and release URL for tag `v0.1.8b`.
+
 ## 0.1.8a — Beta
 
 - Added the complete Tool creation and editing flow using the shared Item Type → Base Item → Enhancements → Granted Effects → Description → Review workflow.

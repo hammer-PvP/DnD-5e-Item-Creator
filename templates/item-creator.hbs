@@ -42,6 +42,7 @@
       {{#if enhancement.grantedSpellcasting}}<p><strong>Granted Spells:</strong> {{grantedSpellCount}}</p>{{/if}}
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
+      <p><strong>Level Progressions:</strong> {{levelProgressionCount}}</p>
       <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
       <p><strong>Status:</strong> {{#if reviewReady}}{{readyStatus}}{{else}}Beta draft{{/if}}</p>
     </section>
@@ -54,7 +55,7 @@
         <div>
           <span class="ic-kicker">Assisted Item Creation</span>
           <h2>Choose Item Type</h2>
-          <p>Create Weapons, Equipment, and Tools with the same assisted workflow. Consumables will be added in a later stage.</p>
+          <p>Create Weapons, Equipment, and Tools with the same assisted workflow, including properties that unlock and improve with the Actor's total character level.</p>
         </div>
       </header>
 
@@ -77,7 +78,7 @@
         <i class="fa-solid fa-flask"></i>
         <div>
           <strong>v{{version}} Beta flow</strong>
-          <p>This Beta supports complete Weapon, Equipment, and Tool flows, including native base data, type-safe enhancements, granted effects, granted spells, protected creation, and world-item editing.</p>
+          <p>This Beta supports complete Weapon, Equipment, and Tool flows, including character-level progression, native base data, type-safe enhancements, granted effects, granted spells, protected creation, and world-item editing.</p>
         </div>
       </aside>
     </section>
@@ -549,7 +550,7 @@
         <div>
           <span class="ic-kicker">Weapon Creation</span>
           <h2>Enhancements</h2>
-          <p>Enable only the enhancements this weapon needs. Every card is optional, and disabling a card immediately discards its values without changing the selected Template or Base Weapon.</p>
+          <p>Enable only the enhancements this weapon needs. Every enabled property can remain fixed or use Unlock on Level; supported numeric fields can add replacement progression tiers.</p>
         </div>
       </header>
 
@@ -823,7 +824,7 @@
         <i class="fa-solid fa-shield-heart"></i>
         <div>
           <strong>Availability-aware effects</strong>
-          <p>Each effect can apply while owned, equipped, or equipped and attuned. Runtime mirrors keep Actor effects synchronized with the Item state.</p>
+          <p>Each effect can apply while owned, equipped, or equipped and attuned. Unlock on Level adds the Actor's total character level as a second requirement, and progression tiers replace earlier values instead of stacking them.</p>
         </div>
       </aside>
 
@@ -965,7 +966,7 @@
         <div>
           <span class="ic-kicker">Item Presentation</span>
           <h2>Description</h2>
-          <p>The description is inherited only from the selected Template. The physical base item does not contribute separate text to this stage.</p>
+          <p>The flavor description is inherited only from the selected Template. Item Creator appends generated Item Properties and the complete Level Progression below that flavor text.</p>
         </div>
       </header>
 
@@ -1005,7 +1006,7 @@
 
         <aside class="ic-description-note">
           <i class="fa-solid fa-circle-info"></i>
-          <p>Inherited preview mode conservatively removes recognized leading Template metadata. Customize mode loads the complete original Template HTML into Foundry’s native editor so the GM can preserve, rewrite, or remove any part manually.</p>
+          <p>Inherited preview mode conservatively removes recognized leading Template metadata. Customize mode loads the complete original Template HTML into Foundry’s native editor. Generated Item Properties and Level Progression are appended below the flavor text when the Item is built and are regenerated without duplication on later edits.</p>
         </aside>
       </section>
     </section>
@@ -1082,6 +1083,7 @@
           <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>
           <div><dt>Granted Spells</dt><dd>{{reviewSummary.grantedSpells}}</dd></div>
           <div><dt>Granted Effects</dt><dd>{{reviewSummary.grantedEffects}}</dd></div>
+          <div><dt>Level Progressions</dt><dd>{{reviewSummary.progressions}}</dd></div>
           <div><dt>Description</dt><dd>{{reviewSummary.description}}</dd></div>
         </dl>
         <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editMode}}Update Item modifies the selected World Item in place. Save as Copy creates a separate World Item and leaves the original unchanged. Existing copies already placed on Actors are not automatically updated.{{else}}Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.{{/if}}</p></aside>

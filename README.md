@@ -1,76 +1,104 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8a Beta
+**Version:** 0.1.8b Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
-Item Creator is a GM-facing assisted creation interface for custom D&D5e items. Installed compendiums are treated as source references for document structure, template values, icons, and linked spells.
+Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
 
-## v0.1.8a Beta
+## v0.1.8b Beta — Items that grow with characters
 
-This Beta adds the complete **Tool** creation and editing flow. Tools use the same six stages as Weapon and Equipment while preserving the native D&D5e Tool document structure. A GM can select a Tool from configured compendiums, use the native D&D5e Compendium Browser, or start from a Custom Tool shell.
+Every supported Item type can now contain mechanics that unlock according to the owning Actor's **total character level**. Multiclass characters use the sum of all class levels; Item progression never reads a specific class level.
 
-The Base Item stage supports Tool Category, Base Tool, Default Ability, Proficiency Handling, Tool Check Bonus, quantity, weight, price, and Tool-valid properties. Tool Check Bonus modifies checks made with that Tool only. A native Check Activity is created when the selected Tool has none.
+Compatible Enhancements, Granted Effects, Additional Damage rows, and Granted Spells include an **Unlock on Level** control. The level requirement is combined with the normal availability rule:
 
-Tool Enhancements are intentionally type-safe. A Tool can be magical, have rarity, require Attunement, and grant existing Spells, but it cannot gain weapon damage, an Attack Activity, Weapon Enhancement, Mastery, range, weapon properties, Armor Enhancement, or native armor calculation fields.
+- Item is Owned;
+- Equipped;
+- Equipped and Attuned.
 
-Tools have access to the complete Actor-facing Granted Effects library. This includes Armor Class, Weapon Attack Roll Bonus, Weapon Damage Roll Bonus, Spell Attack, Spell Save DC, ability scores, saves, checks, skills, resistances, movement, senses, Critical Hit Threshold, and Granted Spellcasting. Availability remains `Owned`, `Equipped`, or `Equipped and Attuned`. `Equipped` may be used as a simple manual on/off switch for narrative conditions. Item Creator does not inspect the currently used weapon, Bardic Inspiration, or individual Activities.
+Both requirements must be satisfied before the mechanic becomes active.
 
-World Tool Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy. Tool icons use the same complete type-agnostic catalog as Weapon and Equipment.
+### Replacement progression tiers
 
-## v0.1.8 Beta
+Supported numeric mechanics can add **Progression Tiers**. Tiers in the same group replace one another rather than stacking:
 
-This patch fixes two regressions discovered during Equipment validation. The reusable Icon Selection browser now exposes the same complete, type-agnostic icon catalog for Equipment that was already available to Weapon. A GM may choose any indexed Item icon from active compendiums while retaining source-name search and compendium filters.
+```text
+Level 3  → +1 Spell Save DC
+Level 7  → +2 Spell Save DC
+Level 13 → +3 Spell Save DC
+```
 
-Granted Spellcasting now automatically marks its parent Weapon or Equipment as magical when the first Spell is added. This automatic state does not grant a numeric `+1`, `+2`, or `+3` enhancement and does not require Attunement. Rarity and Attunement remain editable GM choices. If every granted Spell is removed, the automatic magical state is removed only when it was not subsequently made a manual GM choice.
+At level 7 the result is `+2`, not `+3`. Independent effects and independent Additional Damage rows remain separate and can stack normally.
 
-Generated Cast Activities no longer use D&D5e's separate `requireMagic` visibility gate. Spellbook visibility is controlled only by Item Creator's `Owned`, `Equipped`, and `Equipped and Attuned` availability rules. On world load, the runtime repairs managed pre-v0.1.8 world Items and Actor copies by adding the magical property where Granted Spellcasting exists and removing the obsolete gate.
+Progression tiers are available for:
 
-## v0.1.7 Beta
+- Weapon Enhancement and Armor Enhancement;
+- Additional Damage;
+- Armor Class Bonus;
+- Weapon Attack Roll Bonus and Weapon Damage Roll Bonus;
+- Initiative Bonus;
+- Proficiency Bonus Modifier;
+- Maximum Hit Points Bonus;
+- Spell Attack Bonus and Spell Save DC Bonus.
 
-This Beta adds the first complete **Equipment** creation and editing flow while preserving the existing Weapon workflow.
+All other compatible mechanics can still use a single Unlock on Level requirement.
 
-Equipment uses the same assisted stages as Weapon: Item Type, Base Item, Enhancements, Granted Effects, Description, and Review. A GM can select an Equipment document from configured compendiums or start from a custom equipment shell.
+### Dynamic reconciliation
 
-Supported Equipment forms include Armor, Shield, Torso / Robe, Cloak / Mantle, Headwear, Neck / Amulet, Hands / Gloves, Finger / Ring, Feet / Boots, Waist / Belt, Focus / Catalyst, Accessory, and Other Equipment. Robes and other caster clothing remain non-armor Equipment and do not require Light Armor or other Armor Training.
+The runtime recalculates the active stage when:
 
-Equipment-specific Enhancements include Magical Equipment, native Armor Enhancement, Base Armor Class override, removal of Strength requirements, and removal of Stealth Disadvantage. Weapon-only attack construction, damage, range, Mastery, and weapon properties remain filtered out of the Equipment flow.
+- a class level or total Actor level changes;
+- an Item is added, removed, or updated;
+- the Item is equipped or unequipped;
+- Attunement changes;
+- an Actor is imported;
+- the world loads or the module is re-enabled.
 
-Equipment has access to the complete Granted Effects library, including Armor Class, ability scores, saving throws, checks, skills, resistances and immunities, movement, senses, initiative, Hit Points, spell attack and save bonuses, passive scores, and Actor-level weapon or spell Critical Hit Threshold. Granted Spellcasting continues to select existing Spell documents; Item Creator does not create new Spells.
+Progression works both upward and downward. Reducing an Actor's level restores the previous eligible tier or removes the mechanic when no tier is eligible. Managed updates are recalculated from the stored baseline so repeated hooks do not accumulate bonuses, damage dice, Active Effects, or Spellbook entries.
 
-The GM-only **Edit with Item Creator** action now supports world Equipment Items as well as world Weapon Items. Managed Items restore their complete Item Creator draft, while native or earlier homebrew Equipment imports supported D&D5e fields and preserves unrecognized data. Review continues to offer **Update Item** and **Save as Copy**.
+### Generated Item description
 
-The Item Type screen is now limited to the definitive module scope: Weapon, Equipment, Consumable, and Tool. Consumable and Tool remain Coming Later. Container, Loot, Spell, and Feature creation are not part of Item Creator.
+The GM's flavor text remains at the top of `system.description.value`. Item Creator appends and maintains two generated sections below it:
 
-## v0.1.6 Beta
+- **Item Properties** for fixed mechanics;
+- **Level Progression** for evolving mechanics.
 
-This Beta fixes native and earlier homebrew Weapon import so D&D5e's prepared base-damage part is never misclassified as Item Creator Additional Damage. A normal Longsword now imports as 1d8 Slashing with 1d10 Versatile damage and no extra damage row.
+Example:
 
-Primary Attack damage is now rebuilt deterministically when an imported world Item is updated. Disabled Additional Damage values are removed from the saved draft, existing managed damage parts are replaced instead of appended, and repeated edits no longer increase the attack damage.
+```text
+Weapon Attack Roll Bonus
+[Level 3 — +1 to attack rolls]
+[Level 7 — +2 to attack rolls]
+```
 
-The correction also repairs the v0.1.5 self-import signature. Opening and updating an affected Item removes the false base-damage copy and accumulated duplicate parts while preserving legitimate unrelated Activities and external data.
+The complete progression is stored on the Item and remains visible regardless of the current Actor level. Editing and saving regenerates the managed sections without duplicating them or changing manual flavor text.
 
-## v0.1.5 Beta
+## Supported Item types
 
-This Beta adds assisted editing for **world Weapon Items** directly from the Foundry Items Directory. A GM can right-click a supported Item and choose **Edit with Item Creator** to reopen the existing creation workflow with the Item's current configuration loaded.
+### Weapon
 
-Editing supports two sources:
+Supports native weapon structure, Base Weapon inheritance, damage, range, properties, Mastery, Weapon Enhancement, Additional Damage, Granted Effects, and Granted Spellcasting.
 
-- Items previously created by Item Creator restore their saved Template, Base Weapon, overrides, Enhancements, Granted Spellcasting, Granted Effects, availability rules, and custom Description draft.
-- Native D&D5e or earlier homebrew Weapon Items import their current system data into the same interface. Supported weapon fields, additional damage, Cast Activities, and recognized Active Effects are loaded, while unrecognized Activities, Effects, and module flags are preserved.
+### Equipment
 
-The Review stage provides two protected final actions:
+Supports armor, shields, robes and clothing, cloaks, headwear, amulets, gloves, rings, boots, belts, foci, accessories, and other Equipment. Armor-only fields remain restricted to Armor and Shield forms.
 
-- **Update Item** modifies the selected world Item in place while preserving its folder, ID, ownership, and unrelated external data.
-- **Save as Copy** creates a separate world Item from the edited configuration and leaves the original unchanged.
+### Tool
 
-Updating a world Item does not automatically replace copies that were already placed on Actors.
+Supports native Tool category, base tool, default ability, proficiency handling, Tool Check Bonus, quantity, weight, price, magical rarity, optional Attunement, Granted Effects, and Granted Spellcasting. Tools never receive weapon attacks, weapon damage, Mastery, range, Weapon Enhancement, or armor calculation fields.
 
-This Beta also retains the complete assisted Weapon creation path, the native Description editor, automatic Item Properties and Granted Spellcasting text, conditional Spellbook visibility, and runtime Granted Effects.
+## Scope change
 
+Generic Consumable creation is no longer part of Item Creator. A future **Scroll Factory** will be a separate tool focused on producing valid Spell Scrolls directly in the World Items Directory.
+
+## Runtime dependency
+
+Items remain valid D&D5e Item documents when the module is disabled. Native names, images, descriptions, properties, damage, Activities, uses, and recovery data remain stored.
+
+The module must be active for dynamic behavior such as level progression, conditional Spellbook visibility, runtime Granted Effects, Ignore Resistance, Conditional Advantage, and reconciliation between Actor Item copies. Disabling the module can leave the last reconciled Actor state in place until the module is enabled again.
 
 ## Installation
 
-Install through Foundry with this manifest URL after the GitHub Release has been published:
+Install through Foundry using the manifest URL after the GitHub Release is published:
 
 `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
 
@@ -78,20 +106,9 @@ For manual installation, extract the contents of `item-creator.zip` into `Data/m
 
 ## Release packaging
 
-The canonical GitHub packaging rules are documented in [`RELEASE.md`](RELEASE.md). The installable archive is always named `item-creator.zip`, with the module files directly at the ZIP root.
-
-## Scope discipline
-
-The native Foundry/D&D5e **Create Item** flow remains unchanged. Item Creator is an independent assisted alternative. Version 0.1.8a creates and edits world Weapon, Equipment, and Tool Items only after final Review and a protected confirmation. Advanced runtime behaviors remain Beta features and should be tested in a development world before campaign use.
-
-## Runtime dependency
-
-Items created by Item Creator remain valid D&D5e Item documents if the module is disabled. Native data such as name, image, Description, damage, properties, magical bonus, Attack and Cast Activities, uses, and native recovery remains stored on the Item.
-
-Dynamic mechanics require Item Creator to remain active, including conditional Spellbook visibility based on equipped or attuned state, runtime Granted Effects, Ignore Damage Resistance, Conditional Advantage, and state reconciliation between multiple Actor Item copies. Disabling the module can leave the last applied Actor state in place until Item Creator is enabled again and performs reconciliation.
+The canonical packaging rules are documented in [`RELEASE.md`](RELEASE.md). The installable archive is always named `item-creator.zip`, with module files directly at the ZIP root.
 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8a Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8a/item-creator.zip`
-- Every new build must update the versioned download URL to match its exact Git tag.
+- v0.1.8b Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8b/item-creator.zip`

@@ -3,6 +3,7 @@ import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
+import { clampCharacterLevel, settingHasProgression, validUnlockSetting } from "../services/level-progression.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
@@ -175,7 +176,11 @@ function weaponSourceData(document) {
       damageType: valuesOf(part?.types)[0] ?? "",
       useAbilityModifier: false,
       ability: "",
-      bonus: String(part?.bonus ?? "")
+      bonus: String(part?.bonus ?? ""),
+      unlockOnLevel: false,
+      unlockLevel: 1,
+      progressionGroupId: foundry.utils.randomID(),
+      tiers: []
     })).filter(part => part.number > 0 && part.denomination > 0 && part.damageType)
   };
 }
@@ -256,10 +261,10 @@ function equipmentEnhancementDefaults() {
   const defaults = enhancementDefaults();
   return {
     magicalItem: clone(defaults.magicalWeapon),
-    armorEnhancement: { bonus: 1 },
-    baseArmorClass: { value: 10 },
-    removeStrengthRequirement: {},
-    removeStealthDisadvantage: {},
+    armorEnhancement: progressionValue({ bonus: 1 }, { tierable: true }),
+    baseArmorClass: progressionValue({ value: 10 }),
+    removeStrengthRequirement: progressionValue({}),
+    removeStealthDisadvantage: progressionValue({}),
     grantedSpellcasting: clone(defaults.grantedSpellcasting),
     ignoreResistance: clone(defaults.ignoreResistance),
     conditionalAdvantage: clone(defaults.conditionalAdvantage)
@@ -499,6 +504,9 @@ async function grantedSpellFromCastActivity(activity) {
     fixedSaveDc: save !== null && Number.isFinite(save) ? save : 13,
     showInSpellbook: spellbookIntent(activity),
     availability: inferredAvailability(activity),
+    unlockOnLevel: Boolean(moduleFlags.unlockOnLevel),
+    unlockLevel: clampCharacterLevel(moduleFlags.unlockLevel),
+    progressionGroupId: moduleFlags.progressionGroupId ?? foundry.utils.randomID(),
     importedActivityId: activity?._id ?? activity?.id ?? null
   };
 }
@@ -654,25 +662,49 @@ function spellLevelLabel(level) {
   return localizedLabel(CONFIG.DND5E.spellLevels?.[level], level === 0 ? "Cantrip" : `Level ${level}`);
 }
 
+function progressionValue(value = {}, { tierable = false } = {}) {
+  return {
+    ...value,
+    unlockOnLevel: false,
+    unlockLevel: 1,
+    progressionGroupId: "",
+    ...(tierable ? { tiers: [] } : {})
+  };
+}
+
+const REPEATABLE_ENHANCEMENTS = new Set(["weaponEnhancement", "armorEnhancement"]);
+const REPEATABLE_GRANTED_EFFECTS = new Set([
+  "armorClassBonus", "weaponAttackBonus", "weaponDamageBonus",
+  "initiativeBonus", "proficiencyBonusModifier", "maximumHitPointsBonus",
+  "spellAttackBonus", "spellSaveDcBonus"
+]);
+
+function ensureProgressionGroup(setting) {
+  if (!setting || typeof setting !== "object") return;
+  setting.progressionGroupId ||= foundry.utils.randomID();
+  setting.unlockOnLevel = Boolean(setting.unlockOnLevel);
+  setting.unlockLevel = clampCharacterLevel(setting.unlockLevel);
+}
+
 function enhancementDefaults() {
   const firstDamageType = CONFIG.DND5E.damageTypes?.fire
     ? "fire"
     : Object.keys(CONFIG.DND5E.damageTypes ?? {})[0] ?? "";
   return {
-    magicalWeapon: { rarity: "uncommon", attunement: "" },
-    weaponEnhancement: { bonus: 1 },
-    attackBonus: { bonus: 1 },
-    damageBonus: { bonus: 1 },
-    criticalThreshold: { mode: "19", custom: 19 },
-    extraCriticalDamage: { number: 1, denomination: 8, damageType: firstDamageType },
-    ignoreResistance: { damageTypes: firstDamageType ? [firstDamageType] : [] },
+    magicalWeapon: progressionValue({ rarity: "uncommon", attunement: "" }),
+    weaponEnhancement: progressionValue({ bonus: 1 }, { tierable: true }),
+    attackBonus: progressionValue({ bonus: 1 }),
+    damageBonus: progressionValue({ bonus: 1 }),
+    criticalThreshold: progressionValue({ mode: "19", custom: 19 }),
+    extraCriticalDamage: progressionValue({ number: 1, denomination: 8, damageType: firstDamageType }),
+    ignoreResistance: progressionValue({ damageTypes: firstDamageType ? [firstDamageType] : [] }),
     grantedSpellcasting: { spells: [] },
-    conditionalAdvantage: {
+    conditionalAdvantage: progressionValue({
       mode: "supported",
       appliesTo: "attackRolls",
       supportedCondition: "targetUndead",
       customText: ""
-    }
+    })
   };
 }
 
@@ -757,31 +789,31 @@ function grantedEffectDefaults() {
   const firstMovement = Object.keys(CONFIG.DND5E.movementTypes ?? {})[0] ?? "walk";
   const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
   return {
-    armorClassBonus: { bonus: 1, availability: "equipped" },
-    weaponAttackBonus: { bonus: 1, availability: "equipped" },
-    weaponDamageBonus: { bonus: 1, availability: "equipped" },
-    criticalThreshold: { threshold: 19, scope: "all", availability: "equipped" },
-    savingThrowBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
-    savingThrowAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
-    abilityScoreAdjustment: { entries: [effectRow({ ability: firstAbility, operation: "add", value: 1 })], availability: "equipped" },
-    abilityCheckBonus: { entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" },
-    skillBonus: { entries: [effectRow({ target: firstSkill, bonus: 1 })], availability: "equipped" },
-    skillProficiency: { entries: [effectRow({ skill: firstSkill, level: "proficient" })], availability: "equipped" },
-    abilityCheckAdvantage: { entries: [effectRow({ target: "all" })], availability: "equipped" },
-    damageResistance: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
-    damageImmunity: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
-    damageVulnerability: { damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" },
-    conditionImmunity: { conditions: [], availability: "equipped" },
-    initiativeBonus: { bonus: 1, availability: "equipped" },
-    initiativeAdvantage: { availability: "equipped" },
-    proficiencyBonusModifier: { bonus: 1, availability: "equipped" },
-    maximumHitPointsBonus: { bonus: 10, availability: "equipped" },
-    movementBonus: { entries: [effectRow({ type: firstMovement, bonus: 10, units: "ft" })], availability: "equipped" },
-    grantMovementType: { entries: [effectRow({ type: "fly", speed: 30, units: "ft", hover: false })], availability: "equipped" },
-    grantedSense: { entries: [effectRow({ sense: firstSense, range: 60, units: "ft", operation: "minimum" })], availability: "equipped" },
-    spellAttackBonus: { bonus: 1, availability: "equipped" },
-    spellSaveDcBonus: { bonus: 1, availability: "equipped" },
-    passiveScoreBonus: { entries: [effectRow({ score: "perception", bonus: 5 })], availability: "equipped" }
+    armorClassBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    weaponAttackBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    weaponDamageBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    criticalThreshold: progressionValue({ threshold: 19, scope: "all", availability: "equipped" }),
+    savingThrowBonus: progressionValue({ entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" }),
+    savingThrowAdvantage: progressionValue({ entries: [effectRow({ target: "all" })], availability: "equipped" }),
+    abilityScoreAdjustment: progressionValue({ entries: [effectRow({ ability: firstAbility, operation: "add", value: 1 })], availability: "equipped" }),
+    abilityCheckBonus: progressionValue({ entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" }),
+    skillBonus: progressionValue({ entries: [effectRow({ target: firstSkill, bonus: 1 })], availability: "equipped" }),
+    skillProficiency: progressionValue({ entries: [effectRow({ skill: firstSkill, level: "proficient" })], availability: "equipped" }),
+    abilityCheckAdvantage: progressionValue({ entries: [effectRow({ target: "all" })], availability: "equipped" }),
+    damageResistance: progressionValue({ damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" }),
+    damageImmunity: progressionValue({ damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" }),
+    damageVulnerability: progressionValue({ damageTypes: firstDamageType ? [firstDamageType] : [], availability: "equipped" }),
+    conditionImmunity: progressionValue({ conditions: [], availability: "equipped" }),
+    initiativeBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    initiativeAdvantage: progressionValue({ availability: "equipped" }),
+    proficiencyBonusModifier: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    maximumHitPointsBonus: progressionValue({ bonus: 10, availability: "equipped" }, { tierable: true }),
+    movementBonus: progressionValue({ entries: [effectRow({ type: firstMovement, bonus: 10, units: "ft" })], availability: "equipped" }),
+    grantMovementType: progressionValue({ entries: [effectRow({ type: "fly", speed: 30, units: "ft", hover: false })], availability: "equipped" }),
+    grantedSense: progressionValue({ entries: [effectRow({ sense: firstSense, range: 60, units: "ft", operation: "minimum" })], availability: "equipped" }),
+    spellAttackBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    spellSaveDcBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
+    passiveScoreBonus: progressionValue({ entries: [effectRow({ score: "perception", bonus: 5 })], availability: "equipped" })
   };
 }
 
@@ -1150,9 +1182,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       : isTool ? toolSourceData(this.selectedBaseWeaponDocument) : weaponSourceData(this.selectedBaseWeaponDocument);
     const effective = source ? this.#effectiveValues(source) : null;
     const additionalDamageValid = !isWeapon || !this.customized.additionalDamage
-      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
-        Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
-        && (!row.useAbilityModifier || Boolean(row.ability))));
+      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row => this.#validateAdditionalDamageRow(row)));
     const typeComplete = Boolean(this.selectedType);
     const baseComplete = Boolean(this.selectedWeaponUuid
       && (!isWeapon || this.selectedBaseWeaponUuid)
@@ -1325,6 +1355,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang));
     const effectAvailability = Object.fromEntries(Object.keys(effectValues).map(key => [key, effectAvailabilityOptions(effectValues[key]?.availability)]));
     const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
+    const levelProgressionCount = [
+      ...Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting" && settingHasProgression(this.enhancementValues[key])),
+      ...Object.entries(this.grantedEffects).filter(([key, enabled]) => enabled && settingHasProgression(this.grantedEffectValues[key])),
+      ...(effective?.additionalDamage ?? []).filter(settingHasProgression).map(row => [row.id, true]),
+      ...grantedSpellRows.filter(spell => spell.unlockOnLevel).map(spell => [spell.id, true])
+    ].length;
     const descriptionValue = this.descriptionCustomized ? this.customDescription : this.templateDescription;
     const enrichedDescription = await enrichDescription(descriptionValue, this.selectedWeaponDocument);
     const reviewItem = reviewData?.temporary ?? null;
@@ -1429,7 +1465,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       conditionalSupportLabel: this.enhancementValues.conditionalAdvantage?.mode === "supported" ? "Item Creator Runtime" : "Description Only",
 
       grantedEffects: this.grantedEffects, grantedEffectValues: effectValues,
-      grantedEffectCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
+      grantedEffectCount, levelProgressionCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
       effectAvailability,
       savingThrowBonusRows: prepareEffectRows("savingThrowBonus"), savingThrowAdvantageRows: prepareEffectRows("savingThrowAdvantage"),
       abilityScoreAdjustmentRows: prepareEffectRows("abilityScoreAdjustment"), abilityCheckBonusRows: prepareEffectRows("abilityCheckBonus"),
@@ -1454,6 +1490,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
         enhancements: Object.values(this.enhancements).filter(Boolean).length,
         grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
+        progressions: levelProgressionCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
       savingItem: this.savingItem, readyStatus: this.editingItem ? "Ready to update" : "Ready to create"
@@ -1462,6 +1499,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   _onRender() {
     const root = this.element;
+    this.#mountLevelProgressionControls(root);
     root.querySelectorAll('[data-action="select-type"]').forEach(button => button.addEventListener("click", event => this.#selectType(event)));
     root.querySelectorAll('[data-action="step"]').forEach(button => button.addEventListener("click", event => this.#changeStep(event)));
     root.querySelector('[data-action="continue"]')?.addEventListener("click", event => this.#continue(event));
@@ -1504,6 +1542,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
     root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
     root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
+    root.querySelectorAll('[data-progression-unlock]').forEach(input => input.addEventListener("change", event => this.#toggleLevelUnlock(event)));
+    root.querySelectorAll('[data-progression-level]').forEach(input => input.addEventListener("change", event => this.#updateLevelUnlock(event)));
+    root.querySelectorAll('[data-action="add-progression-tier"]').forEach(button => button.addEventListener("click", event => this.#addProgressionTier(event)));
+    root.querySelectorAll('[data-action="remove-progression-tier"]').forEach(button => button.addEventListener("click", event => this.#removeProgressionTier(event)));
+    root.querySelectorAll('[data-progression-tier-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateProgressionTier(event));
+    });
     root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
@@ -1527,6 +1573,217 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const content = this.element?.querySelector(".ic-step-content");
         if (content) content.scrollTop = top;
       });
+    }
+  }
+
+
+  #progressionSetting(kind, key, id = null) {
+    if (kind === "enhancement") return this.enhancementValues?.[key] ?? null;
+    if (kind === "effect") return this.grantedEffectValues?.[key] ?? null;
+    if (kind === "damage") return (this.overrides.additionalDamage ?? []).find(row => row.id === id) ?? null;
+    if (kind === "spell") return (this.enhancementValues.grantedSpellcasting?.spells ?? []).find(spell => spell.id === id) ?? null;
+    return null;
+  }
+
+  #progressionAttributes(kind, key, id = null, tierId = null) {
+    return [
+      `data-progression-kind="${foundry.utils.escapeHTML(kind)}"`,
+      `data-progression-key="${foundry.utils.escapeHTML(key ?? "")}"`,
+      id ? `data-progression-id="${foundry.utils.escapeHTML(id)}"` : "",
+      tierId ? `data-progression-tier-id="${foundry.utils.escapeHTML(tierId)}"` : ""
+    ].filter(Boolean).join(" ");
+  }
+
+  #unlockControlHtml(kind, key, setting, id = null) {
+    ensureProgressionGroup(setting);
+    const attributes = this.#progressionAttributes(kind, key, id);
+    return `<span class="ic-level-unlock-control" ${attributes}>
+      <label title="Make this property inactive until the Actor reaches the selected total character level.">
+        <input type="checkbox" data-progression-unlock ${attributes} ${setting.unlockOnLevel ? "checked" : ""}>
+        <span>Unlock on Level</span>
+      </label>
+      <label class="ic-level-unlock-value ${setting.unlockOnLevel ? "" : "hidden"}">
+        <span>Level</span>
+        <input type="number" min="1" max="20" step="1" value="${clampCharacterLevel(setting.unlockLevel)}" data-progression-level ${attributes} ${setting.unlockOnLevel ? "" : "disabled"}>
+      </label>
+    </span>`;
+  }
+
+  #effectTierField(key, tier, attributes) {
+    const labels = {
+      armorClassBonus: "AC Bonus",
+      weaponAttackBonus: "Weapon Attack Bonus",
+      weaponDamageBonus: "Weapon Damage Bonus",
+      initiativeBonus: "Initiative Bonus",
+      proficiencyBonusModifier: "Proficiency Bonus Modifier",
+      maximumHitPointsBonus: "Maximum Hit Points",
+      spellAttackBonus: "Spell Attack Bonus",
+      spellSaveDcBonus: "Spell Save DC Bonus"
+    };
+    const availabilityOptions = [
+      ["owned", "Item is Owned"], ["equipped", "Equipped"], ["equippedAttuned", "Equipped and Attuned"]
+    ].map(([value, label]) => `<option value="${value}" ${tier.availability === value ? "selected" : ""}>${label}</option>`).join("");
+    return `<label><span>${labels[key] ?? "Modifier"}</span><input type="number" step="1" value="${Number(tier.bonus) || 0}" data-progression-tier-input="bonus" data-value-type="number" ${attributes}></label>
+      <label><span>Active While</span><select data-progression-tier-input="availability" ${attributes}>${availabilityOptions}</select></label>`;
+  }
+
+  #enhancementTierField(_key, tier, attributes) {
+    const options = [1, 2, 3].map(value => `<option value="${value}" ${Number(tier.bonus) === value ? "selected" : ""}>+${value}</option>`).join("");
+    return `<label><span>Enhancement Bonus</span><select data-progression-tier-input="bonus" data-value-type="number" ${attributes}>${options}</select></label>`;
+  }
+
+  #damageTierFields(tier, attributes) {
+    const dice = [4, 6, 8, 10, 12, 20].map(value => `<option value="${value}" ${Number(tier.denomination) === value ? "selected" : ""}>d${value}</option>`).join("");
+    const damageTypes = Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => {
+      const label = localizedLabel(entry, value);
+      return `<option value="${foundry.utils.escapeHTML(value)}" ${tier.damageType === value ? "selected" : ""}>${foundry.utils.escapeHTML(label)}</option>`;
+    }).join("");
+    const abilities = abilityModifierOptions(tier.ability).map(option => `<option value="${foundry.utils.escapeHTML(option.value)}" ${option.selected ? "selected" : ""}>${foundry.utils.escapeHTML(option.label)}</option>`).join("");
+    return `<label><span>Dice</span><input type="number" min="1" max="20" step="1" value="${Number(tier.number) || 1}" data-progression-tier-input="number" data-value-type="number" ${attributes}></label>
+      <label><span>Die</span><select data-progression-tier-input="denomination" data-value-type="number" ${attributes}>${dice}</select></label>
+      <label><span>Damage Type</span><select data-progression-tier-input="damageType" ${attributes}>${damageTypes}</select></label>
+      <label class="ic-mini-check"><input type="checkbox" data-progression-tier-input="useAbilityModifier" ${attributes} ${tier.useAbilityModifier ? "checked" : ""}><span>Add Ability Modifier</span></label>
+      <label><span>Ability</span><select data-progression-tier-input="ability" ${attributes} ${tier.useAbilityModifier ? "" : "disabled"}>${abilities}</select></label>`;
+  }
+
+  #tierListHtml(kind, key, setting, id = null) {
+    const tiers = setting.tiers ?? [];
+    const rows = tiers.map((tier, index) => {
+      const attributes = this.#progressionAttributes(kind, key, id, tier.id);
+      const fields = kind === "enhancement" ? this.#enhancementTierField(key, tier, attributes)
+        : kind === "effect" ? this.#effectTierField(key, tier, attributes)
+          : this.#damageTierFields(tier, attributes);
+      return `<section class="ic-progression-tier-row">
+        <header><strong>Progression Tier ${index + 2}</strong><button type="button" data-action="remove-progression-tier" ${attributes} aria-label="Remove progression tier"><i class="fa-solid fa-trash"></i></button></header>
+        <div class="ic-progression-tier-fields">${fields}
+          <label><span>Unlock Level</span><input type="number" min="1" max="20" step="1" value="${clampCharacterLevel(tier.unlockLevel)}" data-progression-tier-input="unlockLevel" data-value-type="number" ${attributes}></label>
+        </div>
+      </section>`;
+    }).join("");
+    const attributes = this.#progressionAttributes(kind, key, id);
+    return `<div class="ic-progression-tier-panel">${rows}<button type="button" class="ic-add-progression-tier" data-action="add-progression-tier" ${attributes}><i class="fa-solid fa-plus"></i> Add Progression Tier</button></div>`;
+  }
+
+  #mountLevelProgressionControls(root) {
+    for (const toggle of root.querySelectorAll('[data-enhancement-toggle]')) {
+      const key = toggle.dataset.enhancementToggle;
+      if (!key || key === "grantedSpellcasting" || !this.enhancements[key]) continue;
+      const setting = this.enhancementValues[key];
+      if (!setting) continue;
+      ensureProgressionGroup(setting);
+      const card = toggle.closest(".ic-enhancement-card");
+      const heading = card?.querySelector(".ic-override-heading");
+      if (heading && !card.querySelector("[data-progression-unlock]")) heading.insertAdjacentHTML("afterend", this.#unlockControlHtml("enhancement", key, setting));
+      if (card && REPEATABLE_ENHANCEMENTS.has(key)) card.insertAdjacentHTML("beforeend", this.#tierListHtml("enhancement", key, setting));
+    }
+
+    for (const toggle of root.querySelectorAll('[data-effect-toggle]')) {
+      const key = toggle.dataset.effectToggle;
+      if (!key || !this.grantedEffects[key]) continue;
+      const setting = this.grantedEffectValues[key];
+      if (!setting) continue;
+      ensureProgressionGroup(setting);
+      const card = toggle.closest(".ic-effect-card");
+      const heading = card?.querySelector(".ic-override-heading");
+      if (heading && !card.querySelector("[data-progression-unlock]")) heading.insertAdjacentHTML("afterend", this.#unlockControlHtml("effect", key, setting));
+      if (card && REPEATABLE_GRANTED_EFFECTS.has(key)) card.insertAdjacentHTML("beforeend", this.#tierListHtml("effect", key, setting));
+    }
+
+    for (const row of root.querySelectorAll(".ic-additional-damage-row")) {
+      const id = row.querySelector("[data-damage-id]")?.dataset.damageId;
+      const setting = this.#progressionSetting("damage", "additionalDamage", id);
+      if (!id || !setting) continue;
+      ensureProgressionGroup(setting);
+      const header = row.querySelector("header");
+      const removeButton = header?.querySelector('[data-action="remove-additional-damage"]');
+      if (removeButton) removeButton.insertAdjacentHTML("beforebegin", this.#unlockControlHtml("damage", "additionalDamage", setting, id));
+      else if (header) header.insertAdjacentHTML("beforeend", this.#unlockControlHtml("damage", "additionalDamage", setting, id));
+      row.insertAdjacentHTML("beforeend", this.#tierListHtml("damage", "additionalDamage", setting, id));
+    }
+
+    for (const article of root.querySelectorAll(".ic-granted-spell[data-spell-id]")) {
+      const id = article.dataset.spellId;
+      const setting = this.#progressionSetting("spell", "grantedSpell", id);
+      if (!setting) continue;
+      ensureProgressionGroup(setting);
+      const header = article.querySelector(".ic-granted-spell-header");
+      const removeButton = header?.querySelector('[data-action="remove-granted-spell"]');
+      if (removeButton) removeButton.insertAdjacentHTML("beforebegin", this.#unlockControlHtml("spell", "grantedSpell", setting, id));
+      else if (header) header.insertAdjacentHTML("beforeend", this.#unlockControlHtml("spell", "grantedSpell", setting, id));
+    }
+  }
+
+  #toggleLevelUnlock(event) {
+    const { progressionKind: kind, progressionKey: key, progressionId: id } = event.currentTarget.dataset;
+    const setting = this.#progressionSetting(kind, key, id);
+    if (!setting) return;
+    ensureProgressionGroup(setting);
+    setting.unlockOnLevel = event.currentTarget.checked;
+    setting.unlockLevel = clampCharacterLevel(setting.unlockLevel);
+    this.#renderPreservingScroll();
+  }
+
+  #updateLevelUnlock(event) {
+    const { progressionKind: kind, progressionKey: key, progressionId: id } = event.currentTarget.dataset;
+    const setting = this.#progressionSetting(kind, key, id);
+    if (!setting) return;
+    setting.unlockLevel = clampCharacterLevel(event.currentTarget.value);
+    event.currentTarget.value = setting.unlockLevel;
+  }
+
+  #newProgressionTier(kind, key, setting) {
+    ensureProgressionGroup(setting);
+    const levels = [setting.unlockOnLevel ? clampCharacterLevel(setting.unlockLevel) : 0, ...(setting.tiers ?? []).map(tier => clampCharacterLevel(tier.unlockLevel))];
+    const unlockLevel = Math.min(20, Math.max(1, Math.max(...levels) + 1));
+    const common = { id: foundry.utils.randomID(), unlockOnLevel: true, unlockLevel };
+    if (kind === "enhancement") return { ...common, bonus: Math.min(3, Math.max(1, Number(setting.bonus) + (setting.tiers?.length ?? 0) + 1)) };
+    if (kind === "effect") return { ...common, bonus: Number(setting.bonus) || 0, availability: setting.availability ?? "equipped" };
+    if (kind === "damage") return {
+      ...common,
+      number: Number(setting.number) || 1,
+      denomination: Number(setting.denomination) || 6,
+      damageType: setting.damageType ?? "",
+      useAbilityModifier: Boolean(setting.useAbilityModifier),
+      ability: setting.ability ?? ""
+    };
+    return null;
+  }
+
+  #addProgressionTier(event) {
+    event.preventDefault();
+    const { progressionKind: kind, progressionKey: key, progressionId: id } = event.currentTarget.dataset;
+    const setting = this.#progressionSetting(kind, key, id);
+    if (!setting) return;
+    setting.tiers ??= [];
+    const tier = this.#newProgressionTier(kind, key, setting);
+    if (!tier) return;
+    setting.tiers.push(tier);
+    this.#renderPreservingScroll();
+  }
+
+  #removeProgressionTier(event) {
+    event.preventDefault();
+    const { progressionKind: kind, progressionKey: key, progressionId: id, progressionTierId: tierId } = event.currentTarget.dataset;
+    const setting = this.#progressionSetting(kind, key, id);
+    if (!setting || !tierId) return;
+    setting.tiers = (setting.tiers ?? []).filter(tier => tier.id !== tierId);
+    this.#renderPreservingScroll();
+  }
+
+  #updateProgressionTier(event) {
+    const { progressionKind: kind, progressionKey: key, progressionId: id, progressionTierId: tierId } = event.currentTarget.dataset;
+    const part = event.currentTarget.dataset.progressionTierInput;
+    const setting = this.#progressionSetting(kind, key, id);
+    const tier = (setting?.tiers ?? []).find(entry => entry.id === tierId);
+    if (!tier || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = Number(event.currentTarget.value) || 0;
+    else value = event.currentTarget.value;
+    tier[part] = part === "unlockLevel" ? clampCharacterLevel(value) : value;
+    if (part === "useAbilityModifier") {
+      tier.ability = value ? (tier.ability || "attack") : "";
+      this.#renderPreservingScroll();
     }
   }
 
@@ -2518,7 +2775,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       denomination: 6,
       damageType: firstType,
       useAbilityModifier: false,
-      ability: ""
+      ability: "",
+      unlockOnLevel: false,
+      unlockLevel: 1,
+      progressionGroupId: foundry.utils.randomID(),
+      tiers: []
     };
   }
 
@@ -2558,12 +2819,26 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
+  #validateProgressionSetting(setting, { tierable = false, tierValidator = null } = {}) {
+    if (!validUnlockSetting(setting, { allowTiers: tierable })) return false;
+    if (!tierable && (setting?.tiers?.length ?? 0)) return false;
+    if (tierValidator && !(setting?.tiers ?? []).every(tierValidator)) return false;
+    return true;
+  }
+
+  #validateAdditionalDamageRow(row) {
+    const validDamage = entry => Number(entry.number) > 0
+      && Number(entry.denomination) > 0
+      && Boolean(entry.damageType)
+      && (!entry.useAbilityModifier || Boolean(entry.ability));
+    return validDamage(row)
+      && this.#validateProgressionSetting(row, { tierable: true, tierValidator: validDamage });
+  }
+
   #isBaseComplete() {
     const effective = this.#effectiveValues();
     const additionalDamageValid = this.selectedType !== "weapon" || !this.customized.additionalDamage
-      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row =>
-        Number(row.number) > 0 && Number(row.denomination) > 0 && Boolean(row.damageType)
-        && (!row.useAbilityModifier || Boolean(row.ability))));
+      || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row => this.#validateAdditionalDamageRow(row)));
     return Boolean(this.selectedWeaponUuid
       && (this.selectedType !== "weapon" || this.selectedBaseWeaponUuid)
       && this.itemName.trim() && additionalDamageValid);
@@ -2645,6 +2920,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (conditional.mode === "supported" && !conditional.supportedCondition) errors.conditionalAdvantage = true;
       if (conditional.mode === "custom" && !String(conditional.customText ?? "").trim()) errors.conditionalAdvantage = true;
     }
+    for (const [key, enabled] of Object.entries(this.enhancements)) {
+      if (!enabled || key === "grantedSpellcasting") continue;
+      const setting = values[key];
+      const tierable = REPEATABLE_ENHANCEMENTS.has(key);
+      const tierValidator = tierable ? tier => [1, 2, 3].includes(Number(tier.bonus)) : null;
+      if (!this.#validateProgressionSetting(setting, { tierable, tierValidator })) errors[key] = true;
+    }
     return { valid: !Object.keys(errors).length, errors };
   }
 
@@ -2685,6 +2967,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.grantedEffects.spellAttackBonus && !(finite(values.spellAttackBonus.bonus) && validAvailability("spellAttackBonus"))) errors.spellAttackBonus = true;
     if (this.grantedEffects.spellSaveDcBonus && !(finite(values.spellSaveDcBonus.bonus) && validAvailability("spellSaveDcBonus"))) errors.spellSaveDcBonus = true;
     if (this.grantedEffects.passiveScoreBonus && !(hasRows("passiveScoreBonus", row => ["perception", "investigation", "insight"].includes(row.score) && finite(row.bonus)) && validAvailability("passiveScoreBonus"))) errors.passiveScoreBonus = true;
+    for (const [key, enabled] of Object.entries(this.grantedEffects)) {
+      if (!enabled) continue;
+      const setting = values[key];
+      const tierable = REPEATABLE_GRANTED_EFFECTS.has(key);
+      const tierValidator = tierable ? tier => finite(tier.bonus) && ["owned", "equipped", "equippedAttuned"].includes(tier.availability) : null;
+      if (!this.#validateProgressionSetting(setting, { tierable, tierValidator })) errors[key] = true;
+    }
     return { valid: !Object.keys(errors).length, errors };
   }
 
@@ -2716,6 +3005,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const enabled = event.currentTarget.checked;
     this.grantedEffects[key] = enabled;
     if (!enabled) this.grantedEffectValues[key] = clone(defaults[key]);
+    else ensureProgressionGroup(this.grantedEffectValues[key]);
     this.#renderPreservingScroll();
   }
 
@@ -2801,6 +3091,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (spell.hasSave && (!Number.isFinite(save) || save < 1 || save > 40)) return false;
     }
     if (!['owned', 'equipped', 'equippedAttuned'].includes(spell.availability)) return false;
+    if (!this.#validateProgressionSetting(spell, { tierable: false })) return false;
     return true;
   }
 
@@ -2828,7 +3119,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       fixedAttackBonus: 5,
       fixedSaveDc: 13,
       showInSpellbook: false,
-      availability: 'equipped'
+      availability: 'equipped',
+      unlockOnLevel: false,
+      unlockLevel: 1,
+      progressionGroupId: foundry.utils.randomID()
     };
   }
 
@@ -2967,6 +3261,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     this.enhancements[field] = enabled;
     if (!enabled) this.enhancementValues[field] = clone(defaults[field]);
+    else if (field !== "grantedSpellcasting") ensureProgressionGroup(this.enhancementValues[field]);
     if (field === magicalKey) this.magicalAutoFromGrantedSpellcasting = false;
     if (field === "grantedSpellcasting") this.#syncGrantedSpellMagicalState();
     this.#renderPreservingScroll();
