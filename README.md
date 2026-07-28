@@ -1,9 +1,33 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8b Beta  
+**Version:** 0.1.8c Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
+
+## v0.1.8c Beta — Native Item normalization
+
+Base Items from compendiums and existing World Items are now translated into the Item Creator data model before the final Item is built. Native Active Effects and Activities are treated as source mechanics rather than copied hidden documents.
+
+Recognized mechanics fill the normal editable fields. A combined native Effect is split into independent Creator properties. For example, the D&D5e **Cloak of Protection** Effect becomes:
+
+- Armor Class Bonus: +1;
+- All Saving Throws Bonus: +1.
+
+Editing either field replaces that translated mechanic instead of silently stacking a second copy. Recognized imported fields can use the same `Unlock on Level` and Progression Tier controls as manually configured properties.
+
+### Custom imported mechanics
+
+Unrecognized Effect changes and Activities are not discarded. They become **Custom Imported Effects** or **Custom Imported Activities** in the Creator draft. Each entry includes a technical-data view and controls to:
+
+- keep it in the final Item;
+- create an Effect as disabled;
+- exclude an Activity from the final Item while retaining it in the saved draft;
+- remove the imported entry explicitly.
+
+The original embedded documents are discarded during the build. The final Item receives newly generated, normalized Effects and Activities with fresh IDs, including remapped Activity-to-Effect references. This prevents old native mechanics from remaining hidden and accumulating with newly configured Creator effects.
+
+The Base Item screen shows the mechanics found during translation. Review separates converted properties, custom imported Effects, custom imported Activities, and newly configured Creator properties. The generated Item description also includes the resulting fixed properties and level progression.
 
 ## v0.1.8b Beta — Items that grow with characters
 
@@ -111,4 +135,4 @@ The canonical packaging rules are documented in [`RELEASE.md`](RELEASE.md). The 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8b Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8b/item-creator.zip`
+- v0.1.8c Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8c/item-creator.zip`

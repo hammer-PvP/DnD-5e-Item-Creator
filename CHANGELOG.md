@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.8c — Beta
+
+- Added complete normalization of Active Effects and Activities when selecting a compendium Base Item or editing an unmanaged World Item. Original embedded mechanics are interpreted as source data rather than copied invisibly into the final Item.
+- Added broad Active Effect translation for every compatible Granted Effect currently supported by the Creator, including Armor Class, saving throws, ability checks, skills, ability scores, weapon and spell attacks, weapon damage, Spell Save DC, initiative, proficiency bonus, maximum Hit Points, damage traits, condition immunity, movement, senses, critical threshold, and passive scores.
+- Split combined native Effects into independent editable Creator properties. The Cloak of Protection test case now becomes separate `Armor Class Bonus: +1` and `All Saving Throws Bonus: +1` fields instead of retaining one hidden combined Effect.
+- Added translation for native string and numeric Active Effect modes and support for paired melee/ranged bonuses, multi-value damage traits, and Fly plus Hover data.
+- Added Activity normalization: the primary Weapon Attack is rebuilt as the normalized primary Attack, Cast Activities become Granted Spellcasting entries, and other Activities become Custom Imported Activities.
+- Added Custom Imported Effects for unrecognized changes and mixed Effects. Recognized changes are converted while the remaining technical changes are rebuilt in a separate custom Effect so no unknown behavior is lost.
+- Added Custom Imported Activity handling with keep, exclude, remove, and technical-data review controls. Activity-to-Effect references are remapped to newly generated normalized Effect IDs.
+- Added keep, native-disabled, remove, and technical-data controls for Custom Imported Effects.
+- Discarded original source Effects and Activities during the final build and generated fresh normalized embedded documents, preventing silent accumulation between native mechanics and new Creator properties.
+- Added conflict protection while editing managed Items: external scalar Effects targeting a Creator property already in use remain explicit custom Effects instead of being silently merged or discarded.
+- Added Imported Mechanics summaries to Base Item identity panels and expanded Review to distinguish converted properties, custom imported Effects, custom imported Activities, and newly configured Creator mechanics.
+- Added imported recognized and custom mechanics to the generated Item Properties description block. Converted properties can use Unlock on Level and Progression Tiers normally.
+- Increased the managed Item draft schema to version 3 and updated the manifest, documentation, interface version label, and release URL for tag `v0.1.8c`.
+
 ## 0.1.8b — Beta
 
 - Added character-level Item progression to Weapon, Equipment, and Tool. Every compatible Enhancement, Granted Effect, Additional Damage row, and Granted Spell can now remain fixed or use `Unlock on Level`.

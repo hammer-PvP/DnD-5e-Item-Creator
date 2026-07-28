@@ -2,6 +2,7 @@ import { EQUIPMENT_FORMS, ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, S
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
+import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
 import { clampCharacterLevel, settingHasProgression, validUnlockSetting } from "../services/level-progression.mjs";
 
@@ -875,6 +876,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.managedPrimaryAttackId = null;
     this.preserveAdditionalAttackActivities = false;
     this.managedEffectIds = [];
+    this.customImportedEffects = [];
+    this.customImportedActivities = [];
+    this.importedBaseSummary = [];
     this.step = editItem ? "baseItem" : "itemType";
     this.selectedType = null;
     this.selectedWeaponUuid = null;
@@ -918,6 +922,132 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static PARTS = {
     main: { template: `modules/${MODULE_ID}/templates/item-creator.hbs` }
   };
+
+  async #translateDocumentMechanics(document, { merge = false, ignoreGenerated = false } = {}) {
+    if (!document) return;
+    const ignoreEffectIds = new Set();
+    const ignoreActivityIds = new Set();
+    if (ignoreGenerated) {
+      for (const effect of valuesOf(document.effects)) {
+        const flags = effect?.flags?.[MODULE_ID] ?? {};
+        if (flags.blueprint || flags.importedCustom) ignoreEffectIds.add(effect.id ?? effect._id);
+      }
+      for (const activity of valuesOf(document.system?.activities)) {
+        const flags = activity?.flags?.[MODULE_ID] ?? {};
+        if (flags.grantedSpell || flags.importedCustom) ignoreActivityIds.add(activity.id ?? activity._id);
+      }
+    }
+
+    // When editing a managed Item, an external scalar Effect that targets a
+    // Creator field already in use must remain an explicit independent custom
+    // Effect. This prevents silent data loss and makes intentional stacking visible.
+    const scalarKeys = new Set([
+      "armorClassBonus", "weaponAttackBonus", "weaponDamageBonus", "criticalThreshold",
+      "initiativeBonus", "initiativeAdvantage", "proficiencyBonusModifier",
+      "maximumHitPointsBonus", "spellAttackBonus", "spellSaveDcBonus"
+    ]);
+    const blockedKeys = merge
+      ? new Set([...scalarKeys].filter(key => Boolean(this.grantedEffects[key])))
+      : new Set();
+    const normalized = normalizeBaseItemMechanics(document, { ignoreEffectIds, ignoreActivityIds, blockedKeys });
+    if (!merge) {
+      this.customImportedEffects = [];
+      this.customImportedActivities = [];
+      this.importedBaseSummary = [];
+    }
+
+    const defaults = grantedEffectDefaults();
+    for (const [key, active] of Object.entries(normalized.enabled ?? {})) {
+      if (!active) continue;
+      const importedValue = mergeWithDefaults(defaults[key] ?? {}, normalized.values?.[key] ?? {});
+      if (!merge || !this.grantedEffects[key]) {
+        this.grantedEffects[key] = true;
+        this.grantedEffectValues[key] = importedValue;
+        ensureProgressionGroup(this.grantedEffectValues[key]);
+        continue;
+      }
+      if (Array.isArray(importedValue.entries) && Array.isArray(this.grantedEffectValues[key]?.entries)) {
+        this.grantedEffectValues[key].entries.push(...clone(importedValue.entries));
+      }
+    }
+
+    const existingEffectSources = new Set(this.customImportedEffects.map(entry => entry.sourceId).filter(Boolean));
+    for (const entry of normalized.customEffects ?? []) {
+      if (!entry.sourceId || !existingEffectSources.has(entry.sourceId)) this.customImportedEffects.push(clone(entry));
+    }
+    const existingActivitySources = new Set(this.customImportedActivities.map(entry => entry.sourceId).filter(Boolean));
+    for (const entry of normalized.customActivities ?? []) {
+      if (!entry.sourceId || !existingActivitySources.has(entry.sourceId)) this.customImportedActivities.push(clone(entry));
+    }
+
+    this.managedEffectIds = [...new Set([...this.managedEffectIds, ...(normalized.managedEffectIds ?? [])])];
+    this.managedActivityIds = [...new Set([...this.managedActivityIds, ...(normalized.managedActivityIds ?? [])])];
+    this.importedBaseSummary = [...new Set([...this.importedBaseSummary, ...(normalized.summary ?? [])])];
+
+    this.enhancementValues.grantedSpellcasting ??= { spells: [] };
+    this.enhancementValues.grantedSpellcasting.spells ??= [];
+    const spells = this.enhancementValues.grantedSpellcasting.spells;
+    for (const cast of normalized.castActivities ?? []) {
+      const imported = await grantedSpellFromCastActivity(cast);
+      if (!imported || spells.some(spell => spell.uuid === imported.uuid && spell.importedActivityId === imported.importedActivityId)) continue;
+      spells.push(imported);
+    }
+    if (spells.length) this.enhancements.grantedSpellcasting = true;
+
+    const properties = valuesOf(document.system?.properties);
+    const attunement = String(document.system?.attunement ?? "").trim();
+    const magical = properties.includes("mgc") || Boolean(document.system?.rarity)
+      || Boolean(attunement && attunement !== "none");
+    if (document.type === "weapon") {
+      if (magical && (!merge || !this.enhancements.magicalWeapon)) {
+        this.enhancements.magicalWeapon = true;
+        this.enhancementValues.magicalWeapon = mergeWithDefaults(enhancementDefaults().magicalWeapon, {
+          rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+        });
+      }
+      const bonus = Number(document.system?.magicalBonus);
+      if (Number.isFinite(bonus) && bonus !== 0 && (!merge || !this.enhancements.weaponEnhancement)) {
+        this.enhancements.weaponEnhancement = true;
+        this.enhancementValues.weaponEnhancement = mergeWithDefaults(enhancementDefaults().weaponEnhancement, { bonus });
+      }
+      const activity = attackActivity(document);
+      const attackBonus = numericValue(activity?.attack?.bonus);
+      if (attackBonus !== null && attackBonus !== 0 && (!merge || !this.enhancements.attackBonus)) {
+        this.enhancements.attackBonus = true;
+        this.enhancementValues.attackBonus = mergeWithDefaults(enhancementDefaults().attackBonus, { bonus: attackBonus });
+      }
+      const threshold = Number(activity?.attack?.critical?.threshold);
+      if (Number.isInteger(threshold) && threshold > 0 && (!merge || !this.enhancements.criticalThreshold)) {
+        this.enhancements.criticalThreshold = true;
+        this.enhancementValues.criticalThreshold = mergeWithDefaults(enhancementDefaults().criticalThreshold, {
+          mode: [18, 19, 20].includes(threshold) ? String(threshold) : "custom", custom: threshold
+        });
+      }
+      const criticalDamage = parseCriticalDamageFormula(activity?.damage?.critical?.bonus);
+      if (criticalDamage && (!merge || !this.enhancements.extraCriticalDamage)) {
+        this.enhancements.extraCriticalDamage = true;
+        this.enhancementValues.extraCriticalDamage = mergeWithDefaults(enhancementDefaults().extraCriticalDamage, criticalDamage);
+      }
+    } else if (document.type === "equipment") {
+      if (magical && (!merge || !this.enhancements.magicalItem)) {
+        this.enhancements.magicalItem = true;
+        this.enhancementValues.magicalItem = mergeWithDefaults(equipmentEnhancementDefaults().magicalItem, {
+          rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+        });
+      }
+      const bonus = Number(document.system?.armor?.magicalBonus);
+      if (Number.isFinite(bonus) && bonus !== 0 && (!merge || !this.enhancements.armorEnhancement)) {
+        this.enhancements.armorEnhancement = true;
+        this.enhancementValues.armorEnhancement = mergeWithDefaults(equipmentEnhancementDefaults().armorEnhancement, { bonus });
+      }
+    } else if (document.type === "tool" && magical && (!merge || !this.enhancements.magicalTool)) {
+      this.enhancements.magicalTool = true;
+      this.enhancementValues.magicalTool = mergeWithDefaults(toolEnhancementDefaults().magicalTool, {
+        rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+      });
+    }
+    this.#syncGrantedSpellMagicalState();
+  }
 
   async #initializeEditState(registry) {
     if (this.editStateInitialized || !this.editingItem) return;
@@ -969,6 +1099,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           .filter(effect => effect?.flags?.[MODULE_ID]?.blueprint)
           .map(effect => effect.id ?? effect._id)
           .filter(Boolean);
+        this.customImportedEffects = clone(savedDraft.customImportedEffects ?? []);
+        this.customImportedActivities = clone(savedDraft.customImportedActivities ?? []);
+        this.importedBaseSummary = clone(savedDraft.importedBaseSummary ?? []);
+        await this.#translateDocumentMechanics(item, { merge: true, ignoreGenerated: true });
       } else {
         this.selectedWeaponUuid = item.uuid;
         this.selectedWeaponDocument = item;
@@ -982,42 +1116,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           const source = equipmentSourceData(item);
           this.equipmentForm = source?.equipmentForm ?? this.equipmentForm;
         }
-        const enhancementValues = defaults;
         this.enhancements = {};
-        const properties = valuesOf(item.system?.properties);
-        if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
-          this.enhancements[magicalKey] = true;
-          enhancementValues[magicalKey] = {
-            rarity: item.system?.rarity || "uncommon",
-            attunement: item.system?.attunement || ""
-          };
-        }
-        if (isEquipment) {
-          const armorBonus = Number(item.system?.armor?.magicalBonus);
-          if (Number.isFinite(armorBonus) && armorBonus !== 0) {
-            this.enhancements.armorEnhancement = true;
-            enhancementValues.armorEnhancement.bonus = armorBonus;
-          }
-        }
-
-        const grantedSpells = [];
-        for (const cast of valuesOf(item.system?.activities).filter(entry => entry?.type === "cast")) {
-          const imported = await grantedSpellFromCastActivity(cast);
-          if (!imported) continue;
-          grantedSpells.push(imported);
-          const activityId = cast.id ?? cast._id;
-          if (activityId) this.managedActivityIds.push(activityId);
-        }
-        if (grantedSpells.length) {
-          this.enhancements.grantedSpellcasting = true;
-          enhancementValues.grantedSpellcasting.spells = grantedSpells;
-        }
-        this.enhancementValues = enhancementValues;
-
-        const importedEffects = inferGrantedEffects(item);
-        this.grantedEffects = importedEffects.enabled;
-        this.grantedEffectValues = importedEffects.values;
-        this.managedEffectIds = importedEffects.managedEffectIds;
+        this.enhancementValues = clone(defaults);
+        this.grantedEffects = {};
+        this.grantedEffectValues = grantedEffectDefaults();
+        await this.#translateDocumentMechanics(item);
         this.templateDescriptionRaw = rawTemplateDescription(item);
         this.templateDescription = this.templateDescriptionRaw;
         this.descriptionCustomized = true;
@@ -1070,6 +1173,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         .filter(effect => effect?.flags?.[MODULE_ID]?.blueprint)
         .map(effect => effect.id ?? effect._id)
         .filter(Boolean);
+      this.customImportedEffects = clone(savedDraft.customImportedEffects ?? []);
+      this.customImportedActivities = clone(savedDraft.customImportedActivities ?? []);
+      this.importedBaseSummary = clone(savedDraft.importedBaseSummary ?? []);
+      await this.#translateDocumentMechanics(item, { merge: true, ignoreGenerated: true });
     } else {
       this.selectedWeaponUuid = item.uuid;
       this.selectedWeaponDocument = item;
@@ -1089,52 +1196,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const activity = attackActivity(item);
       this.managedPrimaryAttackId = activity?.id ?? activity?._id ?? null;
       this.preserveAdditionalAttackActivities = true;
-      const properties = valuesOf(item.system?.properties);
-      const enhancementValues = enhancementDefaults();
       this.enhancements = {};
-      if (properties.includes("mgc") || item.system?.rarity || item.system?.attunement) {
-        this.enhancements.magicalWeapon = true;
-        enhancementValues.magicalWeapon = { rarity: item.system?.rarity || "uncommon", attunement: item.system?.attunement || "" };
-      }
-      const magicalBonus = Number(item.system?.magicalBonus);
-      if (Number.isFinite(magicalBonus) && magicalBonus !== 0) {
-        this.enhancements.weaponEnhancement = true;
-        enhancementValues.weaponEnhancement.bonus = magicalBonus;
-      }
-      const attackBonus = numericValue(activity?.attack?.bonus);
-      if (attackBonus !== null && attackBonus !== 0) {
-        this.enhancements.attackBonus = true;
-        enhancementValues.attackBonus.bonus = attackBonus;
-      }
-      const threshold = Number(activity?.attack?.critical?.threshold);
-      if (Number.isInteger(threshold) && threshold > 0) {
-        this.enhancements.criticalThreshold = true;
-        enhancementValues.criticalThreshold = { mode: [18, 19, 20].includes(threshold) ? String(threshold) : "custom", custom: threshold };
-      }
-      const criticalDamage = parseCriticalDamageFormula(activity?.damage?.critical?.bonus);
-      if (criticalDamage) {
-        this.enhancements.extraCriticalDamage = true;
-        enhancementValues.extraCriticalDamage = criticalDamage;
-      }
-
-      const grantedSpells = [];
-      for (const cast of valuesOf(item.system?.activities).filter(entry => entry?.type === "cast")) {
-        const imported = await grantedSpellFromCastActivity(cast);
-        if (!imported) continue;
-        grantedSpells.push(imported);
-        const activityId = cast.id ?? cast._id;
-        if (activityId) this.managedActivityIds.push(activityId);
-      }
-      if (grantedSpells.length) {
-        this.enhancements.grantedSpellcasting = true;
-        enhancementValues.grantedSpellcasting.spells = grantedSpells;
-      }
-      this.enhancementValues = enhancementValues;
-
-      const importedEffects = inferGrantedEffects(item);
-      this.grantedEffects = importedEffects.enabled;
-      this.grantedEffectValues = importedEffects.values;
-      this.managedEffectIds = importedEffects.managedEffectIds;
+      this.enhancementValues = enhancementDefaults();
+      this.grantedEffects = {};
+      this.grantedEffectValues = grantedEffectDefaults();
+      await this.#translateDocumentMechanics(item);
       this.templateDescriptionRaw = rawTemplateDescription(item);
       this.templateDescription = this.templateDescriptionRaw;
       this.descriptionCustomized = true;
@@ -1314,7 +1380,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       identifier: this.selectedWeaponDocument.system?.identifier ?? "—",
       damageSummary: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : "—",
       equipmentTypeLabel: isEquipment ? localizedLabel(CONFIG.DND5E.equipmentTypes?.[effective?.nativeType], effective?.nativeType ?? "Equipment") : "",
-      toolTypeLabel: isTool ? localizedLabel(CONFIG.DND5E.toolTypes?.[effective?.toolType], effective?.toolType ?? "Tool") : ""
+      toolTypeLabel: isTool ? localizedLabel(CONFIG.DND5E.toolTypes?.[effective?.toolType], effective?.toolType ?? "Tool") : "",
+      importedMechanics: clone(this.importedBaseSummary)
     } : null;
 
     const customization = field => Boolean(this.customized[field]);
@@ -1361,6 +1428,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ...(effective?.additionalDamage ?? []).filter(settingHasProgression).map(row => [row.id, true]),
       ...grantedSpellRows.filter(spell => spell.unlockOnLevel).map(spell => [spell.id, true])
     ].length;
+    const customImportedEffectRows = this.customImportedEffects.map(entry => ({
+      ...entry,
+      technical: JSON.stringify(entry.data ?? {}, null, 2)
+    }));
+    const customImportedActivityRows = this.customImportedActivities.map(entry => ({
+      ...entry,
+      technical: JSON.stringify(entry.data ?? {}, null, 2)
+    }));
+    const importedCustomCount = customImportedEffectRows.filter(entry => entry.included !== false).length
+      + customImportedActivityRows.filter(entry => entry.included !== false && !entry.disabled).length;
+    const convertedImportedSummary = this.importedBaseSummary.filter(entry =>
+      !String(entry).startsWith("Custom Effect:")
+      && !String(entry).includes("preserved as Custom Imported Activity")
+    );
+    const reviewImportedEffects = customImportedEffectRows.filter(entry => entry.included !== false);
+    const reviewImportedActivities = customImportedActivityRows.filter(entry => entry.included !== false);
     const descriptionValue = this.descriptionCustomized ? this.customDescription : this.templateDescription;
     const enrichedDescription = await enrichDescription(descriptionValue, this.selectedWeaponDocument);
     const reviewItem = reviewData?.temporary ?? null;
@@ -1466,6 +1549,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
       grantedEffects: this.grantedEffects, grantedEffectValues: effectValues,
       grantedEffectCount, levelProgressionCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
+      customImportedEffectRows, customImportedActivityRows, importedCustomCount,
+      importedBaseSummary: this.importedBaseSummary,
+      convertedImportedSummary, reviewImportedEffects, reviewImportedActivities,
       effectAvailability,
       savingThrowBonusRows: prepareEffectRows("savingThrowBonus"), savingThrowAdvantageRows: prepareEffectRows("savingThrowAdvantage"),
       abilityScoreAdjustmentRows: prepareEffectRows("abilityScoreAdjustment"), abilityCheckBonusRows: prepareEffectRows("abilityCheckBonus"),
@@ -1490,6 +1576,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
         enhancements: Object.values(this.enhancements).filter(Boolean).length,
         grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
+        importedCustom: importedCustomCount,
+        convertedProperties: this.importedBaseSummary.length,
         progressions: levelProgressionCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
@@ -1542,6 +1630,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
     root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
     root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
+    root.querySelectorAll('[data-imported-effect-input]').forEach(input => input.addEventListener("change", event => this.#updateImportedEffect(event)));
+    root.querySelectorAll('[data-imported-activity-input]').forEach(input => input.addEventListener("change", event => this.#updateImportedActivity(event)));
+    root.querySelectorAll('[data-action="remove-imported-effect"]').forEach(button => button.addEventListener("click", event => this.#removeImportedEffect(event)));
+    root.querySelectorAll('[data-action="remove-imported-activity"]').forEach(button => button.addEventListener("click", event => this.#removeImportedActivity(event)));
+
     root.querySelectorAll('[data-progression-unlock]').forEach(input => input.addEventListener("change", event => this.#toggleLevelUnlock(event)));
     root.querySelectorAll('[data-progression-level]').forEach(input => input.addEventListener("change", event => this.#updateLevelUnlock(event)));
     root.querySelectorAll('[data-action="add-progression-tier"]').forEach(button => button.addEventListener("click", event => this.#addProgressionTier(event)));
@@ -1887,7 +1980,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       managedActivityIds: clone(this.managedActivityIds),
       managedPrimaryAttackId: this.managedPrimaryAttackId,
       preserveAdditionalAttackActivities: this.preserveAdditionalAttackActivities,
-      managedEffectIds: clone(this.managedEffectIds)
+      managedEffectIds: clone(this.managedEffectIds),
+      customImportedEffects: clone(this.customImportedEffects),
+      customImportedActivities: clone(this.customImportedActivities),
+      importedBaseSummary: clone(this.importedBaseSummary)
     };
   }
 
@@ -2246,6 +2342,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = { nativeType: "wondrous" };
     this.#resetEnhancements();
     this.#resetGrantedEffects();
+    this.customImportedEffects = [];
+    this.customImportedActivities = [];
+    this.importedBaseSummary = [];
     this.templateDescriptionRaw = "";
     this.templateDescription = "";
     this.customDescription = "";
@@ -2304,6 +2403,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = { toolType: "art", baseItem: "", ability: "", bonus: "" };
     this.#resetEnhancements();
     this.#resetGrantedEffects();
+    this.customImportedEffects = [];
+    this.customImportedActivities = [];
+    this.importedBaseSummary = [];
     this.templateDescriptionRaw = "";
     this.templateDescription = "";
     this.customDescription = "";
@@ -2461,6 +2563,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (equipment) this.equipmentForm = equipmentFormForDocument(document);
       this.#resetEnhancements();
       this.#resetGrantedEffects();
+      await this.#translateDocumentMechanics(document);
       this.templateDescriptionRaw = rawTemplateDescription(document);
       this.templateDescription = cleanTemplateDescription(document);
       this.customDescription = this.templateDescriptionRaw;
@@ -2523,6 +2626,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.overrides = {};
     this.#resetEnhancements();
     this.#resetGrantedEffects();
+    this.customImportedEffects = [];
+    this.customImportedActivities = [];
+    this.importedBaseSummary = [];
     this.templateDescription = "";
     this.templateDescriptionRaw = "";
     this.customDescription = "";
@@ -3063,6 +3169,36 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const replacement = this.#newGrantedEffectRow(key);
       if (replacement) this.grantedEffectValues[key].entries.push(replacement);
     }
+    this.#renderPreservingScroll();
+  }
+
+  #updateImportedEffect(event) {
+    const entry = this.customImportedEffects.find(row => row.id === event.currentTarget.dataset.importedId);
+    const part = event.currentTarget.dataset.importedEffectInput;
+    if (!entry || !part) return;
+    entry[part] = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    this.#renderPreservingScroll();
+  }
+
+  #updateImportedActivity(event) {
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.importedId);
+    const part = event.currentTarget.dataset.importedActivityInput;
+    if (!entry || !part) return;
+    entry[part] = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    this.#renderPreservingScroll();
+  }
+
+  #removeImportedEffect(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.importedId;
+    this.customImportedEffects = this.customImportedEffects.filter(entry => entry.id !== id);
+    this.#renderPreservingScroll();
+  }
+
+  #removeImportedActivity(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.importedId;
+    this.customImportedActivities = this.customImportedActivities.filter(entry => entry.id !== id);
     this.#renderPreservingScroll();
   }
 

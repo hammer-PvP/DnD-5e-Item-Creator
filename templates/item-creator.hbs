@@ -42,6 +42,7 @@
       {{#if enhancement.grantedSpellcasting}}<p><strong>Granted Spells:</strong> {{grantedSpellCount}}</p>{{/if}}
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
+      <p><strong>Imported Custom:</strong> {{importedCustomCount}}</p>
       <p><strong>Level Progressions:</strong> {{levelProgressionCount}}</p>
       <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
       <p><strong>Status:</strong> {{#if reviewReady}}{{readyStatus}}{{else}}Beta draft{{/if}}</p>
@@ -171,6 +172,13 @@
               <small>{{selectedWeapon.packLabel}}</small>
             </div>
           </div>
+
+          {{#if selectedWeapon.importedMechanics.length}}
+          <aside class="ic-imported-mechanics-summary">
+            <strong><i class="fa-solid fa-arrows-rotate"></i> Imported Mechanics</strong>
+            <ul>{{#each selectedWeapon.importedMechanics}}<li>{{this}}</li>{{/each}}</ul>
+          </aside>
+          {{/if}}
 
           <label class="ic-field">
             <span>Item Name</span>
@@ -455,6 +463,13 @@
             <button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="open-icon-browser" {{#unless iconCustomized}}disabled{{/unless}}><img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}"><span><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span></button>
             <div><strong>{{selectedWeapon.name}}</strong><small>{{selectedWeapon.sourceLabel}}</small><small>{{selectedWeapon.packLabel}}</small></div>
           </div>
+
+          {{#if selectedWeapon.importedMechanics.length}}
+          <aside class="ic-imported-mechanics-summary">
+            <strong><i class="fa-solid fa-arrows-rotate"></i> Imported Mechanics</strong>
+            <ul>{{#each selectedWeapon.importedMechanics}}<li>{{this}}</li>{{/each}}</ul>
+          </aside>
+          {{/if}}
           <label class="ic-field"><span>Item Name</span><input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off"></label>
           <label class="ic-identity-toggle"><input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}><span><strong>Customize Icon</strong><small>Enable the icon button to select another image.</small></span></label>
           <dl class="ic-template-metadata"><div><dt>Native Type</dt><dd>{{selectedWeapon.equipmentTypeLabel}}</dd></div><div><dt>Equipment Form</dt><dd>{{equipmentFormLabel}}</dd></div><div><dt>Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div></dl>
@@ -510,6 +525,13 @@
         <section class="ic-identity-panel">
           <header><span class="ic-kicker">Identity</span><h3>Tool Identity</h3></header>
           <div class="ic-template-summary"><button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="open-icon-browser" {{#unless iconCustomized}}disabled{{/unless}}><img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}"><span><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span></button><div><strong>{{selectedWeapon.name}}</strong><small>{{selectedWeapon.sourceLabel}}</small><small>{{selectedWeapon.packLabel}}</small></div></div>
+
+          {{#if selectedWeapon.importedMechanics.length}}
+          <aside class="ic-imported-mechanics-summary">
+            <strong><i class="fa-solid fa-arrows-rotate"></i> Imported Mechanics</strong>
+            <ul>{{#each selectedWeapon.importedMechanics}}<li>{{this}}</li>{{/each}}</ul>
+          </aside>
+          {{/if}}
           <label class="ic-field"><span>Item Name</span><input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off"></label>
           <label class="ic-identity-toggle"><input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}><span><strong>Customize Icon</strong><small>Enable the icon button to select any indexed Item icon.</small></span></label>
           <dl class="ic-template-metadata"><div><dt>Tool Category</dt><dd>{{reviewSummary.baseWeapon}}</dd></div><div><dt>Base Tool</dt><dd>{{#if effective.baseItem}}{{effective.baseItem}}{{else}}Custom{{/if}}</dd></div><div><dt>Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div></dl>
@@ -952,6 +974,42 @@
           <section class="ic-effect-card {{#if grantedEffects.spellSaveDcBonus}}enabled{{/if}} {{#if grantedEffectErrors.spellSaveDcBonus}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-effect-toggle="spellSaveDcBonus" {{#if grantedEffects.spellSaveDcBonus}}checked{{/if}}><span><strong>Spell Save DC Bonus</strong><small>Modify the Actor's global Spell Save DC.</small></span></label><fieldset class="ic-effect-body" {{#unless grantedEffects.spellSaveDcBonus}}disabled{{/unless}}><label><span>Modifier</span><input type="number" step="1" value="{{grantedEffectValues.spellSaveDcBonus.bonus}}" data-effect-input="spellSaveDcBonus" data-effect-part="bonus" data-value-type="number"></label><label><span>Active While</span><select data-effect-input="spellSaveDcBonus" data-effect-part="availability">{{#each effectAvailability.spellSaveDcBonus}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></fieldset></section>
         </div>
       </section>
+
+      {{#if customImportedEffectRows.length}}
+      <section class="ic-effect-group ic-imported-custom-group">
+        <header><span class="ic-kicker">Imported Custom Effects</span><h3>Untranslated or Independent Active Effect Data</h3><p>These changes are not folded into a normal Creator field, either because their key is unknown or because they must remain independent. They are rebuilt as new normalized Effects and can be kept, disabled, or removed.</p></header>
+        <div class="ic-imported-custom-list">
+          {{#each customImportedEffectRows}}
+          <article class="ic-imported-custom-card {{#unless included}}excluded{{/unless}}">
+            <header><img src="{{img}}" alt=""><span><strong>{{name}}</strong><small>{{summary}}</small></span><button type="button" data-action="remove-imported-effect" data-imported-id="{{id}}" aria-label="Remove imported effect"><i class="fa-solid fa-trash"></i></button></header>
+            <div class="ic-imported-custom-controls">
+              <label><input type="checkbox" data-imported-effect-input="included" data-imported-id="{{id}}" {{#if included}}checked{{/if}}><span>Include in final Item</span></label>
+              <label><input type="checkbox" data-imported-effect-input="disabled" data-imported-id="{{id}}" {{#if disabled}}checked{{/if}}><span>Create Disabled</span></label>
+            </div>
+            <details><summary>Technical data</summary><pre>{{technical}}</pre></details>
+          </article>
+          {{/each}}
+        </div>
+      </section>
+      {{/if}}
+
+      {{#if customImportedActivityRows.length}}
+      <section class="ic-effect-group ic-imported-custom-group">
+        <header><span class="ic-kicker">Imported Custom Activities</span><h3>Unrecognized Activity Data</h3><p>These Activities are rebuilt from the imported source. Disable an entry to keep its configuration in the Creator draft without placing it on the final Item.</p></header>
+        <div class="ic-imported-custom-list">
+          {{#each customImportedActivityRows}}
+          <article class="ic-imported-custom-card {{#unless included}}excluded{{/unless}}">
+            <header><img src="{{img}}" alt=""><span><strong>{{name}}</strong><small>{{summary}}</small></span><button type="button" data-action="remove-imported-activity" data-imported-id="{{id}}" aria-label="Remove imported activity"><i class="fa-solid fa-trash"></i></button></header>
+            <div class="ic-imported-custom-controls">
+              <label><input type="checkbox" data-imported-activity-input="included" data-imported-id="{{id}}" {{#if included}}checked{{/if}}><span>Include in final Item</span></label>
+              <label><input type="checkbox" data-imported-activity-input="disabled" data-imported-id="{{id}}" {{#if disabled}}checked{{/if}}><span>Disable Activity</span></label>
+            </div>
+            <details><summary>Technical data</summary><pre>{{technical}}</pre></details>
+          </article>
+          {{/each}}
+        </div>
+      </section>
+      {{/if}}
     </section>
 
     <footer class="ic-navigation">
@@ -1083,9 +1141,38 @@
           <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>
           <div><dt>Granted Spells</dt><dd>{{reviewSummary.grantedSpells}}</dd></div>
           <div><dt>Granted Effects</dt><dd>{{reviewSummary.grantedEffects}}</dd></div>
+          <div><dt>Converted Base Properties</dt><dd>{{reviewSummary.convertedProperties}}</dd></div>
+          <div><dt>Custom Imported Data</dt><dd>{{reviewSummary.importedCustom}}</dd></div>
           <div><dt>Level Progressions</dt><dd>{{reviewSummary.progressions}}</dd></div>
           <div><dt>Description</dt><dd>{{reviewSummary.description}}</dd></div>
         </dl>
+
+        {{#if convertedImportedSummary.length}}
+        <section class="ic-review-import-breakdown">
+          <header><strong>Imported and Converted Properties</strong><small>Native mechanics translated into editable Item Creator fields.</small></header>
+          <ul>{{#each convertedImportedSummary}}<li>{{this}}</li>{{/each}}</ul>
+        </section>
+        {{/if}}
+
+        {{#if reviewImportedEffects.length}}
+        <section class="ic-review-import-breakdown">
+          <header><strong>Custom Imported Effects</strong><small>Unrecognized Effect data rebuilt as normalized custom Effects.</small></header>
+          <ul>{{#each reviewImportedEffects}}<li><strong>{{name}}</strong> — {{summary}}{{#if disabled}} (disabled){{/if}}</li>{{/each}}</ul>
+        </section>
+        {{/if}}
+
+        {{#if reviewImportedActivities.length}}
+        <section class="ic-review-import-breakdown">
+          <header><strong>Custom Imported Activities</strong><small>Unrecognized Activities rebuilt from their technical source.</small></header>
+          <ul>{{#each reviewImportedActivities}}<li><strong>{{name}}</strong> — {{summary}}{{#if disabled}} (excluded from final Item){{/if}}</li>{{/each}}</ul>
+        </section>
+        {{/if}}
+
+        <section class="ic-review-import-breakdown">
+          <header><strong>New Creator Properties</strong><small>Enhancements, Granted Effects, and Granted Spells configured in this draft.</small></header>
+          <p>{{reviewSummary.enhancements}} Enhancement(s), {{reviewSummary.grantedEffects}} Granted Effect(s), and {{reviewSummary.grantedSpells}} Granted Spell(s).</p>
+        </section>
+
         <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editMode}}Update Item modifies the selected World Item in place. Save as Copy creates a separate World Item and leaves the original unchanged. Existing copies already placed on Actors are not automatically updated.{{else}}Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.{{/if}}</p></aside>
       </section>
       {{/if}}

@@ -120,6 +120,49 @@ function effectData({ key, label, availability, changes, description = "", progr
   };
 }
 
+function buildImportedCustomContent(customEffects = [], customActivities = []) {
+  const effectIdMap = new Map();
+  const effects = [];
+  for (const entry of customEffects ?? []) {
+    if (entry?.included === false || !entry?.data) continue;
+    const effect = cleanDocumentSource(entry.data);
+    const id = foundry.utils.randomID();
+    if (entry.sourceId) effectIdMap.set(entry.sourceId, id);
+    effect._id = id;
+    delete effect.origin;
+    effect.disabled = Boolean(entry.disabled);
+    effect.flags ??= {};
+    effect.flags[MODULE_ID] = {
+      ...(effect.flags[MODULE_ID] ?? {}),
+      importedCustom: true,
+      importedSourceId: entry.sourceId ?? null,
+      normalizedByCreator: true
+    };
+    effects.push(effect);
+  }
+
+  const activities = [];
+  for (const entry of customActivities ?? []) {
+    if (entry?.included === false || entry?.disabled || !entry?.data) continue;
+    const activity = cleanDocumentSource(entry.data);
+    activity._id = foundry.utils.randomID();
+    activity.effects = valuesOf(activity.effects).map(reference => {
+      const sourceId = reference?._id ?? reference?.id;
+      const mappedId = effectIdMap.get(sourceId);
+      return mappedId ? { ...clone(reference), _id: mappedId } : clone(reference);
+    });
+    activity.flags ??= {};
+    activity.flags[MODULE_ID] = {
+      ...(activity.flags[MODULE_ID] ?? {}),
+      importedCustom: true,
+      importedSourceId: entry.sourceId ?? null,
+      normalizedByCreator: true
+    };
+    activities.push(activity);
+  }
+  return { effects, activities, effectIdMap };
+}
+
 function addChange(changes, key, mode, value, priority) {
   if (value === null || value === undefined || value === "") return;
   changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
@@ -892,6 +935,15 @@ function itemPropertyEntries(draft) {
   if (effects.spellSaveDcBonus && !settingHasProgression(effectValues.spellSaveDcBonus)) add("Spell Save DC", `${signedValue(effectValues.spellSaveDcBonus?.bonus)} to Spell Save DC`, effectValues.spellSaveDcBonus?.availability);
   if (effects.passiveScoreBonus && !settingHasProgression(effectValues.passiveScoreBonus)) add("Passive Scores", formatRows(effectValues.passiveScoreBonus?.entries, row => `${titleCase(row.score)} ${signedValue(row.bonus)}`), effectValues.passiveScoreBonus?.availability);
 
+  for (const entry of draft.customImportedEffects ?? []) {
+    if (entry?.included === false) continue;
+    add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`);
+  }
+  for (const entry of draft.customImportedActivities ?? []) {
+    if (entry?.included === false || entry?.disabled) continue;
+    add("Imported Activity", `${entry.name || "Custom Activity"} (${entry.type || "activity"})`);
+  }
+
   return entries;
 }
 
@@ -1112,16 +1164,13 @@ export class ItemCreatorItemBuilder {
       data.system.damage.base.bonus = appendFormula(weaponStructuralBase.damageBaseBonus, damageBonusTier.bonus);
     }
 
-    const templateActivities = objectActivities(draft.template);
-    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
-    const managedPrimaryAttackId = draft.managedPrimaryAttackId ?? null;
-    const preservedActivities = Object.values(templateActivities).filter(activity => {
-      const id = activity?._id ?? activity?.id;
-      if (managedActivityIds.has(id)) return false;
-      if (activity?.type !== "attack") return true;
-      return Boolean(draft.preserveAdditionalAttackActivities && managedPrimaryAttackId && id !== managedPrimaryAttackId);
-    });
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
     const attack = primaryAttackData(draft.baseWeapon, draft.template);
+    attack.effects = valuesOf(attack.effects).map(reference => {
+      const sourceId = reference?._id ?? reference?.id;
+      const mappedId = importedCustom.effectIdMap.get(sourceId);
+      return mappedId ? { ...clone(reference), _id: mappedId } : clone(reference);
+    });
     attack.attack.ability = effective.attackAbility || "";
     attack.attack.type.value = effective.attackType || "";
     attack.attack.type.classification = "weapon";
@@ -1162,7 +1211,7 @@ export class ItemCreatorItemBuilder {
       }
     }
 
-    const provisionalActivities = [...preservedActivities, attack];
+    const provisionalActivities = [...importedCustom.activities, attack];
     data.system.activities = Object.fromEntries(provisionalActivities.map(activity => [activity._id, activity]));
 
     // Create an isolated provisional parent only when native Cast Activity models are needed.
@@ -1176,19 +1225,15 @@ export class ItemCreatorItemBuilder {
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
-    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
-    data.effects = objectEffects(draft.template).filter(effect =>
-      !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
-      const clean = clone(effect);
-      delete clean.origin;
-      return clean;
-    });
-    data.effects.push(...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {}));
+    data.effects = [
+      ...importedCustom.effects,
+      ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
+    ];
 
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
       moduleVersion: MODULE_VERSION,
       templateUuid: draft.template.uuid,
       baseWeaponUuid: draft.baseWeapon.uuid,
@@ -1221,6 +1266,9 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        customImportedEffects: draft.customImportedEffects,
+        customImportedActivities: draft.customImportedActivities,
+        importedBaseSummary: draft.importedBaseSummary,
         descriptionCustomized: draft.descriptionCustomized
       })
     };
@@ -1311,11 +1359,8 @@ export class ItemCreatorItemBuilder {
     if (removeStealthTier) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
     data.system.properties = [...new Set(data.system.properties)];
 
-    const templateActivities = objectActivities(template);
-    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
-    data.system.activities = Object.fromEntries(Object.values(templateActivities)
-      .filter(activity => !managedActivityIds.has(activity?._id ?? activity?.id))
-      .map(activity => [activity._id, cleanDocumentSource(activity)]));
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    data.system.activities = Object.fromEntries(importedCustom.activities.map(activity => [activity._id, activity]));
 
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     if (enhancements.grantedSpellcasting) {
@@ -1324,18 +1369,15 @@ export class ItemCreatorItemBuilder {
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
-    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
-    data.effects = objectEffects(template).filter(effect => !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
-      const clean = clone(effect);
-      delete clean.origin;
-      return clean;
-    });
-    data.effects.push(...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {}));
+    data.effects = [
+      ...importedCustom.effects,
+      ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
+    ];
 
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
       moduleVersion: MODULE_VERSION,
       itemType: "equipment",
       equipmentForm: draft.equipmentForm ?? "accessory",
@@ -1368,6 +1410,9 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        customImportedEffects: draft.customImportedEffects,
+        customImportedActivities: draft.customImportedActivities,
+        importedBaseSummary: draft.importedBaseSummary,
         descriptionCustomized: draft.descriptionCustomized
       })
     };
@@ -1450,12 +1495,8 @@ export class ItemCreatorItemBuilder {
     }
     data.system.properties = [...new Set(data.system.properties)];
 
-    const templateActivities = objectActivities(template);
-    const managedActivityIds = new Set(draft.managedActivityIds ?? []);
-    data.system.activities = Object.fromEntries(Object.values(templateActivities)
-      .filter(activity => activity?.type !== "attack")
-      .filter(activity => !managedActivityIds.has(activity?._id ?? activity?.id))
-      .map(activity => [activity._id, cleanDocumentSource(activity)]));
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    data.system.activities = Object.fromEntries(importedCustom.activities.map(activity => [activity._id, activity]));
 
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     const hasToolCheck = Object.values(data.system.activities).some(activity => activity?.type === "check");
@@ -1477,18 +1518,15 @@ export class ItemCreatorItemBuilder {
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
-    const managedEffectIds = new Set(draft.managedEffectIds ?? []);
-    data.effects = objectEffects(template).filter(effect => !managedEffectIds.has(effect?._id ?? effect?.id)).map(effect => {
-      const clean = clone(effect);
-      delete clean.origin;
-      return clean;
-    });
-    data.effects.push(...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {}));
+    data.effects = [
+      ...importedCustom.effects,
+      ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
+    ];
 
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
       moduleVersion: MODULE_VERSION,
       itemType: "tool",
       templateUuid: template.uuid,
@@ -1513,6 +1551,9 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        customImportedEffects: draft.customImportedEffects,
+        customImportedActivities: draft.customImportedActivities,
+        importedBaseSummary: draft.importedBaseSummary,
         descriptionCustomized: draft.descriptionCustomized
       })
     };
