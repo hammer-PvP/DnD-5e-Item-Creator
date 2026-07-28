@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.8e — Beta
+
+- Fixed native Spell Scroll creation failing with `Activity.dnd5escrollspell.spell.level: must be a number`.
+- Removed the disabled native level field plus duplicate hidden `level` input used by v0.1.8d.
+- Kept the native D&D5e level control enabled for `FormDataExtended` serialization while restricting it to the source Spell's base level.
+- Added defensive numeric normalization at D&D5e's pre-create and final Scroll-data hook boundaries, including the embedded Cast Activity level.
+- Kept Scroll Factory base-level only; no upcast option is exposed.
+- Removed the separate Scroll Factory button from the World Items Directory.
+- Added Scroll Factory as an available option beside Weapon, Equipment, and Tool on Item Creator's initial Choose Item Type screen.
+- Selecting Scroll Factory exits the standard six-stage draft and opens the dedicated native Scroll flow.
+- Preserved `game.itemCreator.openScrollFactory()` for internal integration and supported API access.
+- Updated the manifest, documentation, interface version, and release URL for tag `v0.1.8e`.
+
 ## 0.1.8d — Beta
 
 - Added a separate GM-only Scroll Factory button to the World Items Directory.

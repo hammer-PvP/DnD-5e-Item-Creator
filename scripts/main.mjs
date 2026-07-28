@@ -133,6 +133,9 @@ function injectItemDirectoryButton(app, element) {
   if (!header) return;
   const actions = header.querySelector(".header-actions, .action-buttons") ?? header;
 
+  // v0.1.8e consolidates Scroll Factory under the single Item Creator entry.
+  root.querySelectorAll(".ic-scroll-factory-button").forEach(button => button.remove());
+
   if (!root.querySelector(".ic-item-directory-button")) {
     const button = document.createElement("button");
     button.type = "button";
@@ -147,17 +150,4 @@ function injectItemDirectoryButton(app, element) {
     actions.append(button);
   }
 
-  if (!root.querySelector(".ic-scroll-factory-button")) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ic-scroll-factory-button";
-    button.dataset.tooltip = "Create native D&D5e Spell Scrolls in World Items";
-    button.innerHTML = '<i class="fa-solid fa-scroll" inert></i><span>Scroll Factory</span>';
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      openScrollFactory();
-    });
-    actions.append(button);
-  }
 }

@@ -2192,11 +2192,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
-  #selectType(event) {
+  async #selectType(event) {
     event.preventDefault();
     const button = event.currentTarget;
     if (button.disabled || button.dataset.available !== "true") return;
     const nextType = button.dataset.type;
+
+    if (nextType === "scrollFactory") {
+      if (this.editingItem) {
+        ui.notifications.warn("Close the current Item editing draft before opening Scroll Factory.");
+        return;
+      }
+      await this.close();
+      game.itemCreator?.openScrollFactory?.();
+      return;
+    }
+
     if (this.editingItem && nextType !== this.editingItem.type) {
       ui.notifications.warn("Editing cannot change the Foundry Item document type. Use Save as Copy from the original type instead.");
       return;

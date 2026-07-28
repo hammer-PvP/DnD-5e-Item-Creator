@@ -146,17 +146,24 @@ export class ScrollFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) 
       return;
     }
 
-    const baseLevel = Math.max(0, Number(spell.system?.level) || 0);
+    const sourceLevel = Number(spell.system?.level);
+    if (!Number.isFinite(sourceLevel)) {
+      ui.notifications.error("The selected Spell does not have a valid numeric Spell level.");
+      return;
+    }
+    const baseLevel = Math.max(0, Math.trunc(sourceLevel));
     this.busy = true;
     this.status = `Preparing a native Spell Scroll for ${spell.name}…`;
     this.render({ force: true });
 
     try {
-      const scroll = await ProtectedTransactionDialogService.runNativeModal({
-        matchClass: "create-scroll",
-        onRender: (_app, element) => this.#lockNativeLevel(rootElement(element, _app), baseLevel),
-        operation: () => ItemClass.createScrollFromSpell(spell, {}, { level: baseLevel })
-      });
+      const scroll = await this.#withLockedScrollLevel(spell, baseLevel, () =>
+        ProtectedTransactionDialogService.runNativeModal({
+          matchClass: "create-scroll",
+          onRender: (_app, element) => this.#lockNativeLevel(rootElement(element, _app), baseLevel),
+          operation: () => ItemClass.createScrollFromSpell(spell, {}, { level: baseLevel })
+        })
+      );
       if (!scroll) {
         this.status = "Scroll creation was cancelled.";
         return;
@@ -182,24 +189,86 @@ export class ScrollFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) 
     }
   }
 
+  async #withLockedScrollLevel(spell, baseLevel, operation) {
+    const normalizedLevel = Number(baseLevel);
+    if (!Number.isFinite(normalizedLevel)) throw new Error("The source Spell does not have a valid numeric level.");
+
+    const hookIds = [];
+    const register = (name, callback) => hookIds.push([name, Hooks.on(name, callback)]);
+
+    // D&D5e normally converts the dialog field to a Number. The Factory also
+    // normalizes at every native hook boundary so custom form controls or
+    // partial dialog renders can never leave CastActivity.spell.level as a
+    // string, an array, undefined, or NaN.
+    register("dnd5e.preCreateScrollFromCompendiumSpell", (_sourceSpell, config) => {
+      config.level = normalizedLevel;
+      config.values ??= {};
+    });
+    register("dnd5e.preCreateScrollFromSpell", (itemData, _options, config) => {
+      config.level = normalizedLevel;
+      config.values ??= {};
+      if (itemData?.system) itemData.system.level = normalizedLevel;
+    });
+    register("dnd5e.createScrollFromSpell", (_sourceSpell, scrollData, config) => {
+      config.level = normalizedLevel;
+      const activities = scrollData?.system?.activities ?? {};
+      for (const activity of Object.values(activities)) {
+        if (activity?.type !== "cast" || !activity.spell) continue;
+        activity.spell.level = normalizedLevel;
+      }
+    });
+
+    try {
+      return await operation();
+    } finally {
+      for (const [name, id] of hookIds) Hooks.off(name, id);
+    }
+  }
+
   #lockNativeLevel(root, baseLevel) {
     if (!root) return;
     const levelControl = root.querySelector('[name="level"]');
     if (!levelControl) return;
 
-    levelControl.value = String(baseLevel);
-    levelControl.disabled = true;
-    levelControl.dataset.tooltip = "Scroll Factory creates the Spell at its base level.";
+    const normalizedLevel = Number(baseLevel);
+    if (!Number.isFinite(normalizedLevel)) return;
+    const serializedLevel = String(normalizedLevel);
 
-    const fields = levelControl.closest(".form-fields") ?? levelControl.parentElement;
-    if (fields && !fields.querySelector('[data-scroll-factory-base-level]')) {
-      const hidden = document.createElement("input");
-      hidden.type = "hidden";
-      hidden.name = "level";
-      hidden.value = String(baseLevel);
-      hidden.dataset.scrollFactoryBaseLevel = "true";
-      fields.append(hidden);
+    // Keep the native field enabled so D&D5e's FormDataExtended and NumberField
+    // serialization remain intact. A disabled field plus a duplicate hidden
+    // field can serialize as a string/array and fail CastActivity validation.
+    levelControl.disabled = false;
+    levelControl.value = serializedLevel;
+    levelControl.dataset.tooltip = "Scroll Factory creates the Spell at its base level.";
+    levelControl.setAttribute("aria-label", "Spell base level");
+
+    if (levelControl instanceof HTMLSelectElement) {
+      for (const option of [...levelControl.options]) {
+        if (Number(option.value) !== normalizedLevel) option.remove();
+      }
+      if (![...levelControl.options].some(option => Number(option.value) === normalizedLevel)) {
+        levelControl.add(new Option(`Level ${normalizedLevel}`, serializedLevel, true, true));
+      }
+      levelControl.value = serializedLevel;
+    } else if (levelControl instanceof HTMLInputElement) {
+      levelControl.min = serializedLevel;
+      levelControl.max = serializedLevel;
+      levelControl.step = "1";
+      levelControl.readOnly = true;
     }
+
+    if (!levelControl.dataset.scrollFactoryLockBound) {
+      const restore = event => {
+        event.currentTarget.value = serializedLevel;
+      };
+      levelControl.addEventListener("input", restore);
+      levelControl.addEventListener("change", restore);
+      levelControl.dataset.scrollFactoryLockBound = "true";
+    }
+
+    // Remove the obsolete duplicate input from v0.1.8d if a partial rerender
+    // retained it in the dialog DOM.
+    root.querySelectorAll('[data-scroll-factory-base-level]').forEach(element => element.remove());
 
     const group = levelControl.closest(".form-group");
     if (group && !group.querySelector(".ic-scroll-native-level-note")) {

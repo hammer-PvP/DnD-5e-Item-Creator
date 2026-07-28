@@ -1,13 +1,19 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8d Beta  
+**Version:** 0.1.8e Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
 Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. It also includes a separate **Scroll Factory** that uses the native D&D5e Spell Scroll generator and saves the result directly to the World Items Directory. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
 
+## v0.1.8e Beta — Scroll Factory correction and unified entry point
+
+The World Items Directory now shows only the single **Item Creator** button. **Scroll Factory** appears inside the initial **Choose Item Type** screen beside Weapon, Equipment, and Tool. Selecting it closes the standard draft screen and opens the dedicated Scroll Factory flow, so the module keeps one clear World Items entry point without forcing Scrolls through the six-stage Item wizard.
+
+The native Scroll level control remains enabled for D&D5e form serialization, but only the source Spell's base-level option is available. The obsolete duplicate hidden `level` field from v0.1.8d was removed. The Factory also normalizes the level to a real Number before and after the native D&D5e Scroll hooks, including the embedded Cast Activity, preventing `Activity.dnd5escrollspell.spell.level` validation failures.
+
 ## v0.1.8d Beta — Scroll Factory
 
-A separate GM-only **Scroll Factory** button is available in the World Items Directory. Drop a Spell into the factory or select one through the native D&D5e Compendium Browser. The module then calls D&D5e's own `createScrollFromSpell` routine and opens the native Scroll creation dialog.
+In v0.1.8d, a separate GM-only **Scroll Factory** button was available in the World Items Directory. v0.1.8e moves this entry into the Item Creator type-selection screen. Drop a Spell into the factory or select one through the native D&D5e Compendium Browser. The module then calls D&D5e's own `createScrollFromSpell` routine and opens the native Scroll creation dialog.
 
 The native system remains responsible for the Scroll template, name, description, embedded Cast Activity, Save DC, Spell Attack Bonus, properties, uses, price, and other system data. After confirmation, the result is created as a World Item rather than being placed in an Actor inventory.
 
@@ -145,4 +151,4 @@ The canonical packaging rules are documented in [`RELEASE.md`](RELEASE.md). The 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8d Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8d/item-creator.zip`
+- v0.1.8e Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8e/item-creator.zip`
