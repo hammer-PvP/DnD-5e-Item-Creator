@@ -1,9 +1,11 @@
 import { MODULE_ID, MODULE_VERSION, defaultSourceSettings } from "./constants.mjs";
 import { ItemCreatorApp } from "./apps/item-creator-app.mjs";
 import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
+import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 
 let appInstance = null;
+let scrollFactoryInstance = null;
 
 Hooks.once("init", () => {
   ItemCreatorRuntimeEffectService.registerHooks();
@@ -31,6 +33,8 @@ Hooks.once("init", () => {
     get app() { return appInstance; },
     open: () => openItemCreator(),
     edit: item => openItemCreator({ item }),
+    openScrollFactory: () => openScrollFactory(),
+    get scrollFactory() { return scrollFactoryInstance; },
     version: MODULE_VERSION
   };
 });
@@ -99,6 +103,19 @@ function openItemCreator({ item = null } = {}) {
   return appInstance;
 }
 
+function openScrollFactory() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Scroll Factory.");
+
+  if (scrollFactoryInstance?.element?.isConnected) {
+    scrollFactoryInstance.bringToFront?.();
+    return scrollFactoryInstance;
+  }
+
+  scrollFactoryInstance = new ScrollFactoryApp();
+  scrollFactoryInstance.render({ force: true });
+  return scrollFactoryInstance;
+}
+
 function isItemDirectoryApp(app) {
   const name = String(app?.constructor?.name ?? "");
   const classes = app?.options?.classes ?? [];
@@ -111,19 +128,36 @@ function isItemDirectoryApp(app) {
 function injectItemDirectoryButton(app, element) {
   if (!game.user.isGM) return;
   const root = element instanceof HTMLElement ? element : element?.[0] ?? app?.element;
-  if (!root || root.querySelector(".ic-item-directory-button")) return;
+  if (!root) return;
   const header = root.querySelector(".directory-header") ?? root.querySelector("header");
   if (!header) return;
   const actions = header.querySelector(".header-actions, .action-buttons") ?? header;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "ic-item-directory-button";
-  button.dataset.tooltip = "Open assisted custom item creation";
-  button.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
-  button.addEventListener("click", event => {
-    event.preventDefault();
-    event.stopPropagation();
-    openItemCreator();
-  });
-  actions.append(button);
+
+  if (!root.querySelector(".ic-item-directory-button")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ic-item-directory-button";
+    button.dataset.tooltip = "Open assisted custom item creation";
+    button.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openItemCreator();
+    });
+    actions.append(button);
+  }
+
+  if (!root.querySelector(".ic-scroll-factory-button")) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ic-scroll-factory-button";
+    button.dataset.tooltip = "Create native D&D5e Spell Scrolls in World Items";
+    button.innerHTML = '<i class="fa-solid fa-scroll" inert></i><span>Scroll Factory</span>';
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openScrollFactory();
+    });
+    actions.append(button);
+  }
 }

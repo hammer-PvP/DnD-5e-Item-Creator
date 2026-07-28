@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.8d — Beta
+
+- Added a separate GM-only Scroll Factory button to the World Items Directory.
+- Added Spell drag-and-drop from compendiums, World Items, and Actor inventories into the Scroll Factory.
+- Added native D&D5e Compendium Browser selection restricted to Spell Items.
+- Reused D&D5e 5.3.3's native `Item.implementation.createScrollFromSpell` routine rather than recreating Spell Scroll rules or document structure.
+- Added the native D&D5e Scroll creation dialog for description detail, Save DC, and Spell Attack Bonus configuration.
+- Fixed Scroll creation to the selected Spell's base level; Scroll Factory does not apply upcasting.
+- Created confirmed Scrolls directly as World Items instead of owned Actor Items.
+- Added protected modal handling around the native Scroll dialog and protected processing during World Item creation.
+- Added duplicate-submit protection, invalid-drop validation, cancellation handling, success status, and a shortcut to open the last created Scroll.
+- Exposed `game.itemCreator.openScrollFactory()` for the module's own supported UI integration.
+- Updated the manifest, documentation, interface version, and release URL for tag `v0.1.8d`.
+
 ## 0.1.8c — Beta
 
 - Added complete normalization of Active Effects and Activities when selecting a compendium Base Item or editing an unmanaged World Item. Original embedded mechanics are interpreted as source data rather than copied invisibly into the final Item.

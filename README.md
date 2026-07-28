@@ -1,9 +1,19 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8c Beta  
+**Version:** 0.1.8d Beta  
 **Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
 
-Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
+Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. It also includes a separate **Scroll Factory** that uses the native D&D5e Spell Scroll generator and saves the result directly to the World Items Directory. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
+
+## v0.1.8d Beta — Scroll Factory
+
+A separate GM-only **Scroll Factory** button is available in the World Items Directory. Drop a Spell into the factory or select one through the native D&D5e Compendium Browser. The module then calls D&D5e's own `createScrollFromSpell` routine and opens the native Scroll creation dialog.
+
+The native system remains responsible for the Scroll template, name, description, embedded Cast Activity, Save DC, Spell Attack Bonus, properties, uses, price, and other system data. After confirmation, the result is created as a World Item rather than being placed in an Actor inventory.
+
+Scroll Factory creates one Scroll per confirmation and fixes the Scroll to the Spell's base level. The native dialog still allows the GM to choose the description detail and the native attack/save values. Drop sources may include compendiums, the Compendium Browser, World Items, and Actor Spell Items.
+
+The native Scroll dialog is wrapped by the module's protected modal layer so other windows cannot be focused or moved above it during the transaction. Final creation also uses the protected processing overlay.
 
 ## v0.1.8c Beta — Native Item normalization
 
@@ -112,7 +122,7 @@ Supports native Tool category, base tool, default ability, proficiency handling,
 
 ## Scope change
 
-Generic Consumable creation is no longer part of Item Creator. A future **Scroll Factory** will be a separate tool focused on producing valid Spell Scrolls directly in the World Items Directory.
+Generic Consumable creation is not part of Item Creator. **Scroll Factory** is implemented as a separate focused tool for producing valid Spell Scrolls directly in the World Items Directory through the native D&D5e generator.
 
 ## Runtime dependency
 
@@ -135,4 +145,4 @@ The canonical packaging rules are documented in [`RELEASE.md`](RELEASE.md). The 
 ## GitHub Releases
 
 - Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8c Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8c/item-creator.zip`
+- v0.1.8d Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8d/item-creator.zip`

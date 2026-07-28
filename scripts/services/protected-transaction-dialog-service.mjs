@@ -71,6 +71,77 @@ export class ProtectedTransactionDialogService {
     }
   }
 
+  static async runNativeModal({ matchClass, operation, onRender = null } = {}) {
+    if (!matchClass || !(operation instanceof Function)) {
+      throw new Error("Protected native modal requires matchClass and operation.");
+    }
+    if (this.#active) {
+      this.#sync(this.#active, true);
+      return null;
+    }
+
+    const active = {
+      key: `native:${matchClass}`,
+      matchClass,
+      app: null,
+      element: null,
+      blocked: new Map(),
+      released: false,
+      backdrop: this.#backdrop(),
+      renderHook: null,
+      pointerHandler: null,
+      focusHandler: null,
+      keyHandler: null,
+      submitting: false
+    };
+    this.#active = active;
+    document.body.append(active.backdrop);
+    document.body.classList.add("ic-protected-active");
+
+    active.pointerHandler = event => {
+      if (active.released || active.element?.contains?.(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.#sync(active, true);
+    };
+    active.focusHandler = event => {
+      if (active.released || active.element?.contains?.(event.target)) return;
+      event.stopImmediatePropagation();
+      this.#sync(active, true);
+    };
+    active.keyHandler = event => {
+      if (event.key !== "Escape") return;
+      if (active.element?.contains?.(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.#sync(active, true);
+    };
+    document.addEventListener("pointerdown", active.pointerHandler, true);
+    document.addEventListener("click", active.pointerHandler, true);
+    document.addEventListener("focusin", active.focusHandler, true);
+    document.addEventListener("keydown", active.keyHandler, true);
+
+    active.renderHook = Hooks.on("renderApplicationV2", app => {
+      const element = app?.element;
+      if (element?.classList?.contains(matchClass)) {
+        active.app = app;
+        active.element = element;
+        this.#unblock(active, element);
+        try { onRender?.(app, element); }
+        catch (error) { console.warn(`${MODULE_ID} | Protected native modal render callback failed.`, error); }
+        this.#sync(active, true);
+      }
+      this.#block(active);
+    });
+    this.#block(active);
+
+    try {
+      return await operation();
+    } finally {
+      this.#release(active);
+    }
+  }
+
   static async runProcessing({ title = "Creating Item…", message = "Building the Item, Activities, and Active Effects. Please wait.", operation } = {}) {
     if (!(operation instanceof Function)) throw new Error("A processing operation is required.");
     const overlay = document.createElement("div");
