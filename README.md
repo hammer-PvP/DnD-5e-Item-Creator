@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0b Beta
+**Version:** 0.2.0c Beta
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -168,7 +168,7 @@ Only explicit restrictions, artifacts, and major relics are normally hard-gated.
 
 ### HAMMER vendor presets
 
-- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, magical ammunition, and physical wondrous equipment.
+- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, and physical wondrous equipment. Enchanted ammunition is checked independently once per stock: when party progression permits it, there is a 50% chance to add exactly one +1/+2/+3 ammunition family while retaining its mundane stack.
 - **Alchemist / Herbalist** always carries thematic mundane kits, remedies, reagents, vessels, and field supplies; guarantees one level-appropriate healing-potion slot per party member; and adds thematic consumables, poisons, oils, powders, and preparations.
 - **Magic Assortment** always carries mundane arcane foci, component supplies, scribing tools, cases, ink, and related accessories; adds Spell Scrolls from the profile's source snapshot; and rolls magical implements, accessories, wondrous Items, low-weight armory curiosities, and Access-weighted relics.
 - **Gunsmith**, **General Trade**, and **Stable & Livestock** also use deterministic party-sized mundane catalogs appropriate to their themes.
@@ -189,7 +189,7 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0b Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
+The v0.2.0c Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
 
 The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
@@ -214,6 +214,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.2.0b package URL is:
+The v0.2.0c package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0b/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0c/item-creator.zip`

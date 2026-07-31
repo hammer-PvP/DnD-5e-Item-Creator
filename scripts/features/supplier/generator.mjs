@@ -1,5 +1,6 @@
 import { MODULE_ID } from "./constants.mjs";
 import {
+  ammunitionFamilyKey,
   buildCatalog,
   canonicalKey,
   entriesForProfile,
@@ -456,6 +457,8 @@ const STOCK_FAMILY_PATTERNS = Object.freeze([
 ]);
 
 function stockFamilyKey(entry) {
+  const ammunitionFamily = isAmmunitionEntry(entry) ? ammunitionFamilyKey(entry) : "";
+  if (ammunitionFamily) return `ammunition:${ammunitionFamily}`;
   if (entry.variantFamily) return `variant:${entry.variantFamily}`;
   const identity = normalizeText([
     entry.materializerFamily,
@@ -666,6 +669,12 @@ function applyQuality(rule, entries, configuration, level, players, warnings) {
     else if (rule.qualityMode === "party" && !pick.entry.isMagical) {
       pick.enhancement = weightedBonus(configuration, level, { positiveOnly: rule.requireMagicalResult === true });
     }
+  }
+
+  // A rule that explicitly promises a magical result must never degrade into
+  // a second mundane stack when the selected progression has no positive tier.
+  if (rule.requireMagicalResult === true) {
+    return picks.filter(pick => pick.entry.isMagical || Number(pick.enhancement ?? 0) > 0);
   }
 
   const eligible = picks.filter(pick => canReceiveSyntheticEnhancement(pick.entry));

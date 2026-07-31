@@ -140,13 +140,17 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
 
 export function isAmmunitionData(documentOrData) {
   const data = documentOrData?.toObject ? documentOrData.toObject() : documentOrData ?? {};
+  const type = String(data.type ?? "");
+  if (type === "spell") return false;
   const category = itemCategory(data);
+  if (["ammo", "ammunition"].includes(category)) {
+    return ["consumable", "loot", "equipment", "weapon"].includes(type);
+  }
+  if (!["consumable", "loot", "equipment"].includes(type)) return false;
   const identity = identityText(data);
-  return ["ammo", "ammunition"].includes(category)
-    || identity.includes("ammunition")
-    || identity.includes("arrow")
-    || identity.includes("crossbow-bolt")
-    || identity.includes("blowgun-needle")
-    || identity.includes("sling-bullet")
-    || identity.includes("bullet");
+  return /(?:^|-)arrows?(?:-|$)/.test(identity)
+    || /(?:^|-)crossbow-bolts?(?:-|$)/.test(identity)
+    || /(?:^|-)blowgun-needles?(?:-|$)/.test(identity)
+    || /(?:^|-)sling-bullets?(?:-|$)/.test(identity)
+    || identity === "ammunition";
 }

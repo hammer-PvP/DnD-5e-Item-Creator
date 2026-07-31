@@ -252,11 +252,29 @@ export function isVariantFamilyItem(entry) {
   return Boolean(entry?.variantFamily || entry?.materializerKind === "variant");
 }
 
+export function ammunitionFamilyKey(entry) {
+  if (!entry || String(entry.type ?? "") === "spell") return "";
+  const identity = normalizeText(`${entry.identifier ?? ""} ${entry.name ?? ""} ${entry.baseItem ?? ""}`);
+  if (/(?:^|-)crossbow-bolts?(?:-|$)/.test(identity) || /(?:^|-)bolts?(?:-|$)/.test(identity)) return "crossbow-bolt";
+  if (/(?:^|-)blowgun-needles?(?:-|$)/.test(identity) || /(?:^|-)needles?(?:-|$)/.test(identity)) return "blowgun-needle";
+  if (/(?:^|-)sling-bullets?(?:-|$)/.test(identity)) return "sling-bullet";
+  if (/(?:^|-)arrows?(?:-|$)/.test(identity)) return "arrow";
+  const explicitSubtype = normalizeText(entry.primarySubtypeKey ?? entry.subtype ?? "");
+  if (["ammo", "ammunition"].includes(explicitSubtype)) {
+    const identifier = normalizeText(entry.identifier ?? entry.name ?? "");
+    return identifier || "ammunition";
+  }
+  return "";
+}
+
 export function isAmmunitionEntry(entry) {
+  if (!entry || String(entry.type ?? "") === "spell") return false;
   const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
-  if (subtypeKeys.has("ammunition")) return true;
-  const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
-  return ["ammunition", "arrow", "crossbow-bolt", "blowgun-needle", "sling-bullet"].some(term => identity.includes(term));
+  if (subtypeKeys.has("ammunition")) {
+    return ["consumable", "loot", "equipment", "weapon"].includes(String(entry.type ?? ""));
+  }
+  if (!["consumable", "loot", "equipment"].includes(String(entry.type ?? ""))) return false;
+  return Boolean(ammunitionFamilyKey(entry));
 }
 
 export function isMaterializerItem(entry) {

@@ -498,9 +498,9 @@ export async function initializeDefaultSources() {
     changed = true;
   }
 
-  // Rebuild legacy HAMMER vendor snapshots once for the v3 stock architecture.
+  // Rebuild legacy HAMMER vendor snapshots once for the v4 ammunition architecture.
   // Names, selected sources, bans, and mechanical overrides are preserved.
-  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 3);
+  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 4);
   if (legacyHomebrew.length) {
     const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
     for (const legacy of legacyHomebrew) {

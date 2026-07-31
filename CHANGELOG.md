@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0c
+
+- Changed HAMMER Homebrew Blacksmith enchanted ammunition to a single independent 50% availability check per generated stock.
+- When the check succeeds and party progression unlocks a positive quality, exactly one ammunition family is selected and receives one +1, +2, or +3 variant.
+- The mundane ammunition stack always remains in stock; enchanted ammunition is additional and never replaces it.
+- Canonicalized Arrow, Crossbow Bolt, Blowgun Needle, and Sling Bullet families so duplicate source documents do not gain extra lottery tickets.
+- Removed enchanted ammunition from the general magical-slot competition to make its behavior deterministic and testable.
+- Hardened ammunition detection to reject Spell documents such as Cordon of Arrows, Melf's Acid Arrow, and Lightning Arrow.
+- Rebuilt protected HAMMER Homebrew profile snapshots once for the v4 ammunition architecture while preserving names, sources, progression selection, bans, and overrides.
+
 ## 0.2.0b — Beta
 
 ### Deterministic vendor catalogs and separate magical stock

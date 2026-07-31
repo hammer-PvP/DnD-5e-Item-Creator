@@ -9,7 +9,7 @@ import {
   materializeIdentityChanges
 } from "./naming.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.2.0b";
+export const MATERIALIZATION_ENGINE_VERSION = "0.2.0c";
 
 /**
  * HAMMER Materialization Core

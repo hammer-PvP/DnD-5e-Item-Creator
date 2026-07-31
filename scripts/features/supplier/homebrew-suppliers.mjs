@@ -229,7 +229,7 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     stockTotalMode: "fixed",
     stockTotal: 0,
     stockScaleBase: 4,
-    homebrewPresetVersion: 3,
+    homebrewPresetVersion: 4,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -255,7 +255,24 @@ function createBlacksmith(profile, access) {
     catalogRule({ name: "Mundane Smithing Wearables", category: "equipment", subtypes: ["clothing", "trinket", "wondrous"], quantityMode: "players", quantity: 1, curation: "blacksmithMundaneWearables", silentIfEmpty: true }),
     catalogRule({ name: "Mundane Ammunition", category: "consumable", subtypes: ["ammunition"], quantityMode: "players", quantity: 1, curation: "blacksmithAmmunition", silentIfEmpty: true })
   ];
-  profile.guaranteedRules = [];
+  profile.guaranteedRules = [
+    guaranteedRule({
+      name: "Enchanted Ammunition (50% Availability)",
+      category: "consumable",
+      subtypes: ["ammunition"],
+      quantityMode: "fixed",
+      quantity: 1,
+      qualityMode: "party",
+      magicalState: "mundane",
+      allowDuplicates: false,
+      curation: "blacksmithAmmunition",
+      chance: 50,
+      maxPerFamily: 1,
+      selectionDistribution: "ammunitionFamily",
+      silentIfEmpty: true,
+      requireMagicalResult: true
+    })
+  ];
 
   const enhancedWeight = [5.5, 4.5, 3.25, 2.25][access - 1];
   const namedWeaponWeight = [0.10, 0.75, 2.75, 4.5][access - 1];
@@ -266,7 +283,6 @@ function createBlacksmith(profile, access) {
     randomRule({ name: "Enhanced Weapons", category: "weapon", weight: enhancedWeight, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
     randomRule({ name: "Enhanced Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor"], weight: Math.max(1, enhancedWeight * 0.72), qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
     randomRule({ name: "Enhanced Shields", category: "equipment", subtypes: ["shield"], weight: Math.max(0.35, enhancedWeight * 0.18), qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
-    randomRule({ name: "Enhanced Ammunition", category: "consumable", subtypes: ["ammunition"], weight: Math.max(0.8, enhancedWeight * 0.35), qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithAmmunition", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
     randomRule({ name: "Named Magic Weapons", category: "weapon", subtypes: ["simpleM", "simpleR", "martialM", "martialR"], weight: namedWeaponWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", maxPerFamily: 1, silentIfEmpty: true }),
     randomRule({ name: "Named Magic Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: namedArmorWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", maxPerFamily: 1, silentIfEmpty: true }),
     randomRule({ name: "Physical Wondrous Gear", category: "equipment", subtypes: ["clothing", "trinket", "wondrous"], weight: wearableWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithWearables", maxPerFamily: 1, silentIfEmpty: true })
