@@ -200,7 +200,7 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
       const same = threshold !== null && critical.every(({ change }) => numeric(change.value) === threshold);
       if (same && setScalar("criticalThreshold", {
         threshold, scope: hasWeapon && hasSpell ? "all" : hasSpell ? "spell" : "weapon", availability
-      }, `Critical Hit Threshold: ${threshold}`)) use(...critical.map(entry => entry.index));
+      }, `Actor Critical Threshold: ${threshold}`)) use(...critical.map(entry => entry.index));
     }
 
     for (let index = 0; index < changes.length; index += 1) {

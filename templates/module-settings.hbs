@@ -1,0 +1,72 @@
+<section class="ic-settings-shell ic-module-settings-shell">
+  <header class="ic-settings-header">
+    <i class="fa-solid fa-gears"></i>
+    <div>
+      <span class="ic-kicker">GM Configuration</span>
+      <h1>Item Creator Configuration</h1>
+      <p>Manage optional features and the shared Materialization Core used by Item Creator and Supplier.</p>
+    </div>
+  </header>
+
+  <div class="ic-settings-scroll">
+    <section class="ic-settings-card">
+      <header>
+        <span class="ic-kicker">Optional Feature</span>
+        <h2>Supplier</h2>
+        <p>Enable the integrated stock generator. When disabled, Supplier hooks, catalog indexing, generation, pricing, and output services remain inactive.</p>
+      </header>
+      <label class="ic-settings-toggle">
+        <input type="checkbox" name="supplierEnabled" {{#if supplierEnabled}}checked{{/if}}>
+        <span><strong>Enable Supplier Tools</strong><small>Add Supplier to the Item Creator start screen and make its configuration available.</small></span>
+      </label>
+      {{#if standaloneSupplierActive}}
+      <p class="ic-mechanical-note"><i class="fa-solid fa-code-branch"></i> Standalone Supplier is also active. Its settings and windows remain separate during the transition, but future Supplier development belongs to Item Creator.</p>
+      {{/if}}
+      {{#if supplierEnabled}}
+      <button type="button" data-action="configure-supplier"><i class="fa-solid fa-store"></i> Configure Supplier</button>
+      {{else}}
+      <p class="ic-mechanical-note"><i class="fa-solid fa-circle-info"></i> Save after enabling Supplier, then reopen this menu to configure it.</p>
+      {{/if}}
+    </section>
+
+    <section class="ic-settings-card">
+      <header>
+        <span class="ic-kicker">Shared Library</span>
+        <h2>Materialization Core</h2>
+        <p>Defines the default rarity-price profile used by newly created magic Items and by Supplier fallbacks unless a Supplier progression profile overrides it.</p>
+      </header>
+      <div class="ic-core-version-row">
+        <span>Core Version <strong>{{coreVersion}}</strong></span>
+        <span>Pricing Schema <strong>{{pricingSchemaVersion}}</strong></span>
+      </div>
+      <div class="ic-settings-grid two-columns">
+        <fieldset>
+          <legend>Pricing Profile</legend>
+          <label><input type="radio" name="pricingProfile" value="official" {{#if (eq pricingProfile "official")}}checked{{/if}}> Official 2024 Template</label>
+          <label><input type="radio" name="pricingProfile" value="custom" {{#if (eq pricingProfile "custom")}}checked{{/if}}> Custom World Values</label>
+        </fieldset>
+        <label><span>Custom Profile Denomination</span><select name="denomination" {{#if (eq pricingProfile "official")}}disabled{{/if}}><option value="gp" {{#if (eq denomination "gp")}}selected{{/if}}>GP</option><option value="pp" {{#if (eq denomination "pp")}}selected{{/if}}>PP</option><option value="sp" {{#if (eq denomination "sp")}}selected{{/if}}>SP</option><option value="cp" {{#if (eq denomination "cp")}}selected{{/if}}>CP</option></select><small>The official profile always uses GP.</small></label>
+      </div>
+
+      <div class="ic-pricing-table">
+        <div class="ic-pricing-head"><strong>Rarity</strong><strong>Official</strong><strong>Custom</strong></div>
+        {{#each rarityRows}}
+        <div class="ic-pricing-row">
+          <strong>{{label}}</strong>
+          <span>{{#if priceless}}Priceless{{else}}{{official}} GP{{/if}}</span>
+          <input type="number" min="0" step="1" value="{{custom}}" data-custom-price="{{key}}" {{#unless (eq ../pricingProfile "custom")}}disabled{{/unless}} aria-label="Custom {{label}} price">
+        </div>
+        {{/each}}
+      </div>
+      <div class="ic-settings-actions-inline">
+        <button type="button" data-action="reset-prices"><i class="fa-solid fa-arrow-rotate-left"></i> Copy Official Values to Custom</button>
+        <button type="button" data-action="configure-sources"><i class="fa-solid fa-books"></i> Configure Item Creator Sources</button>
+      </div>
+    </section>
+  </div>
+
+  <footer class="ic-settings-footer">
+    <button type="button" data-action="cancel"><i class="fa-solid fa-xmark"></i> Cancel</button>
+    <button type="button" class="ic-primary-confirm" data-action="save"><i class="fa-solid fa-floppy-disk"></i> Save Configuration</button>
+  </footer>
+</section>

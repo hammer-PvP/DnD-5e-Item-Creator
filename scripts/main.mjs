@@ -1,11 +1,29 @@
 import { MODULE_ID, MODULE_VERSION, defaultSourceSettings } from "./constants.mjs";
 import { ItemCreatorApp } from "./apps/item-creator-app.mjs";
 import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
+import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
+import { MaterializationCore } from "./core/materialization/index.mjs";
+import {
+  getMaterializationSettings,
+  priceForRarity,
+  registerMaterializationSettings
+} from "./core/materialization/pricing.mjs";
+import { SupplierApplication } from "./features/supplier/supplier-app.mjs";
+import { SupplierConfigApplication } from "./features/supplier/config-app.mjs";
+import {
+  initializeDefaultSources,
+  isSupplierEnabled,
+  registerSupplierSettings
+} from "./features/supplier/settings.mjs";
 
 let appInstance = null;
 let scrollFactoryInstance = null;
+let supplierInstance = null;
+let supplierConfigInstance = null;
+let sourceSettingsInstance = null;
+let moduleSettingsInstance = null;
 
 Hooks.once("init", () => {
   ItemCreatorRuntimeEffectService.registerHooks();
@@ -18,6 +36,18 @@ Hooks.once("init", () => {
     config: false,
     type: Object,
     default: defaultSourceSettings()
+  });
+
+  registerMaterializationSettings();
+  registerSupplierSettings();
+
+  game.settings.registerMenu(MODULE_ID, "moduleConfiguration", {
+    name: "Item Creator Configuration",
+    label: "Configure Item Creator",
+    hint: "Manage optional Supplier tools and the shared Materialization Core pricing profile.",
+    icon: "fa-solid fa-gears",
+    type: ItemCreatorModuleSettingsApp,
+    restricted: true
   });
 
   game.settings.registerMenu(MODULE_ID, "contentSources", {
@@ -35,8 +65,26 @@ Hooks.once("init", () => {
     edit: item => openItemCreator({ item }),
     openScrollFactory: () => openScrollFactory(),
     get scrollFactory() { return scrollFactoryInstance; },
+    openSupplier: () => openSupplier(),
+    configureSupplier: () => openSupplierConfiguration(),
+    closeSupplier: () => closeSupplierWindows(),
+    configureSources: () => openSourceSettings(),
+    configure: () => openModuleSettings(),
+    get supplier() { return supplierInstance; },
+    get supplierEnabled() { return isSupplierEnabled(); },
+    materialization: MaterializationCore,
+    pricing: {
+      get: () => getMaterializationSettings(),
+      forRarity: rarity => priceForRarity(rarity)
+    },
     version: MODULE_VERSION
   };
+});
+
+Hooks.once("ready", async () => {
+  if (isSupplierEnabled()) await initializeDefaultSources();
+  const module = game.modules.get(MODULE_ID);
+  if (module) module.api = game.itemCreator;
 });
 
 Hooks.on("renderApplicationV2", (app, element) => {
@@ -45,7 +93,6 @@ Hooks.on("renderApplicationV2", (app, element) => {
 
 Hooks.on("renderItemDirectory", (app, html) => injectItemDirectoryButton(app, html));
 Hooks.on("getItemContextOptions", (_application, options) => addEditContextOption(options));
-// Legacy directory hooks remain registered as harmless compatibility fallbacks.
 Hooks.on("getItemDirectoryEntryContext", (_html, options) => addEditContextOption(options));
 Hooks.on("getItemDirectoryEntryContextOptions", (_app, options) => addEditContextOption(options));
 
@@ -105,15 +152,66 @@ function openItemCreator({ item = null } = {}) {
 
 function openScrollFactory() {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Scroll Factory.");
-
   if (scrollFactoryInstance?.element?.isConnected) {
     scrollFactoryInstance.bringToFront?.();
     return scrollFactoryInstance;
   }
-
   scrollFactoryInstance = new ScrollFactoryApp();
   scrollFactoryInstance.render({ force: true });
   return scrollFactoryInstance;
+}
+
+function openSupplier() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Supplier.");
+  if (!isSupplierEnabled()) return ui.notifications.warn("Enable Supplier Tools in Item Creator Configuration first.");
+  if (supplierInstance?.element?.isConnected) {
+    supplierInstance.bringToFront?.();
+    return supplierInstance;
+  }
+  supplierInstance = new SupplierApplication();
+  supplierInstance.render({ force: true });
+  return supplierInstance;
+}
+
+function openSupplierConfiguration() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can configure Supplier.");
+  if (!isSupplierEnabled()) return ui.notifications.warn("Enable Supplier Tools and save Item Creator Configuration first.");
+  if (supplierConfigInstance?.element?.isConnected) {
+    supplierConfigInstance.bringToFront?.();
+    return supplierConfigInstance;
+  }
+  supplierConfigInstance = new SupplierConfigApplication();
+  supplierConfigInstance.render({ force: true });
+  return supplierConfigInstance;
+}
+
+function openSourceSettings() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can configure Item Creator.");
+  if (sourceSettingsInstance?.element?.isConnected) {
+    sourceSettingsInstance.bringToFront?.();
+    return sourceSettingsInstance;
+  }
+  sourceSettingsInstance = new ItemCreatorSettingsApp();
+  sourceSettingsInstance.render({ force: true });
+  return sourceSettingsInstance;
+}
+
+function openModuleSettings() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can configure Item Creator.");
+  if (moduleSettingsInstance?.element?.isConnected) {
+    moduleSettingsInstance.bringToFront?.();
+    return moduleSettingsInstance;
+  }
+  moduleSettingsInstance = new ItemCreatorModuleSettingsApp();
+  moduleSettingsInstance.render({ force: true });
+  return moduleSettingsInstance;
+}
+
+function closeSupplierWindows() {
+  supplierInstance?.close?.();
+  supplierConfigInstance?.close?.();
+  supplierInstance = null;
+  supplierConfigInstance = null;
 }
 
 function isItemDirectoryApp(app) {
@@ -133,14 +231,13 @@ function injectItemDirectoryButton(app, element) {
   if (!header) return;
   const actions = header.querySelector(".header-actions, .action-buttons") ?? header;
 
-  // v0.1.8e consolidates Scroll Factory under the single Item Creator entry.
-  root.querySelectorAll(".ic-scroll-factory-button").forEach(button => button.remove());
+  root.querySelectorAll(".ic-scroll-factory-button, .ic-supplier-directory-button").forEach(button => button.remove());
 
   if (!root.querySelector(".ic-item-directory-button")) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ic-item-directory-button";
-    button.dataset.tooltip = "Open assisted custom item creation";
+    button.dataset.tooltip = "Open Item Creator, Scroll Factory, or Supplier";
     button.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
     button.addEventListener("click", event => {
       event.preventDefault();
@@ -149,5 +246,4 @@ function injectItemDirectoryButton(app, element) {
     });
     actions.append(button);
   }
-
 }

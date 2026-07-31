@@ -1,154 +1,202 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.1.8e Beta  
-**Compatibility:** Foundry VTT 14 / D&D5e 5.3.3
+**Version:** 0.2.0 Beta  
+**Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
-Item Creator is a GM-facing assisted interface for creating and editing custom D&D5e **Weapons, Equipment, and Tools**. It also includes a separate **Scroll Factory** that uses the native D&D5e Spell Scroll generator and saves the result directly to the World Items Directory. Installed compendiums are source references for native document structure, base values, icons, and linked Spells. The native Foundry/D&D5e Create Item workflow remains unchanged.
+Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
 
-## v0.1.8e Beta — Scroll Factory correction and unified entry point
+- **Item Creator** for Weapons, Equipment, and Tools;
+- **Scroll Factory** for native D&D5e Spell Scrolls;
+- **Supplier** for configurable merchant stock generation;
+- **Materialization Core** shared by manual creation, pricing, and automatic stock materialization.
 
-The World Items Directory now shows only the single **Item Creator** button. **Scroll Factory** appears inside the initial **Choose Item Type** screen beside Weapon, Equipment, and Tool. Selecting it closes the standard draft screen and opens the dedicated Scroll Factory flow, so the module keeps one clear World Items entry point without forcing Scrolls through the six-stage Item wizard.
+The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
-The native Scroll level control remains enabled for D&D5e form serialization, but only the source Spell's base-level option is available. The obsolete duplicate hidden `level` field from v0.1.8d was removed. The Factory also normalizes the level to a real Number before and after the native D&D5e Scroll hooks, including the embedded Cast Activity, preventing `Activity.dnd5escrollspell.spell.level` validation failures.
+## Unified entry point
 
-## v0.1.8d Beta — Scroll Factory
+The World Items Directory receives one GM-only **Item Creator** button. Its start screen provides:
 
-In v0.1.8d, a separate GM-only **Scroll Factory** button was available in the World Items Directory. v0.1.8e moves this entry into the Item Creator type-selection screen. Drop a Spell into the factory or select one through the native D&D5e Compendium Browser. The module then calls D&D5e's own `createScrollFromSpell` routine and opens the native Scroll creation dialog.
+- Weapon;
+- Equipment;
+- Tool;
+- Scroll Factory;
+- Supplier, when the optional Supplier feature is enabled.
 
-The native system remains responsible for the Scroll template, name, description, embedded Cast Activity, Save DC, Spell Attack Bonus, properties, uses, price, and other system data. After confirmation, the result is created as a World Item rather than being placed in an Actor inventory.
+Scroll Factory and Supplier open their own dedicated interfaces rather than entering the six-stage Item wizard.
 
-Scroll Factory creates one Scroll per confirmation and fixes the Scroll to the Spell's base level. The native dialog still allows the GM to choose the description detail and the native attack/save values. Drop sources may include compendiums, the Compendium Browser, World Items, and Actor Spell Items.
+## Item Creator
 
-The native Scroll dialog is wrapped by the module's protected modal layer so other windows cannot be focused or moved above it during the transaction. Final creation also uses the protected processing overlay.
+The assisted Item workflow is:
 
-## v0.1.8c Beta — Native Item normalization
+1. Item Type;
+2. Base Item;
+3. Enhancements;
+4. Granted Effects;
+5. Description;
+6. Review.
 
-Base Items from compendiums and existing World Items are now translated into the Item Creator data model before the final Item is built. Native Active Effects and Activities are treated as source mechanics rather than copied hidden documents.
+Base Items may come from enabled compendiums, existing World Items, or custom data. The final document is created directly in the World Items Directory. Existing supported World Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy.
 
-Recognized mechanics fill the normal editable fields. A combined native Effect is split into independent Creator properties. For example, the D&D5e **Cloak of Protection** Effect becomes:
+### Supported Item types
 
-- Armor Class Bonus: +1;
-- All Saving Throws Bonus: +1.
+#### Weapon
 
-Editing either field replaces that translated mechanic instead of silently stacking a second copy. Recognized imported fields can use the same `Unlock on Level` and Progression Tier controls as manually configured properties.
+Supports native weapon data, Base Weapon inheritance, Attack Activity construction, damage, range, properties, Mastery, weapon enchantment, additional damage, Granted Effects, Granted Spellcasting, and character-level progression.
 
-### Custom imported mechanics
+#### Equipment
 
-Unrecognized Effect changes and Activities are not discarded. They become **Custom Imported Effects** or **Custom Imported Activities** in the Creator draft. Each entry includes a technical-data view and controls to:
+Supports armor, shields, robes, clothing, cloaks, headwear, amulets, gloves, rings, boots, belts, foci, accessories, and other Equipment. Armor-only fields remain restricted to Armor and Shield forms.
 
-- keep it in the final Item;
-- create an Effect as disabled;
-- exclude an Activity from the final Item while retaining it in the saved draft;
-- remove the imported entry explicitly.
+#### Tool
 
-The original embedded documents are discarded during the build. The final Item receives newly generated, normalized Effects and Activities with fresh IDs, including remapped Activity-to-Effect references. This prevents old native mechanics from remaining hidden and accumulating with newly configured Creator effects.
+Supports native Tool category, base tool, default ability, proficiency handling, Tool Check Bonus, quantity, weight, price, magical rarity, optional Attunement, Granted Effects, Granted Spellcasting, and character-level progression. A Tool never receives weapon attacks, weapon damage, Mastery, range, Weapon Enhancement, or armor calculation fields.
 
-The Base Item screen shows the mechanics found during translation. Review separates converted properties, custom imported Effects, custom imported Activities, and newly configured Creator properties. The generated Item description also includes the resulting fixed properties and level progression.
+## Critical Threshold scope
 
-## v0.1.8b Beta — Items that grow with characters
+The interface separates two mechanically different features:
 
-Every supported Item type can now contain mechanics that unlock according to the owning Actor's **total character level**. Multiclass characters use the sum of all class levels; Item progression never reads a specific class level.
+- **Weapon Critical Threshold** is a Weapon Enhancement and changes only attacks made with that Weapon;
+- **Actor Critical Threshold** is a Granted Effect and changes the Actor's weapon attacks, spell attacks, or all attacks according to **Applies To** and the configured availability.
 
-Compatible Enhancements, Granted Effects, Additional Damage rows, and Granted Spells include an **Unlock on Level** control. The level requirement is combined with the normal availability rule:
+This avoids presenting a weapon-local attack property as though it were the same as an Actor-wide passive effect.
 
-- Item is Owned;
-- Equipped;
-- Equipped and Attuned.
+## Native Effect and Activity normalization
 
-Both requirements must be satisfied before the mechanic becomes active.
+When a Base Item contains native Active Effects or Activities, Item Creator translates recognized mechanics into its editable data model before building the new Item.
 
-### Replacement progression tiers
+A combined Effect can be separated into independent properties. For example, a single native Effect granting `+1 Armor Class` and `+1 to all Saving Throws` becomes two editable Creator fields. The original embedded document is not copied alongside the normalized result, preventing invisible duplication.
 
-Supported numeric mechanics can add **Progression Tiers**. Tiers in the same group replace one another rather than stacking:
+Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. Activity-to-Effect references are remapped to fresh IDs when the normalized Item is created.
 
-```text
-Level 3  → +1 Spell Save DC
-Level 7  → +2 Spell Save DC
-Level 13 → +3 Spell Save DC
-```
+## Granted Effects
 
-At level 7 the result is `+2`, not `+3`. Independent effects and independent Additional Damage rows remain separate and can stack normally.
+Weapons, Equipment, and Tools may grant Actor-facing bonuses including:
 
-Progression tiers are available for:
+- Armor Class;
+- Weapon Attack and Damage Rolls;
+- Spell Attack and Spell Save DC;
+- Ability Scores, Saving Throws, Ability Checks, and Skills;
+- Initiative, Proficiency Bonus, and Maximum Hit Points;
+- resistances, immunities, vulnerabilities, and condition immunities;
+- movement, senses, passive scores, and critical thresholds;
+- Conditional Advantage and Ignore Resistance;
+- Granted Spellcasting.
 
-- Weapon Enhancement and Armor Enhancement;
-- Additional Damage;
-- Armor Class Bonus;
-- Weapon Attack Roll Bonus and Weapon Damage Roll Bonus;
-- Initiative Bonus;
-- Proficiency Bonus Modifier;
-- Maximum Hit Points Bonus;
-- Spell Attack Bonus and Spell Save DC Bonus.
+Availability can be configured as:
 
-All other compatible mechanics can still use a single Unlock on Level requirement.
+- **Owned**;
+- **Equipped**;
+- **Equipped and Attuned**.
 
-### Dynamic reconciliation
+`Equipped` may also be used as a simple manual switch for roleplay-controlled effects.
 
-The runtime recalculates the active stage when:
+## Level-based Item progression
 
-- a class level or total Actor level changes;
-- an Item is added, removed, or updated;
-- the Item is equipped or unequipped;
-- Attunement changes;
-- an Actor is imported;
-- the world loads or the module is re-enabled.
-
-Progression works both upward and downward. Reducing an Actor's level restores the previous eligible tier or removes the mechanic when no tier is eligible. Managed updates are recalculated from the stored baseline so repeated hooks do not accumulate bonuses, damage dice, Active Effects, or Spellbook entries.
-
-### Generated Item description
-
-The GM's flavor text remains at the top of `system.description.value`. Item Creator appends and maintains two generated sections below it:
-
-- **Item Properties** for fixed mechanics;
-- **Level Progression** for evolving mechanics.
+Weapons, Equipment, and Tools can unlock or improve mechanics according to the owning Actor's **total character level**, including multiclass characters.
 
 Example:
 
 ```text
-Weapon Attack Roll Bonus
-[Level 3 — +1 to attack rolls]
-[Level 7 — +2 to attack rolls]
+Level 3  — +1 to attack rolls
+Level 7  — +2 to attack rolls
+Level 13 — +3 to attack rolls
 ```
 
-The complete progression is stored on the Item and remains visible regardless of the current Actor level. Editing and saving regenerates the managed sections without duplicating them or changing manual flavor text.
+Progression tiers in the same group replace earlier tiers rather than stacking with them. At level 7, the example grants a total of `+2`, not `+3`.
 
-## Supported Item types
+The runtime reconciles progression when levels, Items, equipment state, Attunement, or the world state changes. Progression also works downward when an Actor's level is reduced.
 
-### Weapon
+The GM's flavor text remains at the top of the Item description. Item Creator maintains generated **Item Properties** and **Level Progression** sections below it without duplicating them during later edits.
 
-Supports native weapon structure, Base Weapon inheritance, damage, range, properties, Mastery, Weapon Enhancement, Additional Damage, Granted Effects, and Granted Spellcasting.
+## Granted Spellcasting
 
-### Equipment
+Items can grant existing Spells with independent uses, recovery, slot consumption, cast level, spellcasting calculation, Spellbook visibility, availability, and level requirements.
 
-Supports armor, shields, robes and clothing, cloaks, headwear, amulets, gloves, rings, boots, belts, foci, accessories, and other Equipment. Armor-only fields remain restricted to Armor and Shield forms.
+Adding the first granted Spell marks the Item as magical. It does not automatically add a `+1`, `+2`, or `+3` enchantment and does not require Attunement unless the GM chooses those options separately.
 
-### Tool
+## Rarity and pricing
 
-Supports native Tool category, base tool, default ability, proficiency handling, Tool Check Bonus, quantity, weight, price, magical rarity, optional Attunement, Granted Effects, and Granted Spellcasting. Tools never receive weapon attacks, weapon damage, Mastery, range, Weapon Enhancement, or armor calculation fields.
+The selected Rarity is written to the native `system.rarity` field and appears in the final D&D5e Item header and Review.
 
-## Scope change
+The shared Materialization Core provides two world-level pricing profiles:
 
-Generic Consumable creation is not part of Item Creator. **Scroll Factory** is implemented as a separate focused tool for producing valid Spell Scrolls directly in the World Items Directory through the native D&D5e generator.
+- **Official 2024 Template**: Common 100 GP, Uncommon 400 GP, Rare 4,000 GP, Very Rare 40,000 GP, Legendary 200,000 GP, and Artifact as Priceless;
+- **Custom World Values**: GM-defined values and denomination.
+
+A newly created magical Item can receive the configured rarity price automatically. A manual price entered by the GM takes priority. Existing official or source-specific magic Item prices are preserved unless the GM explicitly replaces them through Item editing. Scroll Factory keeps the native price generated by D&D5e.
+
+## Scroll Factory
+
+Scroll Factory accepts a Spell dropped from a compendium, World Items, or an Actor, and also supports selection through the native D&D5e Compendium Browser.
+
+The factory calls the native D&D5e Spell Scroll generator. D&D5e remains responsible for the Scroll structure, embedded Cast Activity, Save DC, Spell Attack Bonus, uses, properties, and price. The result is created directly in the World Items Directory rather than an Actor inventory.
+
+Scrolls use the Spell's base level and do not offer upcasting. Generated Scrolls remain compatible with native D&D5e use and supported Scribe Spell workflows.
+
+## Optional Supplier
+
+Supplier is integrated but disabled by default. Enable it through:
+
+**Configure Settings → Item Creator Configuration → Enable Supplier Tools**
+
+When disabled, the Supplier card is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
+
+When enabled, **Configure Supplier** exposes the complete Supplier configuration:
+
+- Compendium Sources and source priority;
+- Supplier Profiles and editable Homebrew Suppliers;
+- Access Levels;
+- party-level rarity, spell-level, and enchantment progression;
+- mundane catalog, guaranteed stock, and random stock;
+- weighted pools, local curation, profile bans, and mechanical-document policy;
+- materializers, blueprints, variant families, price fallbacks, and output settings;
+- stock preview, confirmation, Folder creation, quantity stacking, and diagnostics.
+
+Current Homebrew models include Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, and Stable & Livestock.
+
+Supplier may use the shared Materialization Core rarity prices or disable that option and use the fallback values stored in its own progression profiles.
+
+## Materialization Core
+
+The internal Core is headless: it receives source data, a Base Item when required, resolved choices, and progression constraints, then returns validated Item data and diagnostics without creating a World document itself.
+
+It distinguishes:
+
+- sellable Items;
+- enhancement generators;
+- Base Item blueprints;
+- concrete variant families;
+- mechanical documents that should not normally enter merchant stock.
+
+The v0.2.0 integration includes focused handling for official generator and blueprint families, compatible-base validation, RollTable choices, canonical idempotent naming, ammunition represented by multiple native Item types, and concrete Wand of the War Mage variants.
+
+## Supplier standalone transition
+
+The previous standalone Supplier settings are not imported. The standalone project was not publicly released and the integrated Supplier starts with a clean configuration under the Item Creator namespace.
+
+The standalone module can remain installed during development without sharing settings or Application IDs, but it is now redundant. Future Supplier and Materialization Core development belongs to Item Creator.
 
 ## Runtime dependency
 
-Items remain valid D&D5e Item documents when the module is disabled. Native names, images, descriptions, properties, damage, Activities, uses, and recovery data remain stored.
+Created Items remain valid native D&D5e documents when Item Creator is disabled. Names, images, descriptions, properties, damage, Activities, uses, recovery, rarity, and price remain stored.
 
-The module must be active for dynamic behavior such as level progression, conditional Spellbook visibility, runtime Granted Effects, Ignore Resistance, Conditional Advantage, and reconciliation between Actor Item copies. Disabling the module can leave the last reconciled Actor state in place until the module is enabled again.
+The module must remain active for dynamic behavior such as level progression, conditional Spellbook visibility, runtime Granted Effects, Ignore Resistance, Conditional Advantage, and Actor-copy reconciliation. Disabling the module may leave the last reconciled Actor state in place until it is enabled again.
 
 ## Installation
 
-Install through Foundry using the manifest URL after the GitHub Release is published:
+Manifest URL:
 
 `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
 
-For manual installation, extract the contents of `item-creator.zip` into `Data/modules/dnd5e-item-creator`, then enable **Item Creator (DnD 5e)** in the world.
+For manual installation, extract `item-creator.zip` into `Data/modules/dnd5e-item-creator` with `module.json` directly inside that folder.
 
-## Release packaging
+## Release assets
 
-The canonical packaging rules are documented in [`RELEASE.md`](RELEASE.md). The installable archive is always named `item-creator.zip`, with module files directly at the ZIP root.
+Every GitHub Release publishes exactly:
 
-## GitHub Releases
+- `module.json`;
+- `item-creator.zip`.
 
-- Manifest: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
-- v0.1.8e Beta package: `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.1.8e/item-creator.zip`
+The v0.2.0 package URL is:
+
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0/item-creator.zip`

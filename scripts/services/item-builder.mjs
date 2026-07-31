@@ -1,7 +1,62 @@
 import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
 import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
+import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
+import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
+
+function finalizeRarityAndPricing(data, draft) {
+  data.system ??= {};
+  data.system.identified = data.system.identified !== false;
+  const rarity = normalizeRarityKey(data.system.rarity);
+  if (rarity === "none") {
+    data.system.rarity = "";
+    return { mode: "none", rarity: "none", applied: false };
+  }
+  data.system.rarity = rarity;
+
+  const manualPrice = draft?.customized?.price === true;
+  const templatePrice = Math.max(0, Number(draft?.template?.system?.price?.value ?? 0) || 0);
+  const templateRarity = normalizeRarityKey(draft?.template?.system?.rarity);
+  const templateMagical = templateRarity !== "none" || valuesOf(draft?.template?.system?.properties).includes("mgc");
+
+  if (manualPrice) {
+    return {
+      mode: "manual",
+      rarity,
+      applied: false,
+      value: Math.max(0, Number(data.system.price?.value ?? 0) || 0),
+      denomination: data.system.price?.denomination || "gp"
+    };
+  }
+  if (templateMagical && templatePrice > 0) {
+    return {
+      mode: "native",
+      rarity,
+      applied: false,
+      value: templatePrice,
+      denomination: data.system.price?.denomination || draft?.template?.system?.price?.denomination || "gp"
+    };
+  }
+
+  const result = applyRarityPrice(data, { force: true, preserveExisting: false });
+  return {
+    mode: result.priceless ? "priceless" : "rarity-profile",
+    rarity,
+    ...result
+  };
+}
+
+
+function finalizeCoreIdentity(data) {
+  const resolved = canonicalizeItemName(data?.name, { fallbackName: data?.name });
+  if (resolved.ok) data.name = resolved.name;
+  return {
+    version: MATERIALIZATION_ENGINE_VERSION,
+    mode: "manual-builder",
+    canonicalName: resolved.ok
+  };
+}
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -362,7 +417,7 @@ function buildGrantedEffects(enabled, values) {
     const scope = values.criticalThreshold?.scope ?? "all";
     if (scope === "all" || scope === "weapon") addChange(changes, "flags.dnd5e.weaponCriticalThreshold", MODES().DOWNGRADE, threshold);
     if (scope === "all" || scope === "spell") addChange(changes, "flags.dnd5e.spellCriticalThreshold", MODES().DOWNGRADE, threshold);
-    addEffect("criticalThreshold", "Critical Hit Threshold", values.criticalThreshold.availability, changes);
+    addEffect("criticalThreshold", "Actor Critical Threshold", values.criticalThreshold.availability, changes);
   }
 
   if (enabled.passiveScoreBonus) {
@@ -858,7 +913,7 @@ function itemPropertyEntries(draft) {
   if (enhancements.criticalThreshold && !settingHasProgression(enhancementValues.criticalThreshold)) {
     const setting = enhancementValues.criticalThreshold ?? {};
     const threshold = Number(setting.mode === "custom" ? setting.custom : setting.mode) || 20;
-    add("Critical Hit Range", threshold === 20 ? "Critical hit on a 20" : `Critical hit on ${threshold}–20`);
+    add("Weapon Critical Threshold", threshold === 20 ? "Critical hit on a 20 with this Weapon" : `Critical hit on ${threshold}–20 with this Weapon`);
   }
   if (enhancements.extraCriticalDamage && !settingHasProgression(enhancementValues.extraCriticalDamage)) {
     const setting = enhancementValues.extraCriticalDamage ?? {};
@@ -888,7 +943,7 @@ function itemPropertyEntries(draft) {
     const setting = effectValues.criticalThreshold ?? {};
     const threshold = Number(setting.threshold) || 20;
     const scope = setting.scope === "weapon" ? "weapon attacks" : setting.scope === "spell" ? "spell attacks" : "weapon and spell attacks";
-    add("Critical Hit Threshold", `Critical hit on ${threshold === 20 ? "20" : `${threshold}–20`} for ${scope}`, setting.availability);
+    add("Actor Critical Threshold", `Critical hit on ${threshold === 20 ? "20" : `${threshold}–20`} for ${scope}`, setting.availability);
   }
   if (effects.savingThrowBonus && !settingHasProgression(effectValues.savingThrowBonus)) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
     ? `${signedValue(row.bonus)} to all saving throws`
@@ -1230,11 +1285,15 @@ export class ItemCreatorItemBuilder {
       ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
     ];
 
+    const pricing = finalizeRarityAndPricing(data, draft);
+    const materializationCore = finalizeCoreIdentity(data);
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       moduleVersion: MODULE_VERSION,
+      materializationCore: plain(materializationCore),
+      pricing: plain(pricing),
       templateUuid: draft.template.uuid,
       baseWeaponUuid: draft.baseWeapon.uuid,
       editedFromUuid: draft.editingSourceUuid ?? null,
@@ -1374,11 +1433,15 @@ export class ItemCreatorItemBuilder {
       ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
     ];
 
+    const pricing = finalizeRarityAndPricing(data, draft);
+    const materializationCore = finalizeCoreIdentity(data);
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       moduleVersion: MODULE_VERSION,
+      materializationCore: plain(materializationCore),
+      pricing: plain(pricing),
       itemType: "equipment",
       equipmentForm: draft.equipmentForm ?? "accessory",
       templateUuid: template.uuid,
@@ -1523,11 +1586,15 @@ export class ItemCreatorItemBuilder {
       ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
     ];
 
+    const pricing = finalizeRarityAndPricing(data, draft);
+    const materializationCore = finalizeCoreIdentity(data);
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       moduleVersion: MODULE_VERSION,
+      materializationCore: plain(materializationCore),
+      pricing: plain(pricing),
       itemType: "tool",
       templateUuid: template.uuid,
       baseToolUuid: baseTool.uuid,

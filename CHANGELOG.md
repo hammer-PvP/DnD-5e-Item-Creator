@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.2.0 — Beta
+
+### Unified module
+
+- Incorporated the complete Supplier v0.0.2e feature set into Item Creator as an optional internal feature.
+- Added a world setting named **Enable Supplier Tools**, disabled by default.
+- Hid the Supplier start-screen card and skipped Supplier catalog initialization while the feature is disabled.
+- Added **Configure Supplier** inside Item Creator Configuration when Supplier is enabled.
+- Kept one GM-only Item Creator button in the World Items Directory; Supplier and Scroll Factory are accessed from the unified start screen.
+- Moved all integrated Supplier settings and flags into the `dnd5e-item-creator` namespace without migrating the unpublished standalone Supplier namespace.
+- Assigned unique integrated Supplier Application IDs so the development standalone module can remain installed without an Application ID collision.
+
+### Materialization Core
+
+- Moved the Materialization Core into Item Creator as the canonical shared internal library.
+- Added a headless `materialize` contract that returns validated Item data and diagnostics without directly creating World documents.
+- Exposed the Core through `game.itemCreator.materialization` and the module API.
+- Added shared canonical naming and rarity-pricing services used by manual Item creation and Supplier materialization.
+- Added Materialization Core version/schema information to Item Creator Configuration and created Items.
+- Classified documents as sellable Items, generators, blueprints, variant families, or mechanical documents.
+- Added concrete Variant Family handling for Wand of the War Mage +1, +2, and +3 rather than treating the family as an armor blueprint.
+- Classified Helm of Brilliance as a self-contained sellable Item even though it contains internal Activities/Effects.
+- Matched native D&D5e Enchant restrictions for type, category, properties, and magical-base validation.
+- Added focused compatibility resolvers for Efreeti Chain, Armor of Vulnerability, Vorpal weapons, Flame Tongue, Life Stealing, Adamantine Armor, Mithral Armor, and Armor of Resistance.
+- Added RollTable selection normalization for damage types and other blueprint choices.
+- Added idempotent final-name composition, placeholder rejection, repeated suffix cleanup, and duplicate enhancement cleanup.
+- Resolved Item identity changes into concrete Item data before final validation so names, rarity, price, type, and magical bonuses are not applied twice by retained Effects.
+- Added ammunition materialization for `consumable`, `loot`, and `equipment` source representations while preserving quantity and ammunition subtype.
+- Added readable Supplier price-origin labels for materialized blueprints, concrete variants, and Priceless artifacts.
+
+### Shared rarity pricing
+
+- Added an **Official 2024 Template** with Common 100 GP, Uncommon 400 GP, Rare 4,000 GP, Very Rare 40,000 GP, Legendary 200,000 GP, and Artifact as Priceless.
+- Added a **Custom World Values** profile with editable rarity values and denomination.
+- Kept the official profile fixed to GP while allowing a custom denomination for custom world values.
+- Added Supplier's **Use Materialization Core rarity prices** toggle; disabling it restores Supplier progression-profile fallback values.
+- Preserved source-specific official magic Item prices and manual Item Creator price overrides.
+- Stored automatic/manual/native price origin in Item Creator flags and displayed final price plus origin in Review.
+- Preserved zero-price Priceless artifacts rather than forcing them to 1 GP.
+
+### Item Creator corrections
+
+- Renamed the Weapon Enhancement field to **Weapon Critical Threshold** and clarified that it affects only attacks made with that Weapon.
+- Renamed the Granted Effect to **Actor Critical Threshold** and preserved its Actor-wide `Applies To` scope and availability rules.
+- Corrected final Rarity persistence through native `system.rarity` for Weapons, Equipment, and Tools.
+- Added Rarity and automatic price output to the final native Item data, Review, generated descriptions, and stored pricing metadata.
+- Kept Scroll Factory native pricing and native D&D5e Spell Scroll generation unchanged.
+
+### Supplier preservation and refinement
+
+- Preserved Compendium Sources, Supplier Profiles, Homebrew Suppliers, Access Levels, progression profiles, mundane catalog, guaranteed stock, random stock, weighted pools, local curation, bans, mechanical-document policy, output settings, preview, Folder creation, quantity stacking, and generation diagnostics.
+- Preserved the approved Access I, Access II, Access III, and Custom visual tags.
+- Preserved Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, and Stable & Livestock Homebrew models.
+- Expanded ammunition detection and kept firearm ammunition in Gunsmith-oriented pools.
+- Added concrete-variant filtering by party progression, allowed rarity, and maximum enhancement.
+- Kept Supplier commercial policy separate from the headless Materialization Core.
+
+### Compatibility
+
+- Updated Foundry VTT `compatibility.verified` to `14.365` without raising the module's minimum requirement or adding a maximum.
+- Kept D&D5e compatibility declared separately at the tested 5.3.3 baseline.
+
 ## 0.1.8e — Beta
 
 - Fixed native Spell Scroll creation failing with `Activity.dnd5escrollspell.spell.level: must be a number`.

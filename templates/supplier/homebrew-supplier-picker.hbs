@@ -1,0 +1,60 @@
+<div class="supplier-homebrew-shell">
+  <header class="supplier-homebrew-header">
+    <div>
+      <h1>{{localize "DND5E_SUPPLIER.Homebrew.CreateSupplier"}}</h1>
+      <p>{{localize "DND5E_SUPPLIER.Homebrew.CreateSupplierHint"}}</p>
+    </div>
+    <span class="supplier-homebrew-badge"><i class="fa-solid fa-hammer"></i> HAMMER Homebrew</span>
+  </header>
+
+  <label class="supplier-field supplier-homebrew-name">
+    <span>{{localize "DND5E_SUPPLIER.Homebrew.SupplierName"}}</span>
+    <input type="text" name="supplierName" value="{{name}}" placeholder="{{localize 'DND5E_SUPPLIER.Homebrew.SupplierNamePlaceholder'}}">
+  </label>
+
+  <div class="supplier-homebrew-mode-grid">
+    <button type="button" class="supplier-homebrew-mode {{#if blankMode}}selected{{/if}}" data-mode="blank">
+      <i class="fa-solid fa-file-circle-plus"></i>
+      <span><strong>{{localize "DND5E_SUPPLIER.Homebrew.CreateBlank"}}</strong><small>{{localize "DND5E_SUPPLIER.Homebrew.CreateBlankHint"}}</small></span>
+    </button>
+    <button type="button" class="supplier-homebrew-mode {{#if homebrewMode}}selected{{/if}}" data-mode="homebrew">
+      <i class="fa-solid fa-wand-magic-sparkles"></i>
+      <span><strong>{{localize "DND5E_SUPPLIER.Homebrew.LoadHomebrew"}}</strong><small>{{localize "DND5E_SUPPLIER.Homebrew.LoadHomebrewHint"}}</small></span>
+    </button>
+  </div>
+
+  {{#if homebrewMode}}
+    <section class="supplier-homebrew-library">
+      <div class="supplier-card-title-row">
+        <div><h2>{{localize "DND5E_SUPPLIER.Homebrew.Library"}}</h2><p>{{localize "DND5E_SUPPLIER.Homebrew.LibraryHint"}}</p></div>
+      </div>
+      <div class="supplier-homebrew-template-grid">
+        {{#each templates}}
+          <button type="button" class="supplier-homebrew-template {{themeClass}} {{#if selected}}selected{{/if}}" data-template-id="{{id}}">
+            <span class="supplier-theme-icon"><i class="{{icon}}"></i>{{#if secondaryIcon}}<i class="{{secondaryIcon}} secondary"></i>{{/if}}</span>
+            <span><strong>{{label}}</strong><small>{{description}}</small></span>
+            {{#if selected}}<i class="fa-solid fa-circle-check supplier-homebrew-selected"></i>{{/if}}
+          </button>
+        {{/each}}
+      </div>
+    </section>
+
+    <section class="supplier-homebrew-access">
+      <div class="supplier-card-title-row">
+        <div><h2>{{localize "DND5E_SUPPLIER.Homebrew.AccessLevel"}}</h2><p>{{localize "DND5E_SUPPLIER.Homebrew.AccessLevelHint"}}</p></div>
+      </div>
+      <div class="supplier-homebrew-access-grid">
+        {{#each accessLevels}}
+          <button type="button" class="supplier-homebrew-access-card {{#if selected}}selected{{/if}}" data-access-level="{{value}}">
+            <strong>{{label}}</strong><small>{{description}}</small>
+          </button>
+        {{/each}}
+      </div>
+    </section>
+  {{/if}}
+
+  <footer class="supplier-homebrew-footer">
+    <p><i class="fa-solid fa-circle-info"></i>{{localize "DND5E_SUPPLIER.Homebrew.EditAfterCreate"}}</p>
+    <button type="button" class="supplier-primary" data-action="create-supplier"><i class="fa-solid fa-store"></i>{{localize "DND5E_SUPPLIER.Homebrew.Create"}}</button>
+  </footer>
+</div>

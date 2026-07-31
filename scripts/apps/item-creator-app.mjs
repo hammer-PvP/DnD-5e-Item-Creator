@@ -1452,9 +1452,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       name: activity.name || localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type),
       type: localizedLabel(CONFIG.DND5E.activityTypes?.[activity.type], activity.type), img: activity.img || reviewItem?.img
     }));
+    const reviewPricing = reviewItem?.flags?.[MODULE_ID]?.pricing ?? {};
+    const reviewPriceValue = Math.max(0, Number(reviewItem?.system?.price?.value ?? 0) || 0);
+    const reviewPriceDenomination = String(reviewItem?.system?.price?.denomination || "gp").toUpperCase();
     const reviewInventory = reviewItem ? {
       name: reviewItem.name, img: reviewItem.img, type: itemTypeLabel,
       rarity: localizedLabel(CONFIG.DND5E.itemRarity?.[reviewItem.system?.rarity], reviewItem.system?.rarity || "Mundane"),
+      price: reviewPricing.mode === "priceless" ? "Priceless" : `${reviewPriceValue} ${reviewPriceDenomination}`,
+      priceMode: ({ manual: "Manual", native: "Native Item", "rarity-profile": "Rarity Profile", priceless: "Priceless", none: "Unpriced" })[reviewPricing.mode] ?? "Item Data",
       attunement: reviewItem.system?.attunement ? localizedLabel(CONFIG.DND5E.attunementTypes?.[reviewItem.system.attunement], reviewItem.system.attunement) : "None",
       quantity: reviewItem.system?.quantity ?? 1,
       damage: isWeapon ? displayDamage(effective?.baseDamage, damageTypeLabel) : null,
@@ -1492,7 +1497,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       editMode: Boolean(this.editingItem), editingManagedItem: this.editingManagedItem,
       editingImportedItem: this.editingImportedItem, editingItemName: this.editingItem?.name ?? "",
       step: this.step, steps,
-      itemTypes: ITEM_TYPES.map(type => ({ ...type, selected: type.id === this.selectedType })),
+      itemTypes: ITEM_TYPES
+        .filter(type => type.feature !== "supplier" || game.itemCreator?.supplierEnabled === true)
+        .map(type => ({
+          ...type,
+          selected: type.id === this.selectedType
+        })),
       selectedType: this.selectedType, isWeapon, isEquipment, isTool, itemTypeLabel,
       weaponCount: manualTemplateCount, templateOptionGroups, templateCategoryOptions,
       templateCategory: this.templateCategory, selectedWeapon, selectedBaseWeapon,
@@ -2205,6 +2215,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
       await this.close();
       game.itemCreator?.openScrollFactory?.();
+      return;
+    }
+
+    if (nextType === "supplier") {
+      if (this.editingItem) {
+        ui.notifications.warn("Close the current Item editing draft before opening Supplier.");
+        return;
+      }
+      await this.close();
+      game.itemCreator?.openSupplier?.();
       return;
     }
 

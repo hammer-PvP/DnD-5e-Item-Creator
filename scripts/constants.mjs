@@ -1,12 +1,13 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.1.8e";
+export const MODULE_VERSION = "0.2.0";
 export const MODULE_STAGE = "Beta";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },
   { id: "equipment", label: "Equipment", icon: "fa-shield-halved", available: true },
   { id: "tool", label: "Tool", icon: "fa-hammer", available: true },
-  { id: "scrollFactory", label: "Scroll Factory", icon: "fa-scroll", available: true }
+  { id: "scrollFactory", label: "Scroll Factory", icon: "fa-scroll", available: true },
+  { id: "supplier", label: "Supplier", icon: "fa-store", available: true, feature: "supplier" }
 ]);
 
 export const STEPS = Object.freeze([
