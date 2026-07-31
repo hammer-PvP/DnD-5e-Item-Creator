@@ -312,7 +312,8 @@
       "MinimumVendorAccess": "Minimum vendor access",
       "MaximumVendorAccess": "Maximum vendor access",
       "MaximumPerFamily": "Maximum per family",
-      "AvailabilityControlsHint": "Use 0 for no access limit or no family cap. Access is separate from rarity and party-level progression."
+      "AvailabilityControlsHint": "Use 0 for no access limit or no family cap. Access is separate from rarity and party-level progression.",
+      "ConfigureShortcut": "Configure Supplier Profiles"
     },
     "Errors": {
       "NoCatalog": "No enabled Item compendium produced a usable catalog. Configure Supplier sources first.",
@@ -470,22 +471,22 @@
       "AccessLevel": "Supplier Access Level",
       "AccessLevelHint": "Access controls commercial reach, restricted families, and relic availability. Party level controls power and quality; party size controls quantity.",
       "Access1": "Access I",
-      "Access1Hint": "Small or modest establishment with focused stock.",
+      "Access1Hint": "Mostly mundane stock, with only a minimal exceptional chance when party level permits it.",
       "Access2": "Access II",
-      "Access2Hint": "Established supplier with broader availability.",
+      "Access2Hint": "Established supplier with a small but visible selection of special merchandise.",
       "Access3": "Access III",
-      "Access3Hint": "Large or specialized supplier with broad stock and access to ordinary legendary merchandise.",
+      "Access3Hint": "Large or specialized supplier with a moderate, consistent variety of special merchandise.",
       "EditAfterCreate": "The created profile is a normal editable Supplier. Loading a Homebrew model never locks its rules.",
       "Create": "Create Supplier",
       "Blacksmith": "Blacksmith",
       "BlacksmithHint": "Weapons, armor, shields, ammunition, and level-based enhancements.",
-      "BlacksmithDescription": "HAMMER Homebrew blacksmith with mundane combat equipment, guaranteed coverage, and level-based enhancement rolls.",
+      "BlacksmithDescription": "HAMMER Homebrew blacksmith with a complete mundane combat catalog plus separate magical slots for enhancements, named equipment, and physical wondrous gear.",
       "Alchemist": "Alchemist / Herbalist",
       "AlchemistHint": "Healing potions, potions, poisons, oils, powders, and alchemical consumables.",
-      "AlchemistDescription": "HAMMER Homebrew alchemist and herbalist with one healing-potion slot per player plus varied consumables.",
+      "AlchemistDescription": "HAMMER Homebrew alchemist and herbalist with a complete mundane support catalog, one healing-potion slot per player, and varied consumables.",
       "MagicAssortment": "Magic Assortment",
       "MagicAssortmentHint": "Spell Scrolls, rings, trinkets, clothing, wands, rods, and wondrous items.",
-      "MagicAssortmentDescription": "HAMMER Homebrew arcane supplier focused on Spell Scrolls and magical equipment subtypes.",
+      "MagicAssortmentDescription": "HAMMER Homebrew arcane supplier with mundane arcane supplies, Spell Scrolls, implements, accessories, and wondrous items.",
       "GeneralTrade": "General Trade",
       "GeneralTradeHint": "Complete mundane adventuring, camping, tool, kit, food, water, and container stock.",
       "GeneralTradeDescription": "HAMMER Homebrew trading post with broad mundane supplies and no magical stock.",
@@ -499,12 +500,14 @@
       "AccessCustom": "Custom",
       "AccessCustomHint": "Custom Supplier profile. Its rules may no longer match a HAMMER Homebrew access preset.",
       "Access4": "Access IV",
-      "Access4Hint": "Exceptional supplier with the broadest commercial reach, including major relics and tightly restricted merchandise when party level permits it."
+      "Access4Hint": "Exceptional supplier with broad special stock, major relics, and tightly restricted merchandise when party level permits it.",
+      "SourceSnapshotNotice": "This profile copies the Content Sources enabled now. Enable the desired PHB, DMG, system, or module packs before creating or importing it."
     },
     "Materialization": {
       "Blueprint": "Blueprint resolved",
       "Generator": "Generated model",
-      "Variant": "Concrete variant"
+      "Enhancement": "Enhanced item",
+      "Variant": "Variant resolved"
     },
     "DocumentNature": {
       "Sellable": "Sellable",

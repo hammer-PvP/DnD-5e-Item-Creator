@@ -136,6 +136,31 @@ const FIREARM_SUPPLY_TERMS = [
 let catalogCache = null;
 let cacheSignature = "";
 
+function effectRarities(record) {
+  const effects = record?.effects;
+  const values = Array.isArray(effects)
+    ? effects
+    : effects && typeof effects.values === "function"
+      ? [...effects.values()]
+      : effects && typeof effects === "object"
+        ? Object.values(effects)
+        : [];
+  const rarities = new Set();
+  for (const effect of values) {
+    const changes = Array.isArray(effect?.changes)
+      ? effect.changes
+      : Array.isArray(effect?.system?.changes)
+        ? effect.system.changes
+        : [];
+    for (const change of changes) {
+      if (String(change?.key ?? "") !== "system.rarity") continue;
+      const rarity = normalizeRarity(change?.value);
+      if (rarity && !["none", "varies"].includes(rarity)) rarities.add(rarity);
+    }
+  }
+  return [...rarities];
+}
+
 export function normalizeText(value) {
   return String(value ?? "")
     .normalize("NFD")
@@ -231,7 +256,7 @@ export function isAmmunitionEntry(entry) {
   const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
   if (subtypeKeys.has("ammunition")) return true;
   const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
-  return ["ammunition", "arrow", "crossbow-bolt", "blowgun-needle"].some(term => identity.includes(term));
+  return ["ammunition", "arrow", "crossbow-bolt", "blowgun-needle", "sling-bullet"].some(term => identity.includes(term));
 }
 
 export function isMaterializerItem(entry) {
@@ -448,12 +473,16 @@ function mergeEntryGroup(group) {
   const subtypeKeys = [];
   const subtypeAliases = [];
   const familyIds = new Set();
+  const materializerRarities = new Set();
   for (const variant of group) {
     for (const key of variant.subtypeKeys ?? [variant.primarySubtypeKey]) {
       if (key && !subtypeKeys.includes(key)) subtypeKeys.push(key);
     }
     if (variant.subtype && !subtypeAliases.includes(variant.subtype)) subtypeAliases.push(variant.subtype);
     for (const familyId of variant.familyIds ?? []) familyIds.add(familyId);
+    for (const rarity of variant.materializerRarities ?? []) materializerRarities.add(normalizeRarity(rarity));
+    const sourceRarity = normalizeRarity(variant.rarity);
+    if (variant.variantConcrete === true && !["none", "varies"].includes(sourceRarity)) materializerRarities.add(sourceRarity);
   }
 
   const variantFamily = group.find(entry => entry.variantFamily)?.variantFamily ?? "";
@@ -483,6 +512,7 @@ function mergeEntryGroup(group) {
     subtypeKeys,
     subtypeAliases,
     familyIds: [...familyIds],
+    materializerRarities: [...materializerRarities],
     variantFamily,
     variantFamilyInfo: variantRule,
     variantConcrete: false,
@@ -522,6 +552,7 @@ function mergeEntryGroup(group) {
       subtype: variant.subtype,
       subtypeKey: variant.primarySubtypeKey,
       rarity: variant.rarity,
+      materializerRarities: [...(variant.materializerRarities ?? [])],
       enhancement: variant.enhancement,
       priceValue: variant.priceValue,
       priceDenomination: variant.priceDenomination,
@@ -624,6 +655,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
         img: record.img,
         identifier: foundry.utils.getProperty(record, "system.identifier") ?? "",
         rarity,
+        materializerRarities: effectRarities(record),
         subtype,
         primarySubtypeKey,
         subtypeKeys: primarySubtypeKey ? [primarySubtypeKey] : [],
@@ -724,10 +756,11 @@ export function isBannedEntry(entry, profile, configuration = getConfiguration()
 
 export function entriesForProfile(catalog, profile, configuration = getConfiguration(), { includeBanned = false, includeMechanical = false } = {}) {
   const sourceIds = new Set(profile?.sourceIds ?? []);
+  const sourceSnapshot = profile?.sourceSnapshot === true;
   const entries = [];
   for (const group of catalog.grouped.values()) {
     const variants = group.filter(entry => {
-      if (sourceIds.size && !sourceIds.has(entry.packId)) return false;
+      if ((sourceSnapshot || sourceIds.size) && !sourceIds.has(entry.packId)) return false;
       if (!includeBanned && isBannedEntry(entry, profile, configuration)) return false;
       if (!includeMechanical && isMechanicalItemExcluded(entry, profile, configuration)) return false;
       return true;

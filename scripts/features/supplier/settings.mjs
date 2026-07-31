@@ -199,13 +199,15 @@ function normalizeRule(rule, defaults) {
   migrated.quantityMax = Number(migrated.quantityMax ?? 1);
   migrated.fixedBonus = Number(migrated.fixedBonus ?? 1);
   migrated.enchantedMinimum = Number(migrated.enchantedMinimum ?? 0);
-  migrated.randomWeight = Math.max(0.1, Number(migrated.randomWeight ?? 1));
+  migrated.randomWeight = Math.max(0.001, Number(migrated.randomWeight ?? 1));
   migrated.chance = Math.min(100, Math.max(0, Number(migrated.chance ?? 100)));
   migrated.minimumVendorAccess = Math.min(4, Math.max(0, Number(migrated.minimumVendorAccess ?? 0)));
   migrated.maximumVendorAccess = Math.min(4, Math.max(0, Number(migrated.maximumVendorAccess ?? 0)));
   migrated.maxPerFamily = Math.max(0, Number(migrated.maxPerFamily ?? 0));
   migrated.rarityDistribution = String(migrated.rarityDistribution ?? "");
   migrated.selectionDistribution = String(migrated.selectionDistribution ?? "");
+  migrated.silentIfEmpty = migrated.silentIfEmpty === true;
+  migrated.requireMagicalResult = migrated.requireMagicalResult === true;
   migrated.stockScaleBase = Math.max(1, Number(migrated.stockScaleBase ?? 4));
   migrated.coverageMode = migrated.coverageMode === "rolls" ? "slots" : (migrated.coverageMode ?? "slots");
 
@@ -243,7 +245,7 @@ function migrateRandomRule(rule, profileTheme) {
   const migrated = normalizeRule(rule, createDefaultRandomRule());
   migrated.quantityMode = "remainder";
   migrated.countsTowardTotal = false;
-  migrated.randomWeight = Math.max(0.1, Number(rule?.randomWeight ?? 1));
+  migrated.randomWeight = Math.max(0.001, Number(rule?.randomWeight ?? 1));
 
   const looksLikeLegacyPotionDefault =
     String(rule?.name ?? "") === "Random Stock"
@@ -391,6 +393,7 @@ function migrateConfiguration(stored) {
       customIcon,
       icon: theme === "custom" ? customIcon : iconForTheme(theme, customIcon),
       sourceIds: arrayValue(profile.sourceIds),
+      sourceSnapshot: profile.sourceSnapshot === true,
       progressionProfileId: String(profile.progressionProfileId ?? "world"),
       homebrewTemplateId: String(profile.homebrewTemplateId ?? ""),
       homebrewAccessLevel: ["1", "2", "3", "4"].includes(String(profile.homebrewAccessLevel)) ? String(profile.homebrewAccessLevel) : "2",
@@ -490,14 +493,14 @@ export async function initializeDefaultSources() {
 
   const enabledIds = configuration.sources.filter(source => source.enabled).map(source => source.id);
   for (const profile of configuration.profiles) {
-    if (profile.sourceIds?.length) continue;
+    if (profile.sourceSnapshot === true || profile.sourceIds?.length) continue;
     profile.sourceIds = [...enabledIds];
     changed = true;
   }
 
-  // Rebuild only legacy built-in Hammer vendor profiles once. User-created
-  // duplicates carrying the current preset version remain fully editable.
-  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 2);
+  // Rebuild legacy HAMMER vendor snapshots once for the v3 stock architecture.
+  // Names, selected sources, bans, and mechanical overrides are preserved.
+  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 3);
   if (legacyHomebrew.length) {
     const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
     for (const legacy of legacyHomebrew) {
@@ -508,6 +511,8 @@ export async function initializeDefaultSources() {
         sourceIds: legacy.sourceIds?.length ? legacy.sourceIds : enabledIds
       });
       rebuilt.id = legacy.id;
+      rebuilt.sourceSnapshot = true;
+      rebuilt.progressionProfileId = legacy.progressionProfileId ?? rebuilt.progressionProfileId;
       rebuilt.bannedItems = foundry.utils.deepClone(legacy.bannedItems ?? []);
       rebuilt.mechanicalItemOverrides = foundry.utils.deepClone(legacy.mechanicalItemOverrides ?? []);
       const index = configuration.profiles.indexOf(legacy);

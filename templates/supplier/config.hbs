@@ -217,7 +217,7 @@
                                 {{/if}}
                               {{/if}}
                               {{#if showRandomWeight}}
-                                <label class="supplier-field random-weight-field"><span>{{localize "DND5E_SUPPLIER.Config.RandomPoolWeight"}}</span><input type="number" min="0.1" step="0.1" data-path="{{path}}.randomWeight" value="{{randomWeight}}"><small>{{localize "DND5E_SUPPLIER.Config.RandomPoolWeightHint"}}</small></label>
+                                <label class="supplier-field random-weight-field"><span>{{localize "DND5E_SUPPLIER.Config.RandomPoolWeight"}}</span><input type="number" min="0.001" step="0.01" data-path="{{path}}.randomWeight" value="{{randomWeight}}"><small>{{localize "DND5E_SUPPLIER.Config.RandomPoolWeightHint"}}</small></label>
                               {{/if}}
                             {{/if}}
                           </div>

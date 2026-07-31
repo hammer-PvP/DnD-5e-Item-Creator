@@ -273,6 +273,17 @@ function damageTypeOptions() {
   return output;
 }
 
+const DIRECT_RESISTANCE_TYPES = Object.freeze([
+  "acid", "cold", "fire", "force", "lightning",
+  "necrotic", "poison", "psychic", "radiant", "thunder"
+]);
+
+function directResistanceSelection() {
+  const key = DIRECT_RESISTANCE_TYPES[Math.floor(Math.random() * DIRECT_RESISTANCE_TYPES.length)];
+  const option = damageTypeOptions().get(normalize(key)) ?? { key, label: key.charAt(0).toUpperCase() + key.slice(1) };
+  return selectionFromText(option.label, { value: option.key, kind: "damageType", source: "direct-percentage" });
+}
+
 function selectionFromText(text, extra = {}) {
   const raw = String(text ?? "").trim();
   const normalized = normalize(raw);
@@ -477,19 +488,11 @@ async function chooseProfilePair(blueprintData, activity, {
     pairs = matches;
   }
 
-  let tableResult = forcedSelection
+  const tableResult = forcedSelection
     ? selectionFromText(forcedSelection.text ?? forcedSelection.label ?? forcedSelection.value ?? forcedSelection, forcedSelection)
-    : isResistanceBlueprint(blueprintData)
-      ? directResistanceSelection(blueprintData)
+    : isArmorOfResistanceBlueprint(blueprintData)
+      ? directResistanceSelection()
       : await rollLinkedTable(blueprintData, blueprintDocument);
-
-  // Resistance blueprints must never survive as unresolved generic templates.
-  // When the source RollTable is absent, inaccessible, or returns generic text,
-  // choose directly from the official resistance types with equal percentage.
-  // This keeps the Core headless and avoids depending on a RollTable roll.
-  if ((!tableResult || tableResult.kind !== "damageType") && isResistanceBlueprint(blueprintData)) {
-    tableResult = directResistanceSelection(blueprintData);
-  }
   if (tableResult?.normalized) {
     const matched = pairs.find(pair => pairMatchesSelection(pair, tableResult));
     if (matched) return { pair: matched, tableResult, reason: "tableProfile" };
@@ -572,30 +575,6 @@ function isArmorOfResistanceBlueprint(blueprintData) {
   return identity.includes("armor-of-resistance") || identity.includes("armadura-de-resistencia");
 }
 
-const DIRECT_RESISTANCE_TYPES = Object.freeze([
-  ["acid", "Acid"],
-  ["cold", "Cold"],
-  ["fire", "Fire"],
-  ["force", "Force"],
-  ["lightning", "Lightning"],
-  ["necrotic", "Necrotic"],
-  ["poison", "Poison"],
-  ["psychic", "Psychic"],
-  ["radiant", "Radiant"],
-  ["thunder", "Thunder"]
-]);
-
-function directResistanceSelection(blueprintData) {
-  if (!isResistanceBlueprint(blueprintData)) return null;
-  const [value, label] = DIRECT_RESISTANCE_TYPES[Math.floor(Math.random() * DIRECT_RESISTANCE_TYPES.length)];
-  return selectionFromText(label, {
-    value,
-    label,
-    kind: "damageType",
-    source: "direct-percentage"
-  });
-}
-
 function resolvedArmorResistanceDescription(blueprintData, selection) {
   if (!selection || selection.kind !== "damageType" || !isArmorOfResistanceBlueprint(blueprintData)) return "";
   const label = String(selection.label || selection.text || selection.value || "").trim();
@@ -648,15 +627,25 @@ function ensureResolvedSelectionName(effect, blueprintData, selection) {
   if (!selection || selection.kind !== "damageType" || !isResistanceBlueprint(blueprintData)) return effect;
   const output = clone(effect);
   const changes = effectChanges(output).map(change => clone(change));
-  const label = String(selection.label || selection.text || "");
+  const label = String(selection.label || selection.text || "").trim();
   const nameChange = changes.find(change => String(change?.key) === "name");
   if (nameChange) {
     const raw = String(nameChange.value ?? "");
     if (!normalize(raw).includes(normalize(label))) {
-      if (/armor of resistance/i.test(raw)) nameChange.value = raw.replace(/armor of resistance/i, `of ${label} Resistance`);
-      else if (/potion of resistance/i.test(raw)) nameChange.value = raw.replace(/potion of resistance/i, `Potion of ${label} Resistance`);
-      else if (/of resistance/i.test(raw)) nameChange.value = raw.replace(/of resistance/i, `of ${label} Resistance`);
-      else if (raw.includes("{}")) nameChange.value = `${raw} (${label})`;
+      if (/potion of resistance/i.test(raw)) {
+        nameChange.value = raw.replace(/potion of resistance/i, `Potion of ${label} Resistance`);
+      } else if (/armor of resistance/i.test(raw)) {
+        // The source blueprint name is not a valid concrete target name. Keep
+        // the base placeholder so a Plate Armor becomes Plate Armor of Fire
+        // Resistance instead of losing or duplicating its identity.
+        nameChange.value = `{} of ${label} Resistance`;
+      } else if (/of resistance/i.test(raw)) {
+        nameChange.value = raw.replace(/of resistance/i, `of ${label} Resistance`);
+      } else if (/\{(?:item|base)?\}|\{\}/i.test(raw)) {
+        nameChange.value = `${raw} of ${label} Resistance`;
+      } else {
+        nameChange.value = `{} of ${label} Resistance`;
+      }
     }
   } else {
     changes.push({ key: "name", mode: globalThis.CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5, value: `{} of ${label} Resistance`, priority: 20 });
@@ -708,6 +697,35 @@ function displayFromEffect(data, effect) {
     } else if (key === "system.price.denomination" && value) display.priceDenomination = value;
   }
   return display;
+}
+
+function validateResolvedBlueprintContract({ blueprintData, baseData, resultData, effect, selection, activity }) {
+  if (!canMaterializeOnto(blueprintData, baseData, activity)) return { ok: false, reason: "incompatibleTarget" };
+  if (!isArmorOfResistanceBlueprint(blueprintData)) return { ok: true };
+
+  const selectedType = normalize(selection?.value ?? selection?.label ?? "");
+  if (selection?.kind !== "damageType" || !DIRECT_RESISTANCE_TYPES.includes(selectedType)) {
+    return { ok: false, reason: "unresolvedResistanceType" };
+  }
+
+  const resolvedName = normalize(resultData?.name);
+  if (!resolvedName.includes("resistance") || !resolvedName.includes(selectedType)) {
+    return { ok: false, reason: "unresolvedResistanceName" };
+  }
+
+  const resistanceChanges = effectChanges(effect).filter(change => keyNeedsSelection(change?.key));
+  if (!resistanceChanges.length) return { ok: false, reason: "missingResistanceEffect" };
+  const serializedResistance = JSON.stringify(resistanceChanges).toLowerCase();
+  if (!serializedResistance.includes(selectedType)) return { ok: false, reason: "missingResistanceEffect" };
+  const conflictingType = DIRECT_RESISTANCE_TYPES.find(type => type !== selectedType && serializedResistance.includes(type));
+  if (conflictingType) return { ok: false, reason: "conflictingResistanceEffect" };
+
+  const serializedEffect = JSON.stringify(effect ?? {}).toLowerCase();
+  if (/rolltable|roll table|following table|choose (?:a |the )?(?:damage )?type|1d10/.test(serializedEffect)) {
+    return { ok: false, reason: "genericResistanceInstructionsRemain" };
+  }
+  if (effectHasUnresolvedChoice(effect)) return { ok: false, reason: "unresolvedChoice" };
+  return { ok: true };
 }
 
 function validateAndPrepareData(data, effect = null) {
@@ -800,10 +818,6 @@ export async function materializeNativeBlueprint({
     });
     const pair = chosen.pair;
     const tableResult = chosen.tableResult;
-    if (isArmorOfResistanceBlueprint(blueprintData) && tableResult?.kind !== "damageType") {
-      failures.push("unresolvedResistanceType");
-      continue;
-    }
     if (!pair?.effect) {
       failures.push(chosen.reason || "noProfile");
       continue;
@@ -858,6 +872,19 @@ export async function materializeNativeBlueprint({
     };
     result.effects.push(enchantment);
 
+    const contract = validateResolvedBlueprintContract({
+      blueprintData,
+      baseData,
+      resultData: result,
+      effect: enchantment,
+      selection: tableResult,
+      activity
+    });
+    if (!contract.ok) {
+      failures.push(contract.reason ?? "targetContractFailed");
+      continue;
+    }
+
     const metadata = {
       kind: "blueprint",
       blueprintUuid: blueprintDocument?.uuid ?? "",
@@ -873,7 +900,9 @@ export async function materializeNativeBlueprint({
       profileChoiceReason: chosen.reason ?? "",
       partyLevel: Number(partyLevel ?? 0),
       riders: copiedRiders,
-      strategy: "native-enchantment"
+      strategy: "native-enchantment",
+      materialized: true,
+      targetContract: "validated"
     };
     addCoreFlags(result, metadata);
 
@@ -886,7 +915,7 @@ export async function materializeNativeBlueprint({
       ok: true,
       documentData: result,
       display: validation.display,
-      metadata: { ...metadata, materialized: true, validation: validation.validation }
+      metadata: { ...metadata, validation: validation.validation }
     };
   }
 

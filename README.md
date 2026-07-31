@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0b Beta  
+**Version:** 0.2.0b Beta
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -135,22 +135,51 @@ Supplier is integrated but disabled by default. Enable it through:
 
 When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
 
-When enabled, **Configure Supplier** separates two independent controls:
+When enabled, the Item Directory receives a separate GM-only **Supplier** button with an epic-purple tint. Inside the Supplier window, the gear beside **Supplier Profiles** opens the profile and **Level, Quality & Price** configuration directly.
 
-- **Level, Quality & Price** profiles determine party-level availability, enchantment distribution, spell limits, and prices. The built-in presets are **Supplier — Official D&D 2024** and **Supplier — HAMMER Homebrew**. Built-ins remain protected; duplicate either preset to edit it.
-- **Supplier Profiles** determine the vendor identity, Access I–IV, categories, guarantees, weighted random pools, exclusions, repetition limits, and source compendiums. Profiles can be duplicated or built from scratch.
+Supplier separates two independent controls:
 
-Every generated stock is calculated from the current **party level** and **party size**. Vendor Access controls commercial reach and restricted families; it does not replace level progression. Access IV uses a gold identity and can reach major relics and artifacts when the party-level profile permits them, while simpler relics can have lower access requirements.
+- **Level, Quality & Price** determines party-level rarity access, enchantment distribution, Spell limits, and prices. The protected presets are **Supplier — Official D&D 2024** and **Supplier — HAMMER Homebrew**. Duplicate a preset to create a fully editable custom copy.
+- **Supplier Profiles** determine vendor identity, Access I–IV, thematic catalogs, guarantees, weighted magical pools, exclusions, repetition limits, and source compendiums.
 
-The HAMMER Homebrew presets adapt the Blacksmith, Herbalist / Alchemist, and Magic Assortment flows from the vendor-roll compendium into direct percentages, guarantees, and weighted pools instead of simulated dice or RollTables. Current additional models include Gunsmith, General Trade, and Stable & Livestock.
+### Content Source snapshots
 
-The Blacksmith uses party-scaled physical stock plus named magic equipment and enchanted ammunition. The Alchemist guarantees one level-appropriate healing potion per party member and restricts random stock to thematic single-use consumables. Magic Assortment scales both Scrolls and magic Items by level band and party size.
+A Supplier Profile copies the Content Sources enabled at the moment it is created or imported. Source changes are intentionally not applied retroactively. Enable every desired PHB, DMG, system, or module pack before creating the profile; a richer enabled catalog produces a richer preset.
 
-Supplier diagnostics are printed for every generation. Developers can also run repeated headless previews through `game.itemCreator.auditSupplier({ profileId, level, players, runs })` without creating World Items.
+### Mundane catalog and magical slots
+
+HAMMER vendor profiles build stock in two layers:
+
+1. **Mundane Catalog** — every eligible mundane Item for that vendor is always included, with quantity equal to the current party size. A party of ten therefore finds ten copies of each eligible mundane weapon, armor, kit, focus, container, or supply.
+2. **Magical Stock** — a separate number of slots is calculated from party size, Vendor Access, vendor type, and the selected Level, Quality & Price profile. These slots produce +1/+2/+3 enhancements, named Items, resolved blueprints, concrete variants, and restricted relics.
+
+The mundane catalog is also the Materialization Core's target catalog. Supplier chooses a magical family, filters the vendor's existing mundane bases through that family's compatibility contract, clones a valid base, applies the resolved effect, and validates the final Item. The mundane copy remains in stock and is not consumed.
+
+Every stock therefore continues to depend on the current **party level** and **party size**. Party level controls power, rarity, Spell level, and enchantment quality; party size controls available quantities and stock scaling; Vendor Access controls commercial reach and special-item frequency.
+
+HAMMER Access uses gradual probabilities for ordinary magical merchandise:
+
+- **Access I:** primarily mundane, with a minimal exceptional chance;
+- **Access II:** a small but visible selection of special Items;
+- **Access III:** moderate and consistent special variety;
+- **Access IV:** broad magical variety, major relics, and highly restricted merchandise when party progression permits it.
+
+Only explicit restrictions, artifacts, and major relics are normally hard-gated. Ordinary rare merchandise is weighted rather than completely prohibited below its preferred Access.
+
+### HAMMER vendor presets
+
+- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, magical ammunition, and physical wondrous equipment.
+- **Alchemist / Herbalist** always carries thematic mundane kits, remedies, reagents, vessels, and field supplies; guarantees one level-appropriate healing-potion slot per party member; and adds thematic consumables, poisons, oils, powders, and preparations.
+- **Magic Assortment** always carries mundane arcane foci, component supplies, scribing tools, cases, ink, and related accessories; adds Spell Scrolls from the profile's source snapshot; and rolls magical implements, accessories, wondrous Items, low-weight armory curiosities, and Access-weighted relics.
+- **Gunsmith**, **General Trade**, and **Stable & Livestock** also use deterministic party-sized mundane catalogs appropriate to their themes.
+
+Adaptable families compete as families rather than receiving one lottery ticket for every installed concrete variant. Per-family caps and weighted selection reduce repeated Vicious weapons, shields, giant-strength belts, Feather Tokens, and similar variant-heavy groups.
+
+Supplier diagnostics are printed for every generation. Developers can run repeated headless previews through `game.itemCreator.auditSupplier({ profileId, level, players, runs })` without creating World Items.
 
 ## Materialization Core
 
-The internal Core is headless: it receives source data, a Base Item when required, resolved choices, and progression constraints, then returns validated Item data and diagnostics without creating a World document itself.
+The internal Core is headless: it receives a source, a compatible Base Item when required, resolved choices, and progression constraints, then returns validated Item data and diagnostics without directly creating a World document.
 
 It distinguishes:
 
@@ -160,7 +189,9 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0b integration includes focused handling for official generator and blueprint families, compatible-base validation, direct percentage resolution for resistance variants, canonical idempotent naming, ammunition represented by multiple native Item types, and concrete Wand of the War Mage variants.
+The v0.2.0b Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
+
+The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
 ## Runtime dependency
 

@@ -19,7 +19,11 @@ import {
   resolvePrice
 } from "./catalog.mjs";
 import { homebrewCurationAllowsEntry } from "./homebrew-suppliers.mjs";
-import { profileAccessLevel, vendorAccessAllowsEntry } from "./availability.mjs";
+import {
+  profileAccessLevel,
+  vendorAccessAllowsEntry,
+  vendorAccessWeight
+} from "./availability.mjs";
 import { getConfiguration } from "./settings.mjs";
 import {
   canMaterializeOnto,
@@ -195,6 +199,7 @@ function isPoolExcluded(entry, rule) {
 function subtypeMatch(entry, rule) {
   const subtypes = rule.subtypes ?? [];
   if (!subtypes.length) return true;
+  if (subtypes.includes("ammunition") && isAmmunitionEntry(entry)) return true;
   if (subtypes.some(subtype => entryMatchesSubtype(entry, subtype))) return true;
 
   // Generic materializers describe the family of possible final Items rather
@@ -241,6 +246,10 @@ function magicMatch(entry, rule, configuration, level, { applyProgression = true
 
   if (rule.magicalState === "mundane" && entry.isMagical) return false;
   if (rule.magicalState === "magical" && !entry.isMagical) return false;
+  if (applyProgression && rule.requireMagicalResult === true
+    && canReceiveSyntheticEnhancement(entry)
+    && !entry.isMagical
+    && maxEnhancementForLevel(configuration, level) <= 0) return false;
 
   // A ready-made +2/+3 document may exist in an enabled source, but it must
   // never bypass the party progression table merely because the source Item
@@ -384,7 +393,17 @@ function distributionBand(bands, level) {
   return bands.find(entry => level >= entry.min && level <= entry.max) ?? bands.at(-1);
 }
 
-function entrySelectionWeight(entry, rule, level) {
+function finalMaterializedAvailabilityAccepted(pick, rarity) {
+  const finalEntry = {
+    ...(pick?.entry ?? {}),
+    rarity: normalizeRarity(rarity),
+    materializerRarities: [normalizeRarity(rarity)]
+  };
+  return vendorAccessAllowsEntry(finalEntry, pick?.profile ?? null, pick?.rule ?? null);
+}
+
+function entrySelectionWeight(entry, rule, level, profile = null) {
+  let weight = 1;
   if (rule?.selectionDistribution === "hammerHealingPotions") {
     const tier = (() => {
       const value = normalizeText(`${entry.identifier ?? ""} ${entry.name ?? ""}`);
@@ -393,42 +412,21 @@ function entrySelectionWeight(entry, rule, level) {
       if (value.includes("greater")) return "greater";
       return "basic";
     })();
-    return Math.max(0, Number(distributionBand(HAMMER_HEALING_DISTRIBUTIONS, level)?.weights?.[tier] ?? 0));
+    weight *= Math.max(0, Number(distributionBand(HAMMER_HEALING_DISTRIBUTIONS, level)?.weights?.[tier] ?? 0));
   }
   if (rule?.rarityDistribution === "hammerAlchemistExtras") {
     const rarity = normalizeRarity(entry.rarity);
-    return Math.max(0, Number(distributionBand(HAMMER_ALCHEMIST_RARITY_DISTRIBUTIONS, level)?.weights?.[rarity] ?? 0));
+    weight *= Math.max(0, Number(distributionBand(HAMMER_ALCHEMIST_RARITY_DISTRIBUTIONS, level)?.weights?.[rarity] ?? 0));
   }
-  return 1;
-}
-
-function weightedEntryChoice(entries, rule, level) {
-  if (!entries.length) return null;
-
-  // A family with many concrete source variants must not receive one lottery
-  // ticket per variant. When a rule caps families, divide each member weight by
-  // the number of eligible members so Vicious Weapon, Mithral Armor, and other
-  // adaptable families compete as families instead of flooding the pool.
-  const familySizes = new Map();
-  if (Math.max(0, Number(rule?.maxPerFamily ?? 0)) > 0) {
-    for (const entry of entries) {
-      const key = stockFamilyKey(entry);
-      familySizes.set(key, Number(familySizes.get(key) ?? 0) + 1);
-    }
+  if (rule?.homebrewCuration === "blacksmithWearables") {
+    const identity = normalizeText(`${entry.identifier ?? ""} ${entry.name ?? ""} ${entry.baseItem ?? ""}`);
+    if (["cloak", "cape", "manto", "capa"].some(term => identity.includes(term))) weight *= 0.25;
   }
-
-  const weighted = entries.map(entry => {
-    const familySize = Math.max(1, Number(familySizes.get(stockFamilyKey(entry)) ?? 1));
-    return { entry, weight: entrySelectionWeight(entry, rule, level) / familySize };
-  }).filter(option => option.weight > 0);
-  if (!weighted.length) return randomChoice(entries);
-  const total = weighted.reduce((sum, option) => sum + option.weight, 0);
-  let roll = Math.random() * total;
-  for (const option of weighted) {
-    roll -= option.weight;
-    if (roll <= 0) return option.entry;
-  }
-  return weighted.at(-1)?.entry ?? entries[0];
+  // Vendor Access is a gradient for ordinary merchandise. It does not replace
+  // the party-level rarity progression and only becomes a hard gate for
+  // explicit restrictions, artifacts, and major relics.
+  weight *= vendorAccessWeight(entry, profile);
+  return weight;
 }
 
 const STOCK_FAMILY_PATTERNS = Object.freeze([
@@ -442,11 +440,15 @@ const STOCK_FAMILY_PATTERNS = Object.freeze([
   ["weapon-of-warning", /(?:weapon|[a-z]+)-of-warning/],
   ["weapon-of-wounding", /(?:weapon|[a-z]+)-of-wounding/],
   ["weapon-of-sharpness", /(?:weapon|[a-z]+)-of-sharpness/],
-  ["life-stealing-weapon", /life-stealing/],
+  ["life-stealing-weapon", /life-stealing|life-stealer/],
+  ["nine-lives-stealer", /nine-lives/],
+  ["holy-avenger", /holy-avenger/],
   ["flame-tongue", /flame-tongue/],
   ["vorpal-weapon", /(?:^|-)vorpal(?:-|$)/],
   ["dragon-slayer", /dragon-slayer/],
   ["giant-slayer", /giant-slayer/],
+  ["shield-of-missile-attraction", /shield-of-missile-attraction/],
+  ["belt-of-giant-strength", /belt-of-(?:[a-z]+-)?giant-strength/],
   ["feather-token", /feather-token/],
   ["bag-of-tricks", /bag-of-tricks/],
   ["elemental-gem", /elemental-gem/],
@@ -468,6 +470,29 @@ function stockFamilyKey(entry) {
   const name = String(entry.name ?? "");
   if (name.includes("(")) return `name:${normalizeText(name.split("(")[0])}`;
   return canonicalKey(entry);
+}
+
+function weightedEntryChoice(entries, rule, level, profile = null) {
+  if (!entries.length) return null;
+  const familySizes = new Map();
+  for (const entry of entries) {
+    const key = stockFamilyKey(entry);
+    familySizes.set(key, Number(familySizes.get(key) ?? 0) + 1);
+  }
+  const weighted = entries.map(entry => {
+    // Every adaptable family receives one effective lottery ticket regardless
+    // of how many source-specific variants are installed.
+    const familySize = Math.max(1, Number(familySizes.get(stockFamilyKey(entry)) ?? 1));
+    return { entry, weight: entrySelectionWeight(entry, rule, level, profile) / familySize };
+  }).filter(option => option.weight > 0);
+  if (!weighted.length) return null;
+  const total = weighted.reduce((sum, option) => sum + option.weight, 0);
+  let roll = Math.random() * total;
+  for (const option of weighted) {
+    roll -= option.weight;
+    if (roll <= 0) return option.entry;
+  }
+  return weighted.at(-1)?.entry ?? entries[0];
 }
 
 function familyAllowed(entry, rule, familyCounts) {
@@ -493,7 +518,7 @@ function randomChoice(array) {
 function weightedStateChoice(states) {
   const weighted = states.map(state => ({
     state,
-    weight: Math.max(0.1, Number(state.rule.randomWeight ?? 1))
+    weight: Math.max(0.001, Number(state.rule.randomWeight ?? 1))
   }));
   const total = weighted.reduce((sum, option) => sum + option.weight, 0);
   let roll = Math.random() * total;
@@ -525,7 +550,7 @@ export function buildRuleBuckets(pool, rule) {
   return [...groups.entries()].map(([key, entries]) => ({ key, entries }));
 }
 
-function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, familyCounts = new Map()) {
+function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, familyCounts = new Map(), profile = null) {
   const groups = buildRuleBuckets(pool, rule).map(group => ({ ...group, available: [...group.entries] }));
   if (!groups.length || quantity <= 0) return [];
   const chosen = [];
@@ -539,7 +564,7 @@ function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, fam
       if (!allowDuplicates) group.available.length = 0;
       continue;
     }
-    const entry = weightedEntryChoice(source, rule, level);
+    const entry = weightedEntryChoice(source, rule, level, profile);
     if (!entry) continue;
     chosen.push(entry);
     recordFamily(entry, familyCounts);
@@ -571,7 +596,7 @@ function selectRuleEntries({ rule, catalog, profileEntries, configuration, profi
       for (let repeat = 0; repeat < Math.max(1, quantity); repeat += 1) {
         for (const group of groups) {
           const eligible = group.entries.filter(entry => familyAllowed(entry, rule, familyCounts));
-          const entry = weightedEntryChoice(eligible, rule, level);
+          const entry = weightedEntryChoice(eligible, rule, level, profile);
           if (!entry) continue;
           selected.push(entry);
           recordFamily(entry, familyCounts);
@@ -581,7 +606,7 @@ function selectRuleEntries({ rule, catalog, profileEntries, configuration, profi
     }
   }
 
-  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false, level, familyCounts);
+  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false, level, familyCounts, profile);
   if (rule.allowDuplicates === false && selected.length < quantity) {
     warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.NotEnoughUnique", {
       requested: quantity,
@@ -638,7 +663,9 @@ function applyQuality(rule, entries, configuration, level, players, warnings) {
     if (!canReceiveSyntheticEnhancement(pick.entry)) continue;
     if (rule.qualityMode === "mundane") pick.enhancement = 0;
     else if (rule.qualityMode === "fixed") pick.enhancement = clampInteger(rule.fixedBonus, 0, 3);
-    else if (rule.qualityMode === "party" && !pick.entry.isMagical) pick.enhancement = weightedBonus(configuration, level);
+    else if (rule.qualityMode === "party" && !pick.entry.isMagical) {
+      pick.enhancement = weightedBonus(configuration, level, { positiveOnly: rule.requireMagicalResult === true });
+    }
   }
 
   const eligible = picks.filter(pick => canReceiveSyntheticEnhancement(pick.entry));
@@ -720,9 +747,9 @@ function materializerResultCuration(rule) {
   return curation;
 }
 
-function generatorResultCandidates(generatorEntry, profileEntries, rule) {
+function generatorResultCandidates(generatorEntry, targetEntries, rule) {
   const kind = generatorEntry.generatorKind;
-  let candidates = profileEntries.filter(entry =>
+  let candidates = targetEntries.filter(entry =>
     !isMaterializerItem(entry)
     && !isMechanicalItem(entry)
     && !entry.isMagical
@@ -775,9 +802,9 @@ function priceFromMaterializedData(documentData, display, fallback, origin = "ma
   return fallback;
 }
 
-async function createGeneratorPreview(pick, catalog, configuration, profileEntries, level) {
+async function createGeneratorPreview(pick, catalog, configuration, targetEntries, level) {
   const kind = pick.entry.generatorKind;
-  const candidates = shuffle(generatorResultCandidates(pick.entry, profileEntries, pick.rule));
+  const candidates = shuffle(generatorResultCandidates(pick.entry, targetEntries, pick.rule));
   if (!candidates.length) {
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.GeneratorNoEligibleResult", { item: pick.entry.name }));
   }
@@ -821,7 +848,6 @@ async function createGeneratorPreview(pick, catalog, configuration, profileEntri
   let price = priceFromMaterializedData(documentData, display, resolvePrice(baseEntry, catalog, configuration), bonus > 0 ? "generatedQuality" : "official");
   let rarity = normalizeRarity(display.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? baseEntry.rarity);
   if (bonus > 0) rarity = ENCHANTMENT_RARITY[bonus] ?? rarity;
-
   const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
   return {
     key: `${canonicalKey(baseEntry)}|generator:${pick.entry.uuid}|bonus:${bonus}|selection:${selectionKey}`,
@@ -856,7 +882,7 @@ function shuffle(values) {
   return output;
 }
 
-function blueprintCandidateEntries(blueprintDocument, profileEntries, rule) {
+function blueprintCandidateEntries(blueprintDocument, targetEntries, rule) {
   const blueprintData = blueprintDocument.toObject();
   const activities = Object.values(foundry.utils.getProperty(blueprintData, "system.activities") ?? {}).filter(activity => activity?.type === "enchant");
   const allowedTypes = new Set(activities.flatMap(activity => {
@@ -866,7 +892,7 @@ function blueprintCandidateEntries(blueprintDocument, profileEntries, rule) {
   if (!allowedTypes.size && blueprintData.type) allowedTypes.add(blueprintData.type);
   const allowMagicalBase = activities.some(activity => activity?.restrictions?.allowMagical === true);
 
-  let candidates = profileEntries.filter(entry =>
+  let candidates = targetEntries.filter(entry =>
     !isMaterializerItem(entry)
     && !isMechanicalItem(entry)
     && entry.uuid !== blueprintDocument.uuid
@@ -885,8 +911,8 @@ function blueprintCandidateEntries(blueprintDocument, profileEntries, rule) {
   return shuffle(candidates);
 }
 
-async function createBlueprintPreview(pick, catalog, configuration, profileEntries, blueprintDocument, level) {
-  const candidates = blueprintCandidateEntries(blueprintDocument, profileEntries, pick.rule);
+async function createBlueprintPreview(pick, catalog, configuration, targetEntries, blueprintDocument, level) {
+  const candidates = blueprintCandidateEntries(blueprintDocument, targetEntries, pick.rule);
   let materialized = null;
   let baseEntry = null;
   for (const candidate of candidates) {
@@ -916,6 +942,9 @@ async function createBlueprintPreview(pick, catalog, configuration, profileEntri
   const documentData = materialized.documentData;
   const display = materialized.display ?? {};
   const rarity = normalizeRarity(display.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? pick.entry.rarity);
+  if (!finalMaterializedAvailabilityAccepted(pick, rarity)) {
+    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationAccessRejected", { item: display.name ?? documentData.name }));
+  }
   const price = priceFromMaterializedData(
     documentData,
     display,
@@ -1001,7 +1030,6 @@ async function createVariantPreview(pick, catalog, configuration, level) {
     }
     : fallbackPrice(configuration, rarity);
   const metadata = {
-    materialized: true,
     kind: "variant",
     family: pick.entry.variantFamily,
     familySourceUuid: pick.entry.materializerSourceUuid ?? "",
@@ -1038,12 +1066,12 @@ async function createVariantPreview(pick, catalog, configuration, level) {
   };
 }
 
-async function buildPreviewLine(pick, catalog, configuration, { profileEntries = [], level = 1 } = {}) {
+async function buildPreviewLine(pick, catalog, configuration, { profileEntries = [], materializationTargets = profileEntries, level = 1 } = {}) {
   if (isVariantFamilyItem(pick.entry)) {
     return createVariantPreview(pick, catalog, configuration, level);
   }
   if (isGeneratorItem(pick.entry)) {
-    return createGeneratorPreview(pick, catalog, configuration, profileEntries, level);
+    return createGeneratorPreview(pick, catalog, configuration, materializationTargets, level);
   }
   if (pick.rule.category === "spellScroll") {
     const scroll = await createSpellScrollPreview(pick.entry, configuration);
@@ -1080,7 +1108,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MechanicalDocumentSelected", { item: pick.entry.name }));
   }
   if (actualNature.materializerKind === "blueprint" || isBlueprintItem(pick.entry)) {
-    return createBlueprintPreview(pick, catalog, configuration, profileEntries, document, level);
+    return createBlueprintPreview(pick, catalog, configuration, materializationTargets, document, level);
   }
 
   const basePrice = resolvePrice(pick.entry, catalog, configuration);
@@ -1120,15 +1148,15 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     documentData,
     generationKind: pick.enhancement > 0 && !pick.entry.isMagical ? "enhanced" : "copy",
     documentNature: pick.enhancement > 0 && !pick.entry.isMagical ? "materializer" : "sellable",
-    materializerKind: pick.enhancement > 0 && !pick.entry.isMagical ? "generator" : "",
+    materializerKind: pick.enhancement > 0 && !pick.entry.isMagical ? "enhancement" : "",
     enhancement: pick.enhancement || 0,
     ruleIds: [pick.rule.id]
   };
 }
 
-async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings, diagnostics = null) {
+async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, materializationTargets, level, warnings, diagnostics = null) {
   try {
-    const line = await buildPreviewLine(pick, catalog, configuration, { profileEntries, level });
+    const line = await buildPreviewLine(pick, catalog, configuration, { profileEntries, materializationTargets, level });
     line.ruleName = pick.rule?.name ?? "";
     line.ruleType = pick.ruleType ?? "";
     return line;
@@ -1140,7 +1168,7 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
     const alternatives = shuffle((inspection.entries ?? []).filter(entry => canonicalKey(entry) !== canonicalKey(pick.entry)));
     for (const alternative of alternatives) {
       try {
-        const replacement = await buildPreviewLine({ ...pick, entry: alternative }, catalog, configuration, { profileEntries, level });
+        const replacement = await buildPreviewLine({ ...pick, entry: alternative }, catalog, configuration, { profileEntries, materializationTargets, level });
         replacement.ruleName = pick.rule?.name ?? "";
         replacement.ruleType = pick.ruleType ?? "";
         warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializerRerolled", {
@@ -1194,6 +1222,7 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
   let catalogUnits = 0;
   let guaranteedUnits = 0;
   let randomUnits = 0;
+  const mundaneTargetMap = new Map();
 
   // 1. Mundane Catalog is always additional to the random target.
   // Every eligible distinct Item is included with the configured quantity per Item.
@@ -1204,7 +1233,7 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
     if (!perItem) continue;
     const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, profile, level });
     if (!inspection.count) {
-      warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
+      if (!rule.silentIfEmpty) warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
         rule: rule.name || game.i18n.localize("DND5E_SUPPLIER.Config.MundaneCatalog"),
         reason: game.i18n.localize(`DND5E_SUPPLIER.PoolReason.${inspection.reason || "category"}`)
       }));
@@ -1212,6 +1241,7 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
     }
     for (const entry of inspection.entries) {
       picks.push({ entry, enhancement: 0, units: perItem, rule, ruleType: "catalog", profile });
+      mundaneTargetMap.set(canonicalKey(entry), entry);
       catalogUnits += perItem;
     }
   }
@@ -1240,7 +1270,7 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
       if (!rulePassesChance(rule)) continue;
       const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, profile, level });
       if (!inspection.count) {
-        warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
+        if (!rule.silentIfEmpty) warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
           rule: rule.name || game.i18n.localize("DND5E_SUPPLIER.Config.RandomStock"),
           reason: game.i18n.localize(`DND5E_SUPPLIER.PoolReason.${inspection.reason || "category"}`)
         }));
@@ -1277,8 +1307,11 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
         activeStates.splice(activeStates.indexOf(state), 1);
         continue;
       }
-      const entry = weightedEntryChoice(source, state.rule, level);
-      if (!entry) continue;
+      const entry = weightedEntryChoice(source, state.rule, level, profile);
+      if (!entry) {
+        activeStates.splice(activeStates.indexOf(state), 1);
+        continue;
+      }
       if (!allowDuplicates) {
         const index = state.available.indexOf(entry);
         if (index >= 0) state.available.splice(index, 1);
@@ -1304,10 +1337,12 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
     }));
   }
 
+  const materializationTargets = mundaneTargetMap.size ? [...mundaneTargetMap.values()] : profileEntries;
+  diagnostics.mundaneTargetCount = materializationTargets.length;
   const lines = [];
   for (const pick of picks) {
     try {
-      lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings, diagnostics));
+      lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, materializationTargets, level, warnings, diagnostics));
     } catch (error) {
       console.error(`${MODULE_ID} | Failed to prepare ${pick.entry?.name}`, error);
       diagnostics.materializationFailures.push({ item: pick.entry?.name ?? "", rule: pick.rule?.name ?? "", error: error.message });
@@ -1346,15 +1381,17 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
     counts[line.name] = Number(counts[line.name] ?? 0) + Math.max(1, Number(line.quantity ?? 1));
     return counts;
   }, {});
-  diagnostics.materializers = preview.filter(line => line.materializerKind || line.materialization?.materialized === true).map(line => ({
-    name: line.name,
-    kind: line.materializerKind || line.generationKind || "materializer",
-    strategy: line.materialization?.strategy ?? "",
-    bonus: line.enhancement ?? 0,
-    rule: line.ruleName ?? "",
-    baseUuid: line.materializedBaseUuid ?? "",
-    sourceUuid: line.blueprintSourceUuid || line.generatorSourceUuid || line.sourceUuid || ""
-  }));
+  diagnostics.materializers = preview
+    .filter(line => line.materializerKind || line.materialization?.materialized === true)
+    .map(line => ({
+      name: line.name,
+      kind: line.materializerKind || line.generationKind || "materializer",
+      strategy: line.materialization?.strategy ?? "",
+      bonus: line.enhancement ?? 0,
+      rule: line.ruleName ?? "",
+      baseUuid: line.materializedBaseUuid ?? "",
+      sourceUuid: line.blueprintSourceUuid || line.generatorSourceUuid || line.sourceUuid || ""
+    }));
   if (logDiagnostics) {
     console.groupCollapsed?.(`${MODULE_ID} | Supplier diagnostics — ${profile.name} (L${level}, ${players} players)`);
     console.table?.(diagnostics.byRarity);

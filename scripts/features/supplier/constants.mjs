@@ -4,7 +4,7 @@ export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
 export const SUPPLIER_FEATURE_VERSION = "0.2.0b-integrated";
-export const CONFIGURATION_VERSION = 15;
+export const CONFIGURATION_VERSION = 16;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },
@@ -262,7 +262,9 @@ function baseRule() {
     maximumVendorAccess: 0,
     maxPerFamily: 0,
     rarityDistribution: "",
-    selectionDistribution: ""
+    selectionDistribution: "",
+    silentIfEmpty: false,
+    requireMagicalResult: false
   };
 }
 

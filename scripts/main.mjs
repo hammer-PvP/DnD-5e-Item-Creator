@@ -68,7 +68,7 @@ Hooks.once("init", () => {
     openScrollFactory: () => openScrollFactory(),
     get scrollFactory() { return scrollFactoryInstance; },
     openSupplier: () => openSupplier(),
-    configureSupplier: () => openSupplierConfiguration(),
+    configureSupplier: options => openSupplierConfiguration(options),
     auditSupplier: async ({ profileId = "", level = 20, players = 4, runs = 25 } = {}) => {
       if (!isSupplierEnabled()) throw new Error("Enable Supplier Tools before running an audit.");
       const configuration = getSupplierConfiguration();
@@ -183,14 +183,19 @@ function openSupplier() {
   return supplierInstance;
 }
 
-function openSupplierConfiguration() {
+function openSupplierConfiguration({ section = "sources", profileId = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can configure Supplier.");
   if (!isSupplierEnabled()) return ui.notifications.warn("Enable Supplier Tools and save Item Creator Configuration first.");
   if (supplierConfigInstance?.element?.isConnected) {
+    supplierConfigInstance.section = ["sources", "profiles", "progression", "output"].includes(section) ? section : "sources";
+    if (profileId) supplierConfigInstance.selectedProfileId = profileId;
+    supplierConfigInstance.render({ force: true });
     supplierConfigInstance.bringToFront?.();
     return supplierConfigInstance;
   }
   supplierConfigInstance = new SupplierConfigApplication();
+  supplierConfigInstance.section = ["sources", "profiles", "progression", "output"].includes(section) ? section : "sources";
+  if (profileId) supplierConfigInstance.selectedProfileId = profileId;
   supplierConfigInstance.render({ force: true });
   return supplierConfigInstance;
 }

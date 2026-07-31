@@ -1,6 +1,12 @@
 <div class="supplier-shell">
   <aside class="supplier-steps" aria-label="{{localize 'DND5E_SUPPLIER.Profiles'}}">
-    <div class="supplier-brand"><i class="fa-solid fa-store"></i><span>{{localize "DND5E_SUPPLIER.Profiles"}}</span></div>
+    <div class="supplier-brand">
+      <i class="fa-solid fa-shop"></i>
+      <span>{{localize "DND5E_SUPPLIER.Profiles"}}</span>
+      <button type="button" class="supplier-brand-config" data-action="configure" title="{{localize 'DND5E_SUPPLIER.Config.ConfigureShortcut'}}" aria-label="{{localize 'DND5E_SUPPLIER.Config.ConfigureShortcut'}}">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
     <div class="supplier-step-scroll">
       {{#each profiles}}
         <button type="button" class="supplier-step {{themeClass}} {{#if selected}}active{{/if}}" data-profile-id="{{id}}"><i class="{{icon}}"></i><span>{{name}}</span></button>
@@ -34,7 +40,7 @@
               <article class="supplier-loot-row">
                 <img src="{{img}}" alt="{{name}}">
                 <div class="supplier-loot-main">
-                  <div class="supplier-loot-name-row"><strong>{{name}}</strong>{{#if materializationLabel}}<span class="supplier-materialization-badge" title="{{materializationTitle}}"><i class="fa-solid fa-wand-magic-sparkles"></i>{{materializationLabel}}</span>{{/if}}</div>
+                  <div class="supplier-loot-name-row"><strong>{{name}}</strong>{{#if materializationLabel}}<span class="supplier-materialization-badge"><i class="fa-solid fa-wand-magic-sparkles"></i>{{materializationLabel}}</span>{{/if}}</div>
                   <span>{{rarityLabel}}{{#if qualityLabel}} • {{qualityLabel}}{{/if}}{{#if spellLevelLabel}} • {{spellLevelLabel}}{{/if}} • {{type}}{{#if subtype}} / {{subtype}}{{/if}}</span>
                   <small>{{packLabel}} • {{unitPrice}} • {{priceOriginLabel}}</small>
                 </div>

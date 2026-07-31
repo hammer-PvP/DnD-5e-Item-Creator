@@ -54,7 +54,10 @@
   {{/if}}
 
   <footer class="supplier-homebrew-footer">
-    <p><i class="fa-solid fa-circle-info"></i>{{localize "DND5E_SUPPLIER.Homebrew.EditAfterCreate"}}</p>
+    <div class="supplier-homebrew-footer-notes">
+      <p><i class="fa-solid fa-circle-info"></i>{{localize "DND5E_SUPPLIER.Homebrew.EditAfterCreate"}}</p>
+      <p><i class="fa-solid fa-book-open"></i>{{localize "DND5E_SUPPLIER.Homebrew.SourceSnapshotNotice"}}</p>
+    </div>
     <button type="button" class="supplier-primary" data-action="create-supplier"><i class="fa-solid fa-store"></i>{{localize "DND5E_SUPPLIER.Homebrew.Create"}}</button>
   </footer>
 </div>

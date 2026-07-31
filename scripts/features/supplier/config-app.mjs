@@ -42,6 +42,7 @@ function newProfile() {
     customIcon: "fa-solid fa-store",
     description: "",
     sourceIds: enabledSources,
+    sourceSnapshot: true,
     progressionProfileId: "world",
     homebrewTemplateId: "",
     homebrewAccessLevel: "2",
@@ -63,6 +64,11 @@ function duplicateSupplierProfile(source) {
   const copy = foundry.utils.deepClone(source);
   copy.id = foundry.utils.randomID();
   copy.name = game.i18n.format("DND5E_SUPPLIER.Config.SupplierCopyName", { name: source.name });
+  // A duplicate is a fully editable custom profile. Keep its resolved rules,
+  // Access, sources, and progression, but detach it from future preset rebuilds.
+  copy.homebrewTemplateId = "";
+  copy.homebrewPresetVersion = 0;
+  copy.sourceSnapshot = true;
   for (const collection of [copy.mundaneCatalogRules, copy.guaranteedRules, copy.randomRules]) {
     for (const rule of collection ?? []) rule.id = foundry.utils.randomID();
   }
@@ -138,7 +144,7 @@ function ruleSummary(rule, categoryLabel, kind) {
   const selection = subtypeLabels.length
     ? `${categoryLabel}: ${subtypeLabels.slice(0, 3).join(", ")}${subtypeLabels.length > 3 ? ` +${subtypeLabels.length - 3}` : ""}`
     : categoryLabel;
-  if (kind === "random") return `${selection} • ${game.i18n.localize("DND5E_SUPPLIER.Config.WeightShort")} ${Math.max(0.1, Number(rule.randomWeight ?? 1))}`;
+  if (kind === "random") return `${selection} • ${game.i18n.localize("DND5E_SUPPLIER.Config.WeightShort")} ${Math.max(0.001, Number(rule.randomWeight ?? 1))}`;
   const quantity = rule.quantityMode === "players"
     ? `${Number(rule.quantity ?? 1)} × ${game.i18n.localize("DND5E_SUPPLIER.Config.PlayersShort")}`
     : rule.quantityMode === "halfDown" || rule.quantityMode === "halfUp"
@@ -221,7 +227,9 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
     const selectedIndex = Math.max(0, this.draft.profiles.findIndex(profile => profile.id === this.selectedProfileId));
     const selectedProfile = this.draft.profiles[selectedIndex] ?? null;
     const globallyEnabled = sources.filter(source => source.enabled);
-    if (selectedProfile && !selectedProfile.sourceIds?.length) selectedProfile.sourceIds = globallyEnabled.map(source => source.id);
+    if (selectedProfile && selectedProfile.sourceSnapshot !== true && !selectedProfile.sourceIds?.length) {
+      selectedProfile.sourceIds = globallyEnabled.map(source => source.id);
+    }
 
     let catalog = { entries: [], familyGroups: new Map(), grouped: new Map(), rawEntries: [] };
     let profileEntries = [];
@@ -378,7 +386,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         })),
         hasMultipleBuckets: (inspection.buckets ?? []).length > 1,
         poolReason,
-        randomWeight: Math.max(0.1, Number(rule.randomWeight ?? 1)),
+        randomWeight: Math.max(0.001, Number(rule.randomWeight ?? 1)),
         summary: ruleSummary(rule, categoryLabel, kind)
       };
     };
@@ -1181,7 +1189,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         if (kind === "random") {
           rule.countsTowardTotal = false;
           rule.quantityMode = "remainder";
-          rule.randomWeight = Math.max(0.1, Number(rule.randomWeight ?? 1));
+          rule.randomWeight = Math.max(0.001, Number(rule.randomWeight ?? 1));
           rule.coverageMode = "slots";
         }
         rule.poolExclusions = Array.isArray(rule.poolExclusions) ? rule.poolExclusions : [];

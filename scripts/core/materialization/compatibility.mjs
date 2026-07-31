@@ -44,11 +44,6 @@ function isMediumOrHeavyArmor(data) {
   return data?.type === "equipment" && ["medium", "heavy"].includes(itemCategory(data));
 }
 
-function isHalfPlateOrPlate(data) {
-  if (data?.type !== "equipment") return false;
-  return exactBase(data, ["half-plate-armor", "half-plate", "plate-armor", "plate"]);
-}
-
 function isMeleeWeapon(data) {
   if (data?.type !== "weapon") return false;
   const category = itemCategory(data);
@@ -123,7 +118,7 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
     return base.type === "equipment" && exactBase(base, ["plate-armor", "plate"]);
   }
   if (identity.includes("armor-of-etherealness")) {
-    return isHalfPlateOrPlate(base);
+    return base.type === "equipment" && exactBase(base, ["half-plate-armor", "half-plate", "plate-armor", "plate"]);
   }
   if (identity.includes("vorpal")) {
     return isSword(base) && damageTypes(base).has("slashing");
@@ -151,5 +146,7 @@ export function isAmmunitionData(documentOrData) {
     || identity.includes("ammunition")
     || identity.includes("arrow")
     || identity.includes("crossbow-bolt")
-    || identity.includes("blowgun-needle");
+    || identity.includes("blowgun-needle")
+    || identity.includes("sling-bullet")
+    || identity.includes("bullet");
 }

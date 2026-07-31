@@ -2,19 +2,41 @@
 
 ## 0.2.0b — Beta
 
-### Supplier stock diagnostics and distribution
+### Deterministic vendor catalogs and separate magical stock
 
-- Restored Materializer badges in the stock preview for synthetic +1/+2/+3 Items, generated models, resolved blueprints, and concrete variants. Badge tooltips now expose the generation strategy and source/base references for development inspection.
-- Changed random named-stock selection to draw from the complete eligible pool instead of forcing equal odds between subtype buckets. This removes the unintended shield bias caused by treating light, medium, heavy, and shield as four equally likely buckets.
-- Added family-normalized weighting and broader adaptable-family detection so multiple concrete Vicious Weapon, Mithral Armor, resistance, and similar variants no longer gain extra probability merely because the source contains several base-specific documents.
-- Strengthened non-firearm ammunition recognition throughout HAMMER Blacksmith curation so mundane ammunition and the Ammunition +1/+2/+3 generator can enter the enchanted-ammunition pool even when source metadata uses a nonstandard native subtype.
+- Rebuilt HAMMER vendor presets around a deterministic **Mundane Catalog**. Every eligible mundane Item for the vendor is included with quantity equal to party size instead of being selected by random stock rolls.
+- Separated mundane availability from magical stock slots. Mundane gear remains available regardless of Vendor Access, while party level, party size, Access, vendor type, and the selected Level, Quality & Price profile control magical additions.
+- Made the resolved mundane catalog the preferred target source for generators and blueprints. Materialization now clones a compatible vendor base rather than searching all enabled source Items independently.
+- Rebuilt legacy HAMMER profile snapshots once for the v3 stock architecture while preserving profile IDs, names, selected sources, progression choice, bans, and mechanical-document overrides.
+- Made newly duplicated Supplier Profiles fully editable custom copies detached from later preset rebuilds.
 
-### Materialization Core
+### HAMMER profiles and Vendor Access
 
-- Added a strict official-base contract for Armor of Etherealness: only Half Plate Armor or Plate Armor may be selected. Shields and other armor categories are rejected before materialization.
-- Made Armor of Resistance resolve a concrete damage type directly through equal percentage selection, independent of RollTable availability. Unresolved generic Armor of Resistance results are rejected rather than entering stock.
-- Marked successful native blueprints and concrete variants explicitly as materialized in returned metadata, improving preview badges and diagnostics.
-- Bumped the module, Supplier feature, and Materialization Core versions to `0.2.0b`.
+- Rebuilt Blacksmith with complete party-sized mundane weapons, armor, shields, relevant physical gear, and ammunition, plus separate weighted magical pools for enhancements, named armory Items, and physical wondrous gear.
+- Rebuilt Alchemist / Herbalist with party-sized Healer's Kits, Herbalism and Alchemist tools, remedies, reagents, vessels, containers, and field supplies, while preserving one healing-potion slot per party member and thematic magical consumables.
+- Rebuilt Magic Assortment with mundane arcane foci and supplies, Spell Scrolls, magical implements, wondrous equipment, low-weight armory curiosities, and Access-weighted relics.
+- Applied deterministic party-sized mundane catalogs to Gunsmith, General Trade, and Stable & Livestock.
+- Rebalanced Access I–IV as gradual commercial weights: Access I is primarily mundane, Access II has a small special selection, Access III has moderate consistent variety, and Access IV has broad magical and relic access.
+- Kept hard Access gates for explicit restrictions, artifacts, and major relics while allowing ordinary rare merchandise to appear below its preferred tier at reduced probability.
+
+### Materialization reliability
+
+- Expanded ammunition recognition across Arrow, Crossbow Bolt, Blowgun Needle, Sling Bullet, and alternate native `loot`, `equipment`, or `consumable` representations.
+- Required enhanced ammunition and other synthetic +1/+2/+3 results to retain their concrete name, magical bonus, rarity, magical property, price, and original quantity before being accepted.
+- Resolved Armor of Resistance through direct equal-percentage damage-type selection, concrete naming, a single specific resistance Effect, and a cleaned description without the generic RollTable instructions.
+- Restricted Armor of Etherealness to Half Plate Armor and Plate Armor targets, rejecting shields and unrelated armor bases.
+- Added final target-contract validation and same-rule rerolls for failed generator, blueprint, and synthetic-enhancement slots.
+- Normalized selection weights by adaptable family so variant-heavy families do not receive an artificial ticket for every installed concrete document.
+- Expanded headless diagnostics with pool stages, generated kinds, rule and Item frequencies, materializer attempts, failures, and rerolls.
+
+### Profiles, sources, and interface
+
+- Preserved intentional source snapshots: Supplier Profiles use the Content Sources enabled when they are created or imported and do not synchronize retroactively.
+- Added a source-snapshot notice to the Homebrew Supplier creation flow.
+- Added a gear shortcut beside **Supplier Profiles** that opens the selected profile and Level, Quality & Price configuration directly.
+- Added **Enhanced item** and **Variant resolved** preview badges alongside the existing generator and blueprint badges.
+- Corrected Supplier window icon declarations and strengthened ApplicationV2 header-control icon styling to address missing title and window-control glyphs.
+- Kept Foundry VTT `compatibility.verified` at `14.365` and D&D5e compatibility at the tested `5.3.3` baseline.
 
 ## 0.2.0a — Beta
 

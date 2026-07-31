@@ -15,7 +15,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
     position: { width: 760, height: 680 },
     window: {
       title: "DND5E_SUPPLIER.Homebrew.CreateSupplier",
-      icon: "fa-solid fa-store",
+      icon: "fa-solid fa-shop",
       resizable: true
     }
   };
