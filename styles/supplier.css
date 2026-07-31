@@ -202,6 +202,13 @@
   border-color: rgba(255, 128, 0, 0.62);
 }
 
+.supplier-access-badge.access-4 {
+  color: #ffd66b;
+  background: rgba(255, 190, 45, 0.16);
+  border-color: rgba(255, 202, 74, 0.72);
+  box-shadow: inset 0 0 14px rgba(255, 196, 48, 0.08), 0 0 9px rgba(255, 190, 45, 0.12);
+}
+
 .supplier-profile-origin-row { margin-top: 0.45rem; }
 .supplier-profile-origin-row .supplier-homebrew-profile-badge { margin-top: 0; }
 
@@ -2809,7 +2816,7 @@
   }
 }
 
-/* v0.0.2b — HAMMER Homebrew Supplier library and per-Supplier progression. */
+/* Integrated Supplier — HAMMER Homebrew library and per-Supplier progression. */
 .theme-stable { --theme-accent: #c79a63; }
 
 .supplier-homebrew-profile-badge,
@@ -2959,7 +2966,7 @@
 
 .supplier-homebrew-access-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -2970,6 +2977,18 @@
   gap: 0.25rem;
   padding: 0.65rem;
   text-align: center;
+}
+
+.supplier-homebrew-access-card.access-1 { --access-accent: #69a8ff; }
+.supplier-homebrew-access-card.access-2 { --access-accent: #c37aff; }
+.supplier-homebrew-access-card.access-3 { --access-accent: #ff9b32; }
+.supplier-homebrew-access-card.access-4 { --access-accent: #ffd66b; }
+.supplier-homebrew-access-card[class*="access-"] strong { color: var(--access-accent); }
+.supplier-homebrew-access-card[class*="access-"]:hover,
+.supplier-homebrew-access-card[class*="access-"].selected {
+  border-color: var(--access-accent);
+  outline-color: color-mix(in srgb, var(--access-accent) 30%, transparent);
+  box-shadow: inset 0 0 18px color-mix(in srgb, var(--access-accent) 9%, transparent);
 }
 
 .supplier-homebrew-footer {
@@ -3005,7 +3024,7 @@
   .supplier-homebrew-footer { align-items: stretch; flex-direction: column; }
 }
 
-/* v0.0.2c — refined Homebrew suppliers, Gunsmith, and editable profile copies. */
+/* Integrated Supplier — refined Homebrew profiles, Gunsmith, and editable copies. */
 .theme-gunsmith { --theme-accent: #9aa6b2; }
 
 .supplier-profile-header-actions {
@@ -3024,7 +3043,7 @@
   .supplier-profile-header-actions > button { flex: 1 1 auto; }
 }
 
-/* v0.0.2e — transparent document-nature badges in pool curation. */
+/* Integrated Supplier — transparent document-nature badges in pool curation. */
 .supplier-pool-item-name-row {
   display: flex;
   align-items: center;

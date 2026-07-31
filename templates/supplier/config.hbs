@@ -108,12 +108,21 @@
 
               <section class="supplier-card supplier-profile-progression-card">
                 <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.ProfileProgression"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.ProfileProgressionHint"}}</p></div></div>
-                <label class="supplier-field">
-                  <span>{{localize "DND5E_SUPPLIER.Config.ProgressionProfile"}}</span>
-                  <select data-path="profiles.{{selectedProfileIndex}}.progressionProfileId" data-rerender>
-                    {{#each profileProgressionOptions}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{displayName}}</option>{{/each}}
-                  </select>
-                </label>
+                <div class="supplier-grid two">
+                  <label class="supplier-field">
+                    <span>{{localize "DND5E_SUPPLIER.Config.ProgressionProfile"}}</span>
+                    <select data-path="profiles.{{selectedProfileIndex}}.progressionProfileId" data-rerender>
+                      {{#each profileProgressionOptions}}<option value="{{id}}" {{#if selected}}selected{{/if}}>{{displayName}}</option>{{/each}}
+                    </select>
+                  </label>
+                  <label class="supplier-field">
+                    <span>{{localize "DND5E_SUPPLIER.Homebrew.AccessLevel"}}</span>
+                    <select data-path="profiles.{{selectedProfileIndex}}.homebrewAccessLevel" data-rerender>
+                      {{#each profileAccessOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
+                    </select>
+                    <small>{{localize "DND5E_SUPPLIER.Homebrew.AccessLevelHint"}}</small>
+                  </label>
+                </div>
               </section>
 
               <section class="supplier-card supplier-target-card">
@@ -123,11 +132,33 @@
                     <select data-path="profiles.{{selectedProfileIndex}}.stockTotalMode" data-rerender>
                       <option value="fixed" {{#if stockTotalFixed}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.FixedRandomTotal"}}</option>
                       <option value="perPlayer" {{#if stockTotalPerPlayer}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.RandomPerPlayer"}}</option>
+                      <option value="partyScaled" {{#if stockTotalPartyScaled}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.PartyScaledRandomTotal"}}</option>
+                      <option value="levelPartyScaled" {{#if stockTotalLevelPartyScaled}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.LevelPartyScaledRandomTotal"}}</option>
                     </select>
                   </label>
-                  <label class="supplier-field"><span>{{#if stockTotalFixed}}{{localize "DND5E_SUPPLIER.Config.RandomItemTotal"}}{{else}}{{localize "DND5E_SUPPLIER.Config.RandomItemsPerPlayer"}}{{/if}}</span><input type="number" min="0" step="0.5" data-path="profiles.{{selectedProfileIndex}}.stockTotal" data-rerender value="{{selectedProfile.stockTotal}}"></label>
+                  {{#if stockTotalUsesValue}}<label class="supplier-field"><span>{{#if stockTotalFixed}}{{localize "DND5E_SUPPLIER.Config.RandomItemTotal"}}{{else}}{{#if stockTotalPerPlayer}}{{localize "DND5E_SUPPLIER.Config.RandomItemsPerPlayer"}}{{else}}{{localize "DND5E_SUPPLIER.Config.RandomItemsPerBaseParty"}}{{/if}}{{/if}}</span><input type="number" min="0" step="0.5" data-path="profiles.{{selectedProfileIndex}}.stockTotal" data-rerender value="{{selectedProfile.stockTotal}}"></label>{{/if}}
+                  <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.BasePartySize"}}</span><input type="number" min="1" max="30" data-path="profiles.{{selectedProfileIndex}}.stockScaleBase" data-rerender value="{{selectedProfile.stockScaleBase}}"></label>
                   <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.PreviewPartySize"}}</span><input type="number" name="validationPlayers" min="1" max="30" value="{{validationPlayers}}" data-rerender></label>
+                  <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.PreviewPartyLevel"}}</span><input type="number" name="validationLevel" min="1" max="20" value="{{validationLevel}}" data-rerender></label>
                 </div>
+                {{#if stockTotalLevelPartyScaled}}
+                  <div class="supplier-dependent-block supplier-stock-bands-block">
+                    <h3>{{localize "DND5E_SUPPLIER.Config.StockLevelBands"}}</h3>
+                    <p>{{localize "DND5E_SUPPLIER.Config.StockLevelBandsHint"}}</p>
+                    <div class="supplier-band-list">
+                      {{#each selectedProfile.stockBands}}
+                        <article class="supplier-rule-card">
+                          <div class="supplier-grid four">
+                            <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinLevel"}}</span><input type="number" min="1" max="20" data-path="profiles.{{../selectedProfileIndex}}.stockBands.{{@index}}.min" value="{{min}}"></label>
+                            <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxLevel"}}</span><input type="number" min="1" max="20" data-path="profiles.{{../selectedProfileIndex}}.stockBands.{{@index}}.max" value="{{max}}"></label>
+                            <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.TotalStock"}}</span><input type="number" min="0" data-path="profiles.{{../selectedProfileIndex}}.stockBands.{{@index}}.total" value="{{total}}"></label>
+                            <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.ScrollStock"}}</span><input type="number" min="0" data-path="profiles.{{../selectedProfileIndex}}.stockBands.{{@index}}.scrolls" value="{{scrolls}}"></label>
+                          </div>
+                        </article>
+                      {{/each}}
+                    </div>
+                  </div>
+                {{/if}}
                 <div class="supplier-target-summary">
                   <i class="fa-solid fa-dice"></i>
                   <div><strong>{{localize "DND5E_SUPPLIER.Config.RandomTargetPreview"}}: {{calculatedRandomTarget}}</strong><span>{{localize "DND5E_SUPPLIER.Config.RandomTargetAdditional"}}</span></div>
@@ -174,14 +205,15 @@
                                     <option value="players" {{#if quantityPlayers}}selected{{/if}}>{{#if isCatalog}}{{localize "DND5E_SUPPLIER.Config.AbundantPerPlayer"}}{{else}}{{localize "DND5E_SUPPLIER.Config.PerPlayer"}}{{/if}}</option>
                                     <option value="halfDown" {{#if quantityHalfDown}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.ModerateHalfDown"}}</option>
                                     <option value="halfUp" {{#if quantityHalfUp}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.ModerateHalfUp"}}</option>
-                                    {{#unless isCatalog}}<option value="range" {{#if quantityRange}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.Range"}}</option>{{/unless}}
+                                    <option value="partyScaled" {{#if quantityPartyScaled}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.PartyScaledQuantity"}}</option>
+                                    {{#unless isCatalog}}<option value="levelPartyScaledScrolls" {{#if quantityLevelPartyScaledScrolls}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.LevelPartyScaledScrolls"}}</option><option value="range" {{#if quantityRange}}selected{{/if}}>{{localize "DND5E_SUPPLIER.Config.Range"}}</option>{{/unless}}
                                   </select>
                                 </label>
                                 {{#if quantityRange}}
                                   <label class="supplier-field mini-field"><span>{{localize "DND5E_SUPPLIER.Config.Minimum"}}</span><input type="number" min="0" data-path="{{path}}.quantityMin" value="{{quantityMin}}"></label>
                                   <label class="supplier-field mini-field"><span>{{localize "DND5E_SUPPLIER.Config.Maximum"}}</span><input type="number" min="0" data-path="{{path}}.quantityMax" value="{{quantityMax}}"></label>
                                 {{else}}
-                                  <label class="supplier-field mini-field"><span>{{#if isCatalog}}{{localize "DND5E_SUPPLIER.Config.QuantityEach"}}{{else}}{{localize "DND5E_SUPPLIER.Config.Slots"}}{{/if}}</span><input type="number" min="0" step="1" data-path="{{path}}.quantity" value="{{quantity}}"></label>
+                                  {{#unless quantityLevelPartyScaledScrolls}}<label class="supplier-field mini-field"><span>{{#if isCatalog}}{{localize "DND5E_SUPPLIER.Config.QuantityEach"}}{{else}}{{localize "DND5E_SUPPLIER.Config.Slots"}}{{/if}}</span><input type="number" min="0" step="1" data-path="{{path}}.quantity" value="{{quantity}}"></label>{{/unless}}
                                 {{/if}}
                               {{/if}}
                               {{#if showRandomWeight}}
@@ -232,6 +264,16 @@
 
                             <div class="supplier-rule-options-row">
                               {{#unless isCatalog}}<label class="supplier-inline-check"><input type="checkbox" data-path="{{path}}.allowDuplicates" {{#if allowDuplicates}}checked{{/if}}><span>{{localize "DND5E_SUPPLIER.Config.AllowDuplicates"}}</span></label>{{/unless}}
+                            </div>
+                            <div class="supplier-dependent-block supplier-rule-availability-block">
+                              <h3>{{localize "DND5E_SUPPLIER.Config.AvailabilityControls"}}</h3>
+                              <div class="supplier-grid four">
+                                <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.AppearanceChance"}}</span><div class="supplier-money-input"><input type="number" min="0" max="100" step="1" data-path="{{path}}.chance" value="{{chance}}"><em>%</em></div></label>
+                                <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinimumVendorAccess"}}</span><input type="number" min="0" max="4" step="1" data-path="{{path}}.minimumVendorAccess" value="{{minimumVendorAccess}}"></label>
+                                <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaximumVendorAccess"}}</span><input type="number" min="0" max="4" step="1" data-path="{{path}}.maximumVendorAccess" value="{{maximumVendorAccess}}"></label>
+                                <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaximumPerFamily"}}</span><input type="number" min="0" step="1" data-path="{{path}}.maxPerFamily" value="{{maxPerFamily}}"></label>
+                              </div>
+                              <small>{{localize "DND5E_SUPPLIER.Config.AvailabilityControlsHint"}}</small>
                             </div>
 
                             <div class="supplier-pool-preview {{#unless poolValid}}invalid{{/unless}}">
@@ -378,26 +420,26 @@
 
         {{#if selectedProgressionProfile}}
         <section class="supplier-card">
-          <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.LevelBands"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.LevelBandsHint"}}</p></div><button type="button" class="supplier-secondary" data-action="add-band"><i class="fa-solid fa-plus"></i>{{localize "DND5E_SUPPLIER.Config.AddBand"}}</button></div>
-          <div class="supplier-band-list">{{#each levelBands}}<article class="supplier-rule-card"><div class="supplier-rule-toolbar"><strong>{{localize "DND5E_SUPPLIER.Config.LevelBand"}}</strong><button type="button" class="supplier-icon-button danger" data-action="remove-band" data-index="{{index}}"><i class="fa-solid fa-trash"></i></button></div><div class="supplier-grid three"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinLevel"}}</span><input type="number" min="1" max="20" data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.min" value="{{min}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxLevel"}}</span><input type="number" min="1" max="20" data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.max" value="{{max}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxSpellLevel"}}</span><input type="number" min="0" max="9" data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.maxSpellLevel" value="{{maxSpellLevel}}"></label></div><div class="supplier-checkbox-grid compact-top">{{#each rarityOptions}}<label class="supplier-choice-card"><input type="checkbox" data-array-path="progressionProfiles.{{../../selectedProgressionIndex}}.levelBands.{{../index}}.rarities" value="{{value}}" {{#if checked}}checked{{/if}}><span>{{label}}</span></label>{{/each}}</div></article>{{/each}}</div>
+          <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.LevelBands"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.LevelBandsHint"}}</p></div><button type="button" class="supplier-secondary" data-action="add-band" {{#if progressionLocked}}disabled{{/if}}><i class="fa-solid fa-plus"></i>{{localize "DND5E_SUPPLIER.Config.AddBand"}}</button></div>
+          <div class="supplier-band-list">{{#each levelBands}}<article class="supplier-rule-card"><div class="supplier-rule-toolbar"><strong>{{localize "DND5E_SUPPLIER.Config.LevelBand"}}</strong><button type="button" class="supplier-icon-button danger" data-action="remove-band" data-index="{{index}}" {{#if @root.progressionLocked}}disabled{{/if}}><i class="fa-solid fa-trash"></i></button></div><div class="supplier-grid three"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinLevel"}}</span><input type="number" min="1" max="20" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.min" value="{{min}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxLevel"}}</span><input type="number" min="1" max="20" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.max" value="{{max}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxSpellLevel"}}</span><input type="number" min="0" max="9" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.levelBands.{{index}}.maxSpellLevel" value="{{maxSpellLevel}}"></label></div><div class="supplier-checkbox-grid compact-top">{{#each rarityOptions}}<label class="supplier-choice-card"><input type="checkbox" {{#if @root.progressionLocked}}disabled{{/if}} data-array-path="progressionProfiles.{{../../selectedProgressionIndex}}.levelBands.{{../index}}.rarities" value="{{value}}" {{#if checked}}checked{{/if}}><span>{{label}}</span></label>{{/each}}</div></article>{{/each}}</div>
         </section>
         <section class="supplier-card">
-          <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.EnchantmentBands"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.EnchantmentBandsHint"}}</p></div><button type="button" class="supplier-secondary" data-action="add-quality-band"><i class="fa-solid fa-plus"></i>{{localize "DND5E_SUPPLIER.Config.AddBand"}}</button></div>
-          <div class="supplier-band-list">{{#each enchantmentBands}}<article class="supplier-rule-card"><div class="supplier-rule-toolbar"><strong>{{localize "DND5E_SUPPLIER.Config.QualityBand"}}</strong><button type="button" class="supplier-icon-button danger" data-action="remove-quality-band" data-index="{{index}}"><i class="fa-solid fa-trash"></i></button></div><div class="supplier-grid three"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinLevel"}}</span><input type="number" min="1" max="20" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.min" value="{{min}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxLevel"}}</span><input type="number" min="1" max="20" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.max" value="{{max}}"></label></div><div class="supplier-grid four compact-top"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MundaneWeight"}}</span><input type="number" min="0" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.0" value="{{weight0}}"></label><label class="supplier-field"><span>+1</span><input type="number" min="0" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.1" value="{{weight1}}"></label><label class="supplier-field"><span>+2</span><input type="number" min="0" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.2" value="{{weight2}}"></label><label class="supplier-field"><span>+3</span><input type="number" min="0" data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.3" value="{{weight3}}"></label></div></article>{{/each}}</div>
+          <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.EnchantmentBands"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.EnchantmentBandsHint"}}</p></div><button type="button" class="supplier-secondary" data-action="add-quality-band" {{#if progressionLocked}}disabled{{/if}}><i class="fa-solid fa-plus"></i>{{localize "DND5E_SUPPLIER.Config.AddBand"}}</button></div>
+          <div class="supplier-band-list">{{#each enchantmentBands}}<article class="supplier-rule-card"><div class="supplier-rule-toolbar"><strong>{{localize "DND5E_SUPPLIER.Config.QualityBand"}}</strong><button type="button" class="supplier-icon-button danger" data-action="remove-quality-band" data-index="{{index}}" {{#if @root.progressionLocked}}disabled{{/if}}><i class="fa-solid fa-trash"></i></button></div><div class="supplier-grid three"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MinLevel"}}</span><input type="number" min="1" max="20" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.min" value="{{min}}"></label><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MaxLevel"}}</span><input type="number" min="1" max="20" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.max" value="{{max}}"></label></div><div class="supplier-grid four compact-top"><label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.MundaneWeight"}}</span><input type="number" min="0" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.0" value="{{weight0}}"></label><label class="supplier-field"><span>+1</span><input type="number" min="0" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.1" value="{{weight1}}"></label><label class="supplier-field"><span>+2</span><input type="number" min="0" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.2" value="{{weight2}}"></label><label class="supplier-field"><span>+3</span><input type="number" min="0" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.enchantmentBands.{{index}}.weights.3" value="{{weight3}}"></label></div></article>{{/each}}</div>
         </section>
         <section class="supplier-card">
           <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.PriceFallbacks"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.PriceFallbacksHint"}}</p></div></div>
           <label class="supplier-choice-card supplier-core-pricing-toggle">
-            <input type="checkbox" data-path="useCorePricing" data-rerender {{#if useCorePricing}}checked{{/if}}>
+            <input type="checkbox" {{#if progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{selectedProgressionIndex}}.useCorePricing" data-rerender {{#if useCorePricing}}checked{{/if}}>
             <span><strong>{{localize "DND5E_SUPPLIER.Config.UseCorePricing"}}</strong><small>{{localize "DND5E_SUPPLIER.Config.UseCorePricingHint"}}</small></span>
           </label>
           {{#if useCorePricing}}
             <div class="supplier-recommended-note"><i class="fa-solid fa-circle-info"></i><span>{{localize "DND5E_SUPPLIER.Config.CorePricingActive"}}</span></div>
           {{else}}
-            <div class="supplier-grid three">{{#each rarities}}<label class="supplier-field"><span>{{localized}}</span><div class="supplier-money-input"><input type="number" min="{{#if allowsZero}}0{{else}}1{{/if}}" data-path="progressionProfiles.{{../selectedProgressionIndex}}.priceFallbacks.{{value}}" value="{{price}}"><em>GP</em></div></label>{{/each}}</div>
+            <div class="supplier-grid three">{{#each rarities}}<label class="supplier-field"><span>{{localized}}</span><div class="supplier-money-input"><input type="number" min="{{#if allowsZero}}0{{else}}1{{/if}}" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.priceFallbacks.{{value}}" value="{{price}}"><em>GP</em></div></label>{{/each}}</div>
           {{/if}}
         </section>
-        <section class="supplier-card"><div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.QualityPriceAdditions"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.QualityPriceAdditionsHint"}}</p></div></div><div class="supplier-grid three">{{#each qualityPrices}}<label class="supplier-field"><span>+{{bonus}}</span><div class="supplier-money-input"><input type="number" min="0" data-path="progressionProfiles.{{../selectedProgressionIndex}}.qualityPriceAdditions.{{bonus}}" value="{{price}}"><em>GP</em></div></label>{{/each}}</div></section>
+        <section class="supplier-card"><div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.QualityPriceAdditions"}}</h2><p>{{localize "DND5E_SUPPLIER.Config.QualityPriceAdditionsHint"}}</p></div></div><div class="supplier-grid three">{{#each qualityPrices}}<label class="supplier-field"><span>+{{bonus}}</span><div class="supplier-money-input"><input type="number" min="0" {{#if @root.progressionLocked}}disabled{{/if}} data-path="progressionProfiles.{{../selectedProgressionIndex}}.qualityPriceAdditions.{{bonus}}" value="{{price}}"><em>GP</em></div></label>{{/each}}</div></section>
         {{/if}}
       {{/if}}
 

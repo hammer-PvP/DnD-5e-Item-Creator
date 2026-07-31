@@ -1,6 +1,6 @@
 /**
  * Restores the non-destructive Homebrew curation marker used by built-in
- * Supplier templates. v0.0.2b-v0.0.2d flattened these markers into
+ * Supplier templates. An earlier migration flattened these markers into
  * poolExclusions, which prevented newly supported materializers from entering
  * the same pools. This helper has no imports so settings migration can use it
  * without creating a catalog/settings cycle.
@@ -25,6 +25,8 @@ export function inferHomebrewCuration(profile, rule) {
 
   if (template === "blacksmith") {
     if (name.includes("named-magic")) return "blacksmithNamed";
+    if (name.includes("enchanted-ammunition")) return "blacksmithMagicAmmunition";
+    if (name.includes("two-handed")) return "blacksmithTwoHanded";
     if (name.includes("ammunition")) return "blacksmithAmmunition";
     return "blacksmithBase";
   }
@@ -40,6 +42,7 @@ export function inferHomebrewCuration(profile, rule) {
   }
   if (template === "magic") {
     if (category === "spellScroll" || name.includes("spell-scroll")) return "excludeCantrips";
+    if (name.includes("relic")) return "magicRelics";
     return "magicAssortment";
   }
   if (template === "general") {
@@ -50,7 +53,7 @@ export function inferHomebrewCuration(profile, rule) {
   }
   if (template === "stable") {
     if (name.includes("animal") || name.includes("mount")) {
-      const access = ["1", "2", "3"].includes(String(profile?.homebrewAccessLevel))
+      const access = ["1", "2", "3", "4"].includes(String(profile?.homebrewAccessLevel))
         ? String(profile.homebrewAccessLevel)
         : "2";
       return `livestock-${access}`;

@@ -33,6 +33,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     this.catalogUnits = 0;
     this.guaranteedUnits = 0;
     this.randomUnits = 0;
+    this.diagnostics = null;
     this.busy = false;
   }
 
@@ -46,7 +47,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       return total + this.#toCopper(line.price?.value, line.price?.denomination) * Number(line.quantity || 0);
     }, 0);
 
-    const accessValue = ["1", "2", "3"].includes(String(profile?.homebrewAccessLevel))
+    const accessValue = ["1", "2", "3", "4"].includes(String(profile?.homebrewAccessLevel))
       ? String(profile.homebrewAccessLevel)
       : "custom";
     const accessLabel = accessValue === "custom"
@@ -117,6 +118,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
         this.catalogUnits = 0;
         this.guaranteedUnits = 0;
         this.randomUnits = 0;
+        this.diagnostics = null;
         this.render();
       });
     });
@@ -131,6 +133,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = 0;
       this.guaranteedUnits = 0;
       this.randomUnits = 0;
+      this.diagnostics = null;
       this.render();
     });
 
@@ -176,6 +179,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = result.catalogUnits ?? 0;
       this.guaranteedUnits = result.guaranteedUnits ?? 0;
       this.randomUnits = result.randomUnits ?? 0;
+      this.diagnostics = result.diagnostics ?? null;
       if (!this.preview.length) ui.notifications.warn(game.i18n.localize("DND5E_SUPPLIER.Errors.NothingGenerated"));
     } catch (error) {
       console.error(`${MODULE_ID} | Generation failed`, error);
@@ -207,6 +211,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = 0;
       this.guaranteedUnits = 0;
       this.randomUnits = 0;
+      this.diagnostics = null;
       ui.items?.render(true);
     } catch (error) {
       console.error(`${MODULE_ID} | Commit failed`, error);

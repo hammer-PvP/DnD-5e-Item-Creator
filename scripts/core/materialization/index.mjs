@@ -9,7 +9,7 @@ import {
   materializeIdentityChanges
 } from "./naming.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.2.0";
+export const MATERIALIZATION_ENGINE_VERSION = "0.2.0a";
 
 /**
  * HAMMER Materialization Core
@@ -557,6 +557,59 @@ function isResistanceBlueprint(blueprintData) {
   return identity.includes("resistance") || identity.includes("resistencia");
 }
 
+function isArmorOfResistanceBlueprint(blueprintData) {
+  const identity = normalize(`${blueprintData?.name ?? ""} ${foundry.utils.getProperty(blueprintData, "system.identifier") ?? ""}`);
+  return identity.includes("armor-of-resistance") || identity.includes("armadura-de-resistencia");
+}
+
+function resolvedArmorResistanceDescription(blueprintData, selection) {
+  if (!selection || selection.kind !== "damageType" || !isArmorOfResistanceBlueprint(blueprintData)) return "";
+  const label = String(selection.label || selection.text || selection.value || "").trim();
+  if (!label) return "";
+  return `<p>While you wear this armor, you have Resistance to ${label} damage.</p>`;
+}
+
+/** Resolve the description mutation stored inside an Enchantment Effect.
+ * D&D5e Armor of Resistance documents append their generic table text through
+ * a system.description.value change. Updating only ActiveEffect.description
+ * leaves that table on the generated Item, so both locations must be resolved. */
+function resolveBlueprintDescriptionChanges(effect, blueprintData, selection) {
+  const output = clone(effect);
+  const specificResistanceDescription = resolvedArmorResistanceDescription(blueprintData, selection);
+  const resolved = Boolean(selection);
+  const changes = effectChanges(output).map(sourceChange => {
+    const change = clone(sourceChange);
+    const key = String(change?.key ?? "");
+    if (!["system.description", "system.description.value", "system.description.chat"].includes(key)) return change;
+    if (specificResistanceDescription && key !== "system.description.chat") {
+      change.value = specificResistanceDescription;
+      return change;
+    }
+    if (typeof change.value === "string") {
+      change.value = cleanResolvedBlueprintDescription(change.value, { resolved });
+    }
+    return change;
+  });
+  setEffectChanges(output, changes);
+  output.description = specificResistanceDescription || cleanResolvedBlueprintDescription(output.description, { resolved });
+  return output;
+}
+
+export function isMeaningfullyMaterializedData(documentOrData, { bonus = null } = {}) {
+  const data = asData(documentOrData);
+  const expected = Number(bonus);
+  if (!Number.isFinite(expected) || expected <= 0) return true;
+  const name = String(data.name ?? "");
+  const weaponBonus = Number(foundry.utils.getProperty(data, "system.magicalBonus") ?? 0);
+  const armorBonus = Number(foundry.utils.getProperty(data, "system.armor.magicalBonus") ?? 0);
+  const properties = new Set(propertyValues(data).map(normalize));
+  const rarity = normalizeRarity(foundry.utils.getProperty(data, "system.rarity"));
+  return name.includes(`+${expected}`)
+    && Math.max(weaponBonus, armorBonus) === expected
+    && rarity !== "none"
+    && (properties.has("mgc") || properties.has("magical"));
+}
+
 function ensureResolvedSelectionName(effect, blueprintData, selection) {
   if (!selection || selection.kind !== "damageType" || !isResistanceBlueprint(blueprintData)) return effect;
   const output = clone(effect);
@@ -735,6 +788,7 @@ export async function materializeNativeBlueprint({
     ];
 
     let enchantment = applyTableSelectionToEffect(pair.effect, tableResult, blueprintData);
+    enchantment = resolveBlueprintDescriptionChanges(enchantment, blueprintData, tableResult);
     if (effectHasUnresolvedChoice(enchantment)) {
       failures.push("unresolvedChoice");
       continue;
@@ -748,9 +802,6 @@ export async function materializeNativeBlueprint({
       continue;
     }
     enchantment = identity.effect;
-    enchantment.description = cleanResolvedBlueprintDescription(enchantment.description, {
-      resolved: Boolean(tableResult)
-    });
     const sourceEffectId = String(enchantment._id ?? pair.profile?._id ?? "");
     enchantment._id = freshId();
     enchantment.type = "enchantment";
@@ -860,8 +911,7 @@ export function materializeSyntheticEnhancement({ baseDocument, bonus, qualityPr
   delete result._id;
   const numericBonus = Math.max(0, Math.min(3, Math.floor(Number(bonus ?? 0))));
   if (!numericBonus) {
-    const metadata = { kind: "generator", family: "base", baseUuid: baseDocument?.uuid ?? "", bonus: 0, strategy: "base-copy" };
-    addCoreFlags(result, metadata);
+    const metadata = { kind: "sellable", family: "", baseUuid: baseDocument?.uuid ?? "", bonus: 0, strategy: "base-copy", materialized: false };
     const validation = validateAndPrepareData(result);
     if (!validation.ok) return { ok: false, reason: validation.reason, error: validation.error };
     return { ok: true, documentData: result, display: validation.display, metadata: { ...metadata, validation: validation.validation } };
@@ -900,7 +950,10 @@ export function materializeSyntheticEnhancement({ baseDocument, bonus, qualityPr
   addCoreFlags(result, metadata);
   const validation = validateAndPrepareData(result);
   if (!validation.ok) return { ok: false, reason: validation.reason, error: validation.error };
-  return { ok: true, documentData: result, display: validation.display, metadata: { ...metadata, validation: validation.validation } };
+  if (!isMeaningfullyMaterializedData(result, { bonus: numericBonus })) {
+    return { ok: false, reason: "incompleteSyntheticEnhancement" };
+  }
+  return { ok: true, documentData: result, display: validation.display, metadata: { ...metadata, materialized: true, validation: validation.validation } };
 }
 
 export async function materializeEnhancement({
@@ -1037,5 +1090,6 @@ export const MaterializationCore = Object.freeze({
   materialize,
   materializeNativeBlueprint,
   materializeEnhancement,
-  materializeSyntheticEnhancement
+  materializeSyntheticEnhancement,
+  isMeaningfullyMaterializedData
 });

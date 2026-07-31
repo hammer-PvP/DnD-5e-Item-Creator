@@ -52,12 +52,13 @@ export class SupplierPoolInspector extends HandlebarsApplicationMixin(Applicatio
     main: { template: `modules/${MODULE_ID}/templates/supplier/pool-inspector.hbs` }
   };
 
-  constructor({ profile, rule, subtype, configuration, onSave } = {}, options = {}) {
+  constructor({ profile, rule, subtype, configuration, level = 10, onSave } = {}, options = {}) {
     super(options);
     this.profile = profile;
     this.rule = rule;
     this.subtype = subtype;
     this.configuration = configuration;
+    this.level = Math.min(20, Math.max(1, Number(level ?? 10)));
     this.onSave = onSave;
     this.entries = [];
     this.selected = new Set();
@@ -76,6 +77,8 @@ export class SupplierPoolInspector extends HandlebarsApplicationMixin(Applicatio
       catalog,
       profileEntries,
       configuration: this.configuration,
+      profile: this.profile,
+      level: this.level,
       applyProgression: false
     });
 

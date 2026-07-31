@@ -200,6 +200,13 @@ function normalizeRule(rule, defaults) {
   migrated.fixedBonus = Number(migrated.fixedBonus ?? 1);
   migrated.enchantedMinimum = Number(migrated.enchantedMinimum ?? 0);
   migrated.randomWeight = Math.max(0.1, Number(migrated.randomWeight ?? 1));
+  migrated.chance = Math.min(100, Math.max(0, Number(migrated.chance ?? 100)));
+  migrated.minimumVendorAccess = Math.min(4, Math.max(0, Number(migrated.minimumVendorAccess ?? 0)));
+  migrated.maximumVendorAccess = Math.min(4, Math.max(0, Number(migrated.maximumVendorAccess ?? 0)));
+  migrated.maxPerFamily = Math.max(0, Number(migrated.maxPerFamily ?? 0));
+  migrated.rarityDistribution = String(migrated.rarityDistribution ?? "");
+  migrated.selectionDistribution = String(migrated.selectionDistribution ?? "");
+  migrated.stockScaleBase = Math.max(1, Number(migrated.stockScaleBase ?? 4));
   migrated.coverageMode = migrated.coverageMode === "rolls" ? "slots" : (migrated.coverageMode ?? "slots");
 
   // v0.0.2 centralizes all rarity availability in progression profiles.
@@ -260,7 +267,9 @@ function normalizeProgressionProfile(profile, fallback = null) {
     id: String(profile?.id ?? foundry.utils.randomID()),
     name: String(profile?.name ?? "Custom Progression"),
     recommended: profile?.recommended === true,
+    official: profile?.official === true,
     homebrew: profile?.homebrew === true,
+    useCorePricing: profile?.useCorePricing !== false,
     builtIn: String(profile?.builtIn ?? (profile?.recommended ? "recommended" : profile?.homebrew ? "homebrew" : "")),
     levelBands: foundry.utils.deepClone(arrayValue(profile?.levelBands, base.levelBands ?? DEFAULT_LEVEL_BANDS)),
     enchantmentBands: foundry.utils.deepClone(arrayValue(profile?.enchantmentBands, base.enchantmentBands ?? DEFAULT_ENCHANTMENT_BANDS)),
@@ -302,17 +311,33 @@ function normalizeProgressionProfiles(stored, configuration) {
 
   const recommended = profiles.find(profile => profile.id === RECOMMENDED_PROGRESSION_ID) ?? profiles.find(profile => profile.recommended);
   if (recommended) {
+    const baseline = createRecommendedProgressionProfile();
     recommended.id = RECOMMENDED_PROGRESSION_ID;
+    recommended.name = baseline.name;
     recommended.recommended = true;
     recommended.homebrew = false;
+    recommended.official = true;
+    recommended.useCorePricing = true;
     recommended.builtIn = "recommended";
+    recommended.levelBands = foundry.utils.deepClone(baseline.levelBands);
+    recommended.enchantmentBands = foundry.utils.deepClone(baseline.enchantmentBands);
+    recommended.priceFallbacks = foundry.utils.deepClone(baseline.priceFallbacks);
+    recommended.qualityPriceAdditions = foundry.utils.deepClone(baseline.qualityPriceAdditions);
   }
   const homebrew = profiles.find(profile => profile.id === HAMMER_HOMEBREW_PROGRESSION_ID) ?? profiles.find(profile => profile.homebrew);
   if (homebrew) {
+    const baseline = createHammerHomebrewProgressionProfile();
     homebrew.id = HAMMER_HOMEBREW_PROGRESSION_ID;
+    homebrew.name = baseline.name;
     homebrew.recommended = false;
     homebrew.homebrew = true;
+    homebrew.official = false;
+    homebrew.useCorePricing = false;
     homebrew.builtIn = "homebrew";
+    homebrew.levelBands = foundry.utils.deepClone(baseline.levelBands);
+    homebrew.enchantmentBands = foundry.utils.deepClone(baseline.enchantmentBands);
+    homebrew.priceFallbacks = foundry.utils.deepClone(baseline.priceFallbacks);
+    homebrew.qualityPriceAdditions = foundry.utils.deepClone(baseline.qualityPriceAdditions);
   }
   return profiles;
 }
@@ -368,12 +393,21 @@ function migrateConfiguration(stored) {
       sourceIds: arrayValue(profile.sourceIds),
       progressionProfileId: String(profile.progressionProfileId ?? "world"),
       homebrewTemplateId: String(profile.homebrewTemplateId ?? ""),
-      homebrewAccessLevel: String(profile.homebrewAccessLevel ?? ""),
+      homebrewAccessLevel: ["1", "2", "3", "4"].includes(String(profile.homebrewAccessLevel)) ? String(profile.homebrewAccessLevel) : "2",
+      homebrewPresetVersion: Number(profile.homebrewPresetVersion ?? 0),
+      stockScaleBase: Math.max(1, Number(profile.stockScaleBase ?? 4)),
+      stockBands: arrayValue(profile.stockBands).map(band => ({
+        min: Number(band?.min ?? 1),
+        max: Number(band?.max ?? 20),
+        total: Math.max(0, Number(band?.total ?? 0)),
+        scrolls: Math.max(0, Number(band?.scrolls ?? 0))
+      })),
       allowedItemTypes: [],
       stockTotalMode: (() => {
         const mode = profile.stockTotalMode ?? "perPlayer";
+        if (["partyScaled", "levelPartyScaled", "fixed", "perPlayer"].includes(mode)) return mode;
         if (["players", "playersMultiplier", "halfDown", "halfUp"].includes(mode)) return "perPlayer";
-        return mode === "fixed" ? "fixed" : "perPlayer";
+        return "perPlayer";
       })(),
       stockTotal: (() => {
         const mode = profile.stockTotalMode ?? "perPlayer";
@@ -458,6 +492,27 @@ export async function initializeDefaultSources() {
   for (const profile of configuration.profiles) {
     if (profile.sourceIds?.length) continue;
     profile.sourceIds = [...enabledIds];
+    changed = true;
+  }
+
+  // Rebuild only legacy built-in Hammer vendor profiles once. User-created
+  // duplicates carrying the current preset version remain fully editable.
+  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 2);
+  if (legacyHomebrew.length) {
+    const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
+    for (const legacy of legacyHomebrew) {
+      const rebuilt = createHomebrewSupplierProfile({
+        templateId: legacy.homebrewTemplateId,
+        accessLevel: legacy.homebrewAccessLevel || "2",
+        name: legacy.name,
+        sourceIds: legacy.sourceIds?.length ? legacy.sourceIds : enabledIds
+      });
+      rebuilt.id = legacy.id;
+      rebuilt.bannedItems = foundry.utils.deepClone(legacy.bannedItems ?? []);
+      rebuilt.mechanicalItemOverrides = foundry.utils.deepClone(legacy.mechanicalItemOverrides ?? []);
+      const index = configuration.profiles.indexOf(legacy);
+      configuration.profiles[index] = rebuilt;
+    }
     changed = true;
   }
 

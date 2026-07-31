@@ -11,8 +11,10 @@ import {
   registerMaterializationSettings
 } from "./core/materialization/pricing.mjs";
 import { SupplierApplication } from "./features/supplier/supplier-app.mjs";
+import { auditSupplierStock } from "./features/supplier/generator.mjs";
 import { SupplierConfigApplication } from "./features/supplier/config-app.mjs";
 import {
+  getConfiguration as getSupplierConfiguration,
   initializeDefaultSources,
   isSupplierEnabled,
   registerSupplierSettings
@@ -44,7 +46,7 @@ Hooks.once("init", () => {
   game.settings.registerMenu(MODULE_ID, "moduleConfiguration", {
     name: "Item Creator Configuration",
     label: "Configure Item Creator",
-    hint: "Manage optional Supplier tools and the shared Materialization Core pricing profile.",
+    hint: "Manage the optional Supplier stock generator and the shared Materialization Core pricing profile.",
     icon: "fa-solid fa-gears",
     type: ItemCreatorModuleSettingsApp,
     restricted: true
@@ -67,6 +69,14 @@ Hooks.once("init", () => {
     get scrollFactory() { return scrollFactoryInstance; },
     openSupplier: () => openSupplier(),
     configureSupplier: () => openSupplierConfiguration(),
+    auditSupplier: async ({ profileId = "", level = 20, players = 4, runs = 25 } = {}) => {
+      if (!isSupplierEnabled()) throw new Error("Enable Supplier Tools before running an audit.");
+      const configuration = getSupplierConfiguration();
+      const profile = configuration.profiles.find(entry => entry.id === profileId || entry.name === profileId)
+        ?? configuration.profiles[0];
+      if (!profile) throw new Error("No Supplier profile is configured.");
+      return auditSupplierStock({ profile, level, players, runs });
+    },
     closeSupplier: () => closeSupplierWindows(),
     configureSources: () => openSourceSettings(),
     configure: () => openModuleSettings(),
@@ -237,7 +247,7 @@ function injectItemDirectoryButton(app, element) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ic-item-directory-button";
-    button.dataset.tooltip = "Open Item Creator, Scroll Factory, or Supplier";
+    button.dataset.tooltip = "Open Item Creator and Scroll Factory";
     button.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
     button.addEventListener("click", event => {
       event.preventDefault();
@@ -245,5 +255,19 @@ function injectItemDirectoryButton(app, element) {
       openItemCreator();
     });
     actions.append(button);
+  }
+
+  if (isSupplierEnabled() && !root.querySelector(".ic-supplier-directory-button")) {
+    const supplierButton = document.createElement("button");
+    supplierButton.type = "button";
+    supplierButton.className = "ic-supplier-directory-button";
+    supplierButton.dataset.tooltip = "Generate controlled vendor stock with Supplier";
+    supplierButton.innerHTML = '<i class="fa-solid fa-store" inert></i><span>Supplier</span>';
+    supplierButton.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      openSupplier();
+    });
+    actions.append(supplierButton);
   }
 }

@@ -19,6 +19,7 @@ import {
   resolvePrice
 } from "./catalog.mjs";
 import { homebrewCurationAllowsEntry } from "./homebrew-suppliers.mjs";
+import { profileAccessLevel, vendorAccessAllowsEntry } from "./availability.mjs";
 import { getConfiguration } from "./settings.mjs";
 import {
   canMaterializeOnto,
@@ -33,9 +34,10 @@ import { activeRarityPrices } from "../../core/materialization/pricing.mjs";
 
 function configurationForProfile(configuration, profile) {
   const requestedId = String(profile?.progressionProfileId ?? "world");
-  const progression = (!requestedId || requestedId === "world")
-    ? null
-    : (configuration.progressionProfiles ?? []).find(entry => entry.id === requestedId);
+  const resolvedProgressionId = (!requestedId || requestedId === "world")
+    ? String(configuration.activeProgressionProfileId ?? "")
+    : requestedId;
+  const progression = (configuration.progressionProfiles ?? []).find(entry => entry.id === resolvedProgressionId) ?? null;
   const resolved = progression ? {
     ...configuration,
     levelBands: foundry.utils.deepClone(progression.levelBands ?? configuration.levelBands ?? []),
@@ -43,7 +45,8 @@ function configurationForProfile(configuration, profile) {
     priceFallbacks: foundry.utils.deepClone(progression.priceFallbacks ?? configuration.priceFallbacks ?? {}),
     qualityPriceAdditions: foundry.utils.deepClone(progression.qualityPriceAdditions ?? configuration.qualityPriceAdditions ?? {})
   } : { ...configuration };
-  if (resolved.useCorePricing !== false) {
+  const progressionUsesCorePricing = progression ? progression.useCorePricing !== false : resolved.useCorePricing !== false;
+  if (progressionUsesCorePricing) {
     resolved.priceFallbacks = {
       none: Math.max(1, Number(resolved.priceFallbacks?.none ?? 1)),
       ...activeRarityPrices()
@@ -78,12 +81,27 @@ function randomBetween(min, max) {
   return low + Math.floor(Math.random() * (high - low + 1));
 }
 
-export function calculateQuantity(rule, players, remaining = 0) {
+export function partyScaledQuantity(value, players, baseSize = 4) {
+  const base = Math.max(1, Number(baseSize ?? 4) || 4);
+  return clampInteger(Math.ceil(Math.max(0, Number(value ?? 0)) * Math.max(1, Number(players ?? 1)) / base));
+}
+
+function stockBandForLevel(profile, level) {
+  return (profile?.stockBands ?? []).find(entry => level >= Number(entry.min) && level <= Number(entry.max)) ?? null;
+}
+
+export function calculateQuantity(rule, players, remaining = 0, { profile = null, level = 1 } = {}) {
   const value = Math.max(0, Number(rule.quantity ?? 0));
+  const baseSize = Math.max(1, Number(rule.stockScaleBase ?? profile?.stockScaleBase ?? 4) || 4);
   switch (rule.quantityMode) {
     case "players": return clampInteger(players * Math.max(1, value || 1));
     case "halfDown": return clampInteger(Math.max(1, Math.floor(players / 2)) * Math.max(1, value || 1));
     case "halfUp": return clampInteger(Math.max(1, Math.ceil(players / 2)) * Math.max(1, value || 1));
+    case "partyScaled": return partyScaledQuantity(value, players, baseSize);
+    case "levelPartyScaledScrolls": {
+      const band = stockBandForLevel(profile, level);
+      return partyScaledQuantity(Number(band?.scrolls ?? value), players, baseSize);
+    }
     case "range": return randomBetween(rule.quantityMin ?? 1, rule.quantityMax ?? 1);
     case "remainder": return clampInteger(remaining);
     case "fixed":
@@ -91,14 +109,22 @@ export function calculateQuantity(rule, players, remaining = 0) {
   }
 }
 
-export function calculateRandomTarget(profile, players) {
+export function calculateRandomTarget(profile, players, level = 1) {
   const value = Math.max(0, Number(profile.stockTotal ?? 0));
+  const baseSize = Math.max(1, Number(profile.stockScaleBase ?? 4) || 4);
   switch (profile.stockTotalMode) {
     case "perPlayer":
     case "playersMultiplier": return clampInteger(players * value);
     case "players": return clampInteger(players);
     case "halfDown": return clampInteger(Math.floor(players / 2));
     case "halfUp": return clampInteger(Math.ceil(players / 2));
+    case "partyScaled": return partyScaledQuantity(value, players, baseSize);
+    case "levelPartyScaled": {
+      const band = stockBandForLevel(profile, level);
+      const total = Math.max(0, Number(band?.total ?? value));
+      const scrolls = Math.max(0, Number(band?.scrolls ?? 0));
+      return partyScaledQuantity(Math.max(0, total - scrolls), players, baseSize);
+    }
     case "fixed":
     default: return clampInteger(value);
   }
@@ -263,7 +289,7 @@ function spellLevelMatch(entry, rule, configuration, level, { applyProgression =
   return entry.spellLevel <= maxSpellLevelForLevel(configuration, level);
 }
 
-export function inspectRulePool({ rule, catalog, profileEntries, configuration, level = 1, applyProgression = true }) {
+export function inspectRulePool({ rule, catalog, profileEntries, configuration, profile = null, level = 1, applyProgression = true }) {
   if (!rule?.category) {
     return { count: 0, reason: "category", names: [], stages: { source: profileEntries.length, category: 0 } };
   }
@@ -275,6 +301,7 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
     const found = references.map(reference => findEntry(catalog, reference, profileEntries)).filter(Boolean);
     const eligible = found.filter(entry =>
       homebrewCurationAllowsEntry(entry, rule.homebrewCuration)
+      && vendorAccessAllowsEntry(entry, profile, rule)
       && magicMatch(entry, rule, configuration, level, { applyProgression })
       && rarityMatch(entry, rule, configuration, level, { applyProgression })
       && spellLevelMatch(entry, rule, configuration, level, { applyProgression })
@@ -292,7 +319,8 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
   const stageCategory = categoryEntries(profileEntries, rule, catalog);
   const stageSubtype = stageCategory.filter(entry => subtypeMatch(entry, rule));
   const stageCuration = stageSubtype.filter(entry => homebrewCurationAllowsEntry(entry, rule.homebrewCuration));
-  const stageMagic = stageCuration.filter(entry => magicMatch(entry, rule, configuration, level, { applyProgression }));
+  const stageAccess = stageCuration.filter(entry => vendorAccessAllowsEntry(entry, profile, rule));
+  const stageMagic = stageAccess.filter(entry => magicMatch(entry, rule, configuration, level, { applyProgression }));
   const stageRarity = stageMagic.filter(entry => rarityMatch(entry, rule, configuration, level, { applyProgression }));
   const stageSpell = stageRarity.filter(entry => spellLevelMatch(entry, rule, configuration, level, { applyProgression }));
   const stageFinal = stageSpell.filter(entry =>
@@ -306,6 +334,7 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
   if (!stageCategory.length) reason = "category";
   else if (!stageSubtype.length) reason = "subtype";
   else if (!stageCuration.length) reason = "curation";
+  else if (!stageAccess.length) reason = "access";
   else if (!stageMagic.length) reason = "magic";
   else if (!stageRarity.length) reason = "rarity";
   else if (!stageSpell.length) reason = "spellLevel";
@@ -323,12 +352,95 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
       category: stageCategory.length,
       subtype: stageSubtype.length,
       curation: stageCuration.length,
+      access: stageAccess.length,
       magic: stageMagic.length,
       rarity: stageRarity.length,
       spellLevel: stageSpell.length,
       final: stageFinal.length
     }
   };
+}
+
+const HAMMER_ALCHEMIST_RARITY_DISTRIBUTIONS = Object.freeze([
+  { min: 1, max: 3, weights: { common: 85, uncommon: 15 } },
+  { min: 4, max: 6, weights: { common: 55, uncommon: 40, rare: 5 } },
+  { min: 7, max: 10, weights: { common: 25, uncommon: 50, rare: 25 } },
+  { min: 11, max: 13, weights: { uncommon: 30, rare: 60, veryRare: 10 } },
+  { min: 14, max: 16, weights: { uncommon: 10, rare: 60, veryRare: 30 } },
+  { min: 17, max: 20, weights: { rare: 45, veryRare: 55 } }
+]);
+
+const HAMMER_HEALING_DISTRIBUTIONS = Object.freeze([
+  { min: 1, max: 3, weights: { basic: 100 } },
+  { min: 4, max: 6, weights: { basic: 75, greater: 25 } },
+  { min: 7, max: 8, weights: { basic: 50, greater: 50 } },
+  { min: 9, max: 10, weights: { basic: 25, greater: 50, superior: 25 } },
+  { min: 11, max: 13, weights: { greater: 60, superior: 35, supreme: 5 } },
+  { min: 14, max: 16, weights: { greater: 35, superior: 50, supreme: 15 } },
+  { min: 17, max: 20, weights: { greater: 20, superior: 50, supreme: 30 } }
+]);
+
+function distributionBand(bands, level) {
+  return bands.find(entry => level >= entry.min && level <= entry.max) ?? bands.at(-1);
+}
+
+function entrySelectionWeight(entry, rule, level) {
+  if (rule?.selectionDistribution === "hammerHealingPotions") {
+    const tier = (() => {
+      const value = normalizeText(`${entry.identifier ?? ""} ${entry.name ?? ""}`);
+      if (value.includes("supreme")) return "supreme";
+      if (value.includes("superior")) return "superior";
+      if (value.includes("greater")) return "greater";
+      return "basic";
+    })();
+    return Math.max(0, Number(distributionBand(HAMMER_HEALING_DISTRIBUTIONS, level)?.weights?.[tier] ?? 0));
+  }
+  if (rule?.rarityDistribution === "hammerAlchemistExtras") {
+    const rarity = normalizeRarity(entry.rarity);
+    return Math.max(0, Number(distributionBand(HAMMER_ALCHEMIST_RARITY_DISTRIBUTIONS, level)?.weights?.[rarity] ?? 0));
+  }
+  return 1;
+}
+
+function weightedEntryChoice(entries, rule, level) {
+  if (!entries.length) return null;
+  const weighted = entries.map(entry => ({ entry, weight: entrySelectionWeight(entry, rule, level) })).filter(option => option.weight > 0);
+  if (!weighted.length) return randomChoice(entries);
+  const total = weighted.reduce((sum, option) => sum + option.weight, 0);
+  let roll = Math.random() * total;
+  for (const option of weighted) {
+    roll -= option.weight;
+    if (roll <= 0) return option.entry;
+  }
+  return weighted.at(-1)?.entry ?? entries[0];
+}
+
+function stockFamilyKey(entry) {
+  if (entry.variantFamily) return `variant:${entry.variantFamily}`;
+  if (entry.materializerFamily) return `materializer:${entry.materializerFamily}`;
+  if ((entry.familyIds ?? []).length) return `family:${entry.familyIds[0]}`;
+  const name = String(entry.name ?? "");
+  if (name.includes("(")) return `name:${normalizeText(name.split("(")[0])}`;
+  const identifier = normalizeText(entry.identifier || entry.name);
+  const familyPrefixes = ["feather-token", "bag-of-tricks", "elemental-gem", "figurine-of-wondrous-power", "potion-of-resistance", "armor-of-resistance"];
+  const prefix = familyPrefixes.find(value => identifier.startsWith(`${value}-`) || identifier === value);
+  return prefix ? `prefix:${prefix}` : canonicalKey(entry);
+}
+
+function familyAllowed(entry, rule, familyCounts) {
+  const maximum = Math.max(0, Number(rule?.maxPerFamily ?? 0));
+  if (!maximum) return true;
+  return Number(familyCounts.get(stockFamilyKey(entry)) ?? 0) < maximum;
+}
+
+function recordFamily(entry, familyCounts) {
+  const key = stockFamilyKey(entry);
+  familyCounts.set(key, Number(familyCounts.get(key) ?? 0) + 1);
+}
+
+function rulePassesChance(rule) {
+  const chance = Math.min(100, Math.max(0, Number(rule?.chance ?? 100)));
+  return chance >= 100 || Math.random() * 100 < chance;
 }
 
 function randomChoice(array) {
@@ -370,7 +482,7 @@ export function buildRuleBuckets(pool, rule) {
   return [...groups.entries()].map(([key, entries]) => ({ key, entries }));
 }
 
-function chooseFromBuckets(pool, rule, quantity, allowDuplicates) {
+function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, familyCounts = new Map()) {
   const groups = buildRuleBuckets(pool, rule).map(group => ({ ...group, available: [...group.entries] }));
   if (!groups.length || quantity <= 0) return [];
   const chosen = [];
@@ -379,16 +491,25 @@ function chooseFromBuckets(pool, rule, quantity, allowDuplicates) {
     const active = groups.filter(group => allowDuplicates || group.available.length);
     if (!active.length) break;
     const group = randomChoice(active);
-    const source = allowDuplicates ? group.entries : group.available;
-    if (!source.length) continue;
-    const index = Math.floor(Math.random() * source.length);
-    chosen.push(allowDuplicates ? source[index] : source.splice(index, 1)[0]);
+    const source = (allowDuplicates ? group.entries : group.available).filter(entry => familyAllowed(entry, rule, familyCounts));
+    if (!source.length) {
+      if (!allowDuplicates) group.available.length = 0;
+      continue;
+    }
+    const entry = weightedEntryChoice(source, rule, level);
+    if (!entry) continue;
+    chosen.push(entry);
+    recordFamily(entry, familyCounts);
+    if (!allowDuplicates) {
+      const index = group.available.indexOf(entry);
+      if (index >= 0) group.available.splice(index, 1);
+    }
   }
   return chosen;
 }
 
-function selectRuleEntries({ rule, catalog, profileEntries, configuration, level, quantity, warnings }) {
-  const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, level });
+function selectRuleEntries({ rule, catalog, profileEntries, configuration, profile, level, quantity, warnings, familyCounts = new Map() }) {
+  const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, profile, level });
   const pool = inspection.entries ?? [];
   if (!pool.length) {
     warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
@@ -405,13 +526,19 @@ function selectRuleEntries({ rule, catalog, profileEntries, configuration, level
     if (groups.length) {
       const selected = [];
       for (let repeat = 0; repeat < Math.max(1, quantity); repeat += 1) {
-        for (const group of groups) selected.push(randomChoice(group.entries));
+        for (const group of groups) {
+          const eligible = group.entries.filter(entry => familyAllowed(entry, rule, familyCounts));
+          const entry = weightedEntryChoice(eligible, rule, level);
+          if (!entry) continue;
+          selected.push(entry);
+          recordFamily(entry, familyCounts);
+        }
       }
       return selected;
     }
   }
 
-  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false);
+  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false, level, familyCounts);
   if (rule.allowDuplicates === false && selected.length < quantity) {
     warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.NotEnoughUnique", {
       requested: quantity,
@@ -624,7 +751,7 @@ async function createGeneratorPreview(pick, catalog, configuration, profileEntri
     try {
       const baseDocument = await loadItemDocument(candidate);
       const attempt = kind === "ammunitionVaries"
-        ? materializeSyntheticEnhancement({ baseDocument, bonus: 0, qualityPriceAdditions: configuration.qualityPriceAdditions ?? {} })
+        ? { ok: true, documentData: baseDocument.toObject(), display: { name: baseDocument.name, img: baseDocument.img, type: baseDocument.type, subtype: baseDocument.system?.type?.value, rarity: baseDocument.system?.rarity }, metadata: { kind: "sellable", strategy: "base-copy", bonus: 0 } }
         : await materializeEnhancement({
           templateDocument,
           baseDocument,
@@ -669,9 +796,9 @@ async function createGeneratorPreview(pick, catalog, configuration, profileEntri
     materialization: materialized.metadata ?? {},
     price,
     documentData,
-    generationKind: "materializedGenerator",
-    documentNature: "materializer",
-    materializerKind: "generator",
+    generationKind: kind === "ammunitionVaries" ? "copy" : "materializedGenerator",
+    documentNature: kind === "ammunitionVaries" ? "sellable" : "materializer",
+    materializerKind: kind === "ammunitionVaries" ? "" : "generator",
     enhancement: bonus,
     ruleIds: [pick.rule.id]
   };
@@ -920,6 +1047,9 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
   let materialization = {};
   if (pick.enhancement > 0 && !pick.entry.isMagical) {
     const enhanced = await applySyntheticEnhancement(document, pick.enhancement, configuration);
+    if (!enhanced?.ok) {
+      throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
+    }
     documentData = enhanced.documentData;
     display = enhanced.display ?? display;
     materialization = enhanced.metadata ?? {};
@@ -952,20 +1082,28 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
   };
 }
 
-async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings) {
+async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings, diagnostics = null) {
   try {
     return await buildPreviewLine(pick, catalog, configuration, { profileEntries, level });
   } catch (originalError) {
-    if (!isMaterializerItem(pick.entry)) throw originalError;
-    const inspection = inspectRulePool({ rule: pick.rule, catalog, profileEntries, configuration, level });
+    // Any failed slot may be replaced by another eligible result from the same
+    // rule. This covers both native materializers and ordinary base Items whose
+    // synthetic +1/+2/+3 conversion failed strict validation.
+    const inspection = inspectRulePool({ rule: pick.rule, catalog, profileEntries, configuration, profile: pick.profile ?? null, level });
     const alternatives = shuffle((inspection.entries ?? []).filter(entry => canonicalKey(entry) !== canonicalKey(pick.entry)));
-    for (const alternative of alternatives.slice(0, 12)) {
+    for (const alternative of alternatives) {
       try {
         const replacement = await buildPreviewLine({ ...pick, entry: alternative }, catalog, configuration, { profileEntries, level });
         warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializerRerolled", {
           item: pick.entry.name,
           replacement: replacement.name
         }));
+        diagnostics?.rerolls?.push({
+          failed: pick.entry.name,
+          replacement: replacement.name,
+          rule: pick.rule?.name ?? "",
+          reason: originalError.message
+        });
         return replacement;
       } catch (_error) { /* Try another eligible result from the same rule. */ }
     }
@@ -973,13 +1111,13 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
   }
 }
 
-function addPicks(target, entries, rule, ruleType, configuration, level, players, warnings) {
+function addPicks(target, entries, rule, ruleType, configuration, level, players, warnings, profile = null) {
   const qualityPicks = applyQuality(rule, entries, configuration, level, players, warnings);
-  for (const pick of qualityPicks) target.push({ ...pick, rule, ruleType });
+  for (const pick of qualityPicks) target.push({ ...pick, rule, ruleType, profile });
   return qualityPicks.length;
 }
 
-export async function generateStock({ profile, level, players }) {
+export async function generateStock({ profile, level, players, logDiagnostics = true }) {
   const worldConfiguration = getConfiguration();
   const configuration = configurationForProfile(worldConfiguration, profile);
   const catalog = await buildCatalog();
@@ -990,7 +1128,20 @@ export async function generateStock({ profile, level, players }) {
 
   const picks = [];
   const warnings = [];
-  const randomTarget = calculateRandomTarget(profile, players);
+  const randomTarget = calculateRandomTarget(profile, players, level);
+  const familyCounts = new Map();
+  const diagnostics = {
+    profile: profile.name,
+    template: profile.homebrewTemplateId ?? "",
+    access: profileAccessLevel(profile),
+    progression: profile.progressionProfileId ?? "world",
+    partyLevel: level,
+    partySize: players,
+    randomTarget,
+    rules: [],
+    materializationFailures: [],
+    rerolls: []
+  };
   let catalogUnits = 0;
   let guaranteedUnits = 0;
   let randomUnits = 0;
@@ -999,9 +1150,10 @@ export async function generateStock({ profile, level, players }) {
   // Every eligible distinct Item is included with the configured quantity per Item.
   for (const rule of profile.mundaneCatalogRules ?? []) {
     if (!rule.enabled || !rule.category) continue;
-    const perItem = calculateQuantity(rule, players, 0);
+    if (!rulePassesChance(rule)) continue;
+    const perItem = calculateQuantity(rule, players, 0, { profile, level });
     if (!perItem) continue;
-    const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, level });
+    const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, profile, level });
     if (!inspection.count) {
       warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
         rule: rule.name || game.i18n.localize("DND5E_SUPPLIER.Config.MundaneCatalog"),
@@ -1010,7 +1162,7 @@ export async function generateStock({ profile, level, players }) {
       continue;
     }
     for (const entry of inspection.entries) {
-      picks.push({ entry, enhancement: 0, units: perItem, rule, ruleType: "catalog" });
+      picks.push({ entry, enhancement: 0, units: perItem, rule, ruleType: "catalog", profile });
       catalogUnits += perItem;
     }
   }
@@ -1019,10 +1171,15 @@ export async function generateStock({ profile, level, players }) {
   // Quantity N always means N independent selections and N independent quality rolls.
   for (const rule of profile.guaranteedRules ?? []) {
     if (!rule.enabled || !rule.category) continue;
-    const quantity = calculateQuantity(rule, players, 0);
+    if (!rulePassesChance(rule)) {
+      diagnostics.rules.push({ id: rule.id, name: rule.name, type: "guaranteed", skippedByChance: true });
+      continue;
+    }
+    const quantity = calculateQuantity(rule, players, 0, { profile, level });
     if (!quantity) continue;
-    const selected = selectRuleEntries({ rule, catalog, profileEntries, configuration, level, quantity, warnings });
-    guaranteedUnits += addPicks(picks, selected, rule, "guaranteed", configuration, level, players, warnings);
+    const selected = selectRuleEntries({ rule, catalog, profileEntries, configuration, profile, level, quantity, warnings, familyCounts });
+    diagnostics.rules.push({ id: rule.id, name: rule.name, type: "guaranteed", requested: quantity, selected: selected.length });
+    guaranteedUnits += addPicks(picks, selected, rule, "guaranteed", configuration, level, players, warnings, profile);
   }
 
   // 3. Random Stock has one explicit target. All enabled random pools compete
@@ -1031,7 +1188,8 @@ export async function generateStock({ profile, level, players }) {
     const allStates = [];
     for (const rule of profile.randomRules ?? []) {
       if (!rule.enabled || !rule.category) continue;
-      const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, level });
+      if (!rulePassesChance(rule)) continue;
+      const inspection = inspectRulePool({ rule, catalog, profileEntries, configuration, profile, level });
       if (!inspection.count) {
         warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.EmptyPoolReason", {
           rule: rule.name || game.i18n.localize("DND5E_SUPPLIER.Config.RandomStock"),
@@ -1059,10 +1217,22 @@ export async function generateStock({ profile, level, players }) {
         continue;
       }
       const bucket = randomChoice(activeBuckets);
-      const source = allowDuplicates ? bucket.entries : bucket.available;
-      const index = Math.floor(Math.random() * source.length);
-      const entry = allowDuplicates ? source[index] : source.splice(index, 1)[0];
+      const source = (allowDuplicates ? bucket.entries : bucket.available).filter(entry => familyAllowed(entry, state.rule, familyCounts));
+      if (!source.length) {
+        if (!allowDuplicates) bucket.available.length = 0;
+        if (!state.buckets.some(candidate => (allowDuplicates ? candidate.entries : candidate.available).some(entry => familyAllowed(entry, state.rule, familyCounts)))) {
+          activeStates.splice(activeStates.indexOf(state), 1);
+        }
+        continue;
+      }
+      const entry = weightedEntryChoice(source, state.rule, level);
+      if (!entry) continue;
+      if (!allowDuplicates) {
+        const index = bucket.available.indexOf(entry);
+        if (index >= 0) bucket.available.splice(index, 1);
+      }
       state.selected.push(entry);
+      recordFamily(entry, familyCounts);
       randomUnits += 1;
     }
 
@@ -1070,7 +1240,7 @@ export async function generateStock({ profile, level, players }) {
     // the full set won by that pool, not independently for every slot.
     for (const state of allStates) {
       if (!state.selected.length) continue;
-      addPicks(picks, state.selected, state.rule, "random", configuration, level, players, warnings);
+      addPicks(picks, state.selected, state.rule, "random", configuration, level, players, warnings, profile);
     }
   }
 
@@ -1084,9 +1254,10 @@ export async function generateStock({ profile, level, players }) {
   const lines = [];
   for (const pick of picks) {
     try {
-      lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings));
+      lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, level, warnings, diagnostics));
     } catch (error) {
       console.error(`${MODULE_ID} | Failed to prepare ${pick.entry?.name}`, error);
+      diagnostics.materializationFailures.push({ item: pick.entry?.name ?? "", rule: pick.rule?.name ?? "", error: error.message });
       warnings.push(error.message);
     }
   }
@@ -1101,6 +1272,20 @@ export async function generateStock({ profile, level, players }) {
   }
 
   const preview = [...stacked.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const actualGeneratedUnits = preview.reduce((sum, line) => sum + Math.max(1, Number(line.quantity ?? 1)), 0);
+  diagnostics.actualGeneratedUnits = actualGeneratedUnits;
+  diagnostics.byRarity = preview.reduce((counts, line) => {
+    const key = normalizeRarity(line.rarity);
+    counts[key] = Number(counts[key] ?? 0) + Math.max(1, Number(line.quantity ?? 1));
+    return counts;
+  }, {});
+  diagnostics.materializers = preview.filter(line => line.materializerKind).map(line => ({ name: line.name, kind: line.materializerKind, strategy: line.materialization?.strategy ?? "", bonus: line.enhancement ?? 0 }));
+  if (logDiagnostics) {
+    console.groupCollapsed?.(`${MODULE_ID} | Supplier diagnostics — ${profile.name} (L${level}, ${players} players)`);
+    console.table?.(diagnostics.byRarity);
+    console.debug?.(diagnostics);
+    console.groupEnd?.();
+  }
   return {
     preview,
     warnings,
@@ -1109,8 +1294,66 @@ export async function generateStock({ profile, level, players }) {
     catalogUnits,
     guaranteedUnits,
     randomUnits,
-    generatedUnits: catalogUnits + guaranteedUnits + randomUnits
+    generatedUnits: actualGeneratedUnits,
+    plannedUnits: catalogUnits + guaranteedUnits + randomUnits,
+    diagnostics
   };
+}
+
+
+/** Run repeated headless previews without opening Supplier windows or creating
+ * World Items. This is a development/audit surface for checking quantity,
+ * rarity distribution, rerolls, and materialization failures under the hood. */
+export async function auditSupplierStock({ profile, level = 1, players = 4, runs = 25 } = {}) {
+  if (!profile) throw new Error("A Supplier profile is required for audit.");
+  const iterations = Math.min(250, Math.max(1, Math.floor(Number(runs ?? 25))));
+  const summary = {
+    profileId: profile.id,
+    profileName: profile.name,
+    partyLevel: Math.min(20, Math.max(1, Number(level ?? 1))),
+    partySize: Math.max(1, Number(players ?? 4)),
+    runs: iterations,
+    plannedUnits: 0,
+    generatedUnits: 0,
+    randomTarget: 0,
+    randomUnits: 0,
+    materializationFailures: 0,
+    rerolls: 0,
+    byRarity: {},
+    materializers: {}
+  };
+  const samples = [];
+  for (let index = 0; index < iterations; index += 1) {
+    const result = await generateStock({
+      profile,
+      level: summary.partyLevel,
+      players: summary.partySize,
+      logDiagnostics: false
+    });
+    summary.plannedUnits += Number(result.plannedUnits ?? 0);
+    summary.generatedUnits += Number(result.generatedUnits ?? 0);
+    summary.randomTarget += Number(result.randomTarget ?? 0);
+    summary.randomUnits += Number(result.randomUnits ?? 0);
+    summary.materializationFailures += Number(result.diagnostics?.materializationFailures?.length ?? 0);
+    summary.rerolls += Number(result.diagnostics?.rerolls?.length ?? 0);
+    for (const [rarity, count] of Object.entries(result.diagnostics?.byRarity ?? {})) {
+      summary.byRarity[rarity] = Number(summary.byRarity[rarity] ?? 0) + Number(count ?? 0);
+    }
+    for (const item of result.diagnostics?.materializers ?? []) {
+      const key = `${item.kind || "materializer"}:${item.strategy || "unknown"}`;
+      summary.materializers[key] = Number(summary.materializers[key] ?? 0) + 1;
+    }
+    samples.push(result.diagnostics);
+  }
+  summary.averagePlannedUnits = summary.plannedUnits / iterations;
+  summary.averageGeneratedUnits = summary.generatedUnits / iterations;
+  summary.averageRandomTarget = summary.randomTarget / iterations;
+  summary.averageRandomUnits = summary.randomUnits / iterations;
+  console.groupCollapsed?.(`${MODULE_ID} | Supplier audit — ${profile.name} (${iterations} runs)`);
+  console.table?.(summary.byRarity);
+  console.debug?.(summary, samples);
+  console.groupEnd?.();
+  return { summary, samples };
 }
 
 function resolveProgressionProfileName(configuration, profile) {

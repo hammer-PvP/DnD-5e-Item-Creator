@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0 Beta  
+**Version:** 0.2.0a Beta  
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -12,17 +12,11 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, mat
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
-## Unified entry point
+## World Items Directory entry points
 
-The World Items Directory receives one GM-only **Item Creator** button. Its start screen provides:
+The World Items Directory always receives one GM-only **Item Creator** button. Its start screen provides Weapon, Equipment, Tool, and Scroll Factory. Scroll Factory remains inside Item Creator because it creates an individual Spell Scroll loot Item without requiring an Actor sheet.
 
-- Weapon;
-- Equipment;
-- Tool;
-- Scroll Factory;
-- Supplier, when the optional Supplier feature is enabled.
-
-Scroll Factory and Supplier open their own dedicated interfaces rather than entering the six-stage Item wizard.
+When **Enable Supplier Tools** is active, the directory also receives a separate GM-only **Supplier** button with an epic-purple tint. Supplier has its own entry because it creates complete vendor stocks rather than an individual reward.
 
 ## Item Creator
 
@@ -139,22 +133,20 @@ Supplier is integrated but disabled by default. Enable it through:
 
 **Configure Settings → Item Creator Configuration → Enable Supplier Tools**
 
-When disabled, the Supplier card is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
+When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
 
-When enabled, **Configure Supplier** exposes the complete Supplier configuration:
+When enabled, **Configure Supplier** separates two independent controls:
 
-- Compendium Sources and source priority;
-- Supplier Profiles and editable Homebrew Suppliers;
-- Access Levels;
-- party-level rarity, spell-level, and enchantment progression;
-- mundane catalog, guaranteed stock, and random stock;
-- weighted pools, local curation, profile bans, and mechanical-document policy;
-- materializers, blueprints, variant families, price fallbacks, and output settings;
-- stock preview, confirmation, Folder creation, quantity stacking, and diagnostics.
+- **Level, Quality & Price** profiles determine party-level availability, enchantment distribution, spell limits, and prices. The built-in presets are **Supplier — Official D&D 2024** and **Supplier — HAMMER Homebrew**. Built-ins remain protected; duplicate either preset to edit it.
+- **Supplier Profiles** determine the vendor identity, Access I–IV, categories, guarantees, weighted random pools, exclusions, repetition limits, and source compendiums. Profiles can be duplicated or built from scratch.
 
-Current Homebrew models include Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, and Stable & Livestock.
+Every generated stock is calculated from the current **party level** and **party size**. Vendor Access controls commercial reach and restricted families; it does not replace level progression. Access IV uses a gold identity and can reach major relics and artifacts when the party-level profile permits them, while simpler relics can have lower access requirements.
 
-Supplier may use the shared Materialization Core rarity prices or disable that option and use the fallback values stored in its own progression profiles.
+The HAMMER Homebrew presets adapt the Blacksmith, Herbalist / Alchemist, and Magic Assortment flows from the vendor-roll compendium into direct percentages, guarantees, and weighted pools instead of simulated dice or RollTables. Current additional models include Gunsmith, General Trade, and Stable & Livestock.
+
+The Blacksmith uses party-scaled physical stock plus named magic equipment and enchanted ammunition. The Alchemist guarantees one level-appropriate healing potion per party member and restricts random stock to thematic single-use consumables. Magic Assortment scales both Scrolls and magic Items by level band and party size.
+
+Supplier diagnostics are printed for every generation. Developers can also run repeated headless previews through `game.itemCreator.auditSupplier({ profileId, level, players, runs })` without creating World Items.
 
 ## Materialization Core
 
@@ -168,13 +160,7 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0 integration includes focused handling for official generator and blueprint families, compatible-base validation, RollTable choices, canonical idempotent naming, ammunition represented by multiple native Item types, and concrete Wand of the War Mage variants.
-
-## Supplier standalone transition
-
-The previous standalone Supplier settings are not imported. The standalone project was not publicly released and the integrated Supplier starts with a clean configuration under the Item Creator namespace.
-
-The standalone module can remain installed during development without sharing settings or Application IDs, but it is now redundant. Future Supplier and Materialization Core development belongs to Item Creator.
+The v0.2.0a integration includes focused handling for official generator and blueprint families, compatible-base validation, RollTable choices, canonical idempotent naming, ammunition represented by multiple native Item types, and concrete Wand of the War Mage variants.
 
 ## Runtime dependency
 
@@ -197,6 +183,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.2.0 package URL is:
+The v0.2.0a package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0a/item-creator.zip`

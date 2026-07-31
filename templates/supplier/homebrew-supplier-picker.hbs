@@ -45,7 +45,7 @@
       </div>
       <div class="supplier-homebrew-access-grid">
         {{#each accessLevels}}
-          <button type="button" class="supplier-homebrew-access-card {{#if selected}}selected{{/if}}" data-access-level="{{value}}">
+          <button type="button" class="supplier-homebrew-access-card {{accessClass}} {{#if selected}}selected{{/if}}" data-access-level="{{value}}">
             <strong>{{label}}</strong><small>{{description}}</small>
           </button>
         {{/each}}

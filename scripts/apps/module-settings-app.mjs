@@ -43,7 +43,6 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
     const pricing = getMaterializationSettings();
     return {
       supplierEnabled: isSupplierEnabled(),
-      standaloneSupplierActive: game.modules.get("dnd5e-supplier")?.active === true,
       pricingProfile: pricing.pricingProfile,
       denomination: pricing.denomination,
       coreVersion: MATERIALIZATION_CORE_VERSION,

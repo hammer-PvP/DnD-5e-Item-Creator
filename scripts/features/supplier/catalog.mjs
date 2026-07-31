@@ -29,7 +29,9 @@ const INDEX_FIELDS = [
   "system.armor.type",
   "system.armor.value",
   "system.activities",
-  "effects"
+  "effects",
+  "flags.dnd5e-item-creator.supplier.minimumAccess",
+  "flags.dnd5e-item-creator.minimumVendorAccess"
 ];
 
 const SUBTYPE_LABEL_KEYS = {
@@ -667,6 +669,11 @@ export async function buildCatalog({ force = false, configurationOverride = null
         weaponCategory: weapon.category,
         weaponMode: weapon.mode,
         armorCategory,
+        minimumVendorAccess: Number(
+          foundry.utils.getProperty(record, "flags.dnd5e-item-creator.supplier.minimumAccess")
+          ?? foundry.utils.getProperty(record, "flags.dnd5e-item-creator.minimumVendorAccess")
+          ?? 0
+        ) || 0,
         spellLevel: Number(foundry.utils.getProperty(record, "system.level") ?? 0),
         school: foundry.utils.getProperty(record, "system.school") ?? "",
         isMechanical: Boolean(mechanicalRule),

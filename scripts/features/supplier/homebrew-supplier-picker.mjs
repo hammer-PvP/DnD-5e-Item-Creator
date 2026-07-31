@@ -50,6 +50,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
         value,
         label: game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Access${value}`),
         description: game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Access${value}Hint`),
+        accessClass: `access-${value}`,
         selected: this.accessLevel === value
       }))
     };

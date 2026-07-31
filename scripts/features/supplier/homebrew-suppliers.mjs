@@ -18,8 +18,9 @@ import {
   normalizeText
 } from "./catalog.mjs";
 import { restoreHomebrewRuleCurations } from "./homebrew-curation.mjs";
+import { minimumVendorAccess } from "./availability.mjs";
 
-export const HOMEBREW_ACCESS_LEVELS = ["1", "2", "3"];
+export const HOMEBREW_ACCESS_LEVELS = ["1", "2", "3", "4"];
 
 export const HOMEBREW_SUPPLIER_TEMPLATES = [
   {
@@ -79,7 +80,13 @@ function catalogRule({
   quantityMode = "fixed",
   quantity = 1,
   curation = "",
-  generatorResultCuration = ""
+  generatorResultCuration = "",
+  chance = 100,
+  minimumVendorAccess = 0,
+  maximumVendorAccess = 0,
+  maxPerFamily = 0,
+  rarityDistribution = "",
+  selectionDistribution = ""
 }) {
   return {
     ...createDefaultCatalogRule(),
@@ -91,7 +98,13 @@ function catalogRule({
     quantityMode,
     quantity,
     homebrewCuration: curation,
-    generatorResultCuration
+    generatorResultCuration,
+    chance,
+    minimumVendorAccess,
+    maximumVendorAccess,
+    maxPerFamily,
+    rarityDistribution,
+    selectionDistribution
   };
 }
 
@@ -106,7 +119,13 @@ function guaranteedRule({
   includeFamilies = [],
   allowDuplicates = true,
   curation = "",
-  generatorResultCuration = ""
+  generatorResultCuration = "",
+  chance = 100,
+  minimumVendorAccess = 0,
+  maximumVendorAccess = 0,
+  maxPerFamily = 0,
+  rarityDistribution = "",
+  selectionDistribution = ""
 }) {
   return {
     ...createDefaultGuaranteedRule(),
@@ -122,7 +141,13 @@ function guaranteedRule({
     includeFamilies,
     allowDuplicates,
     homebrewCuration: curation,
-    generatorResultCuration
+    generatorResultCuration,
+    chance,
+    minimumVendorAccess,
+    maximumVendorAccess,
+    maxPerFamily,
+    rarityDistribution,
+    selectionDistribution
   };
 }
 
@@ -135,7 +160,13 @@ function randomRule({
   magicalState = "any",
   allowDuplicates = true,
   curation = "",
-  generatorResultCuration = ""
+  generatorResultCuration = "",
+  chance = 100,
+  minimumVendorAccess = 0,
+  maximumVendorAccess = 0,
+  maxPerFamily = 0,
+  rarityDistribution = "",
+  selectionDistribution = ""
 }) {
   return {
     ...createDefaultRandomRule(),
@@ -149,7 +180,13 @@ function randomRule({
     magicalState,
     allowDuplicates,
     homebrewCuration: curation,
-    generatorResultCuration
+    generatorResultCuration,
+    chance,
+    minimumVendorAccess,
+    maximumVendorAccess,
+    maxPerFamily,
+    rarityDistribution,
+    selectionDistribution
   };
 }
 
@@ -177,6 +214,8 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     allowedItemTypes: [],
     stockTotalMode: "fixed",
     stockTotal: 0,
+    stockScaleBase: 4,
+    homebrewPresetVersion: 2,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -186,82 +225,39 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
 }
 
 function accessNumber(accessLevel) {
-  return Math.min(3, Math.max(1, Number(accessLevel ?? 2)));
+  return Math.min(4, Math.max(1, Number(accessLevel ?? 2)));
 }
 
 function createBlacksmith(profile, access) {
   profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.BlacksmithDescription");
-  profile.stockTotalMode = "perPlayer";
-  profile.stockTotal = [1.5, 2, 3][access - 1];
-  profile.mundaneCatalogRules = [
-    catalogRule({
-      name: "Simple Weapons",
-      category: "weapon",
-      subtypes: ["simpleM", "simpleR"],
-      quantityMode: "fixed",
-      quantity: 1,
-      curation: "blacksmithBase"
-    }),
-    catalogRule({
-      name: "Armor & Shields",
-      category: "equipment",
-      subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"],
-      quantityMode: "fixed",
-      quantity: 1,
-      curation: "blacksmithBase"
-    }),
-    catalogRule({
-      name: "Ammunition",
-      category: "consumable",
-      subtypes: ["ammunition"],
-      quantityMode: access >= 2 ? "halfUp" : "fixed",
-      quantity: 1,
-      curation: "blacksmithAmmunition"
-    })
-  ];
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  // Random stock is reserved for named magic equipment and enchanted ammunition.
+  // The physical shop floor is expressed through the guaranteed category slots below.
+  profile.stockTotal = [1, 3, 5, 7][access - 1];
+  profile.mundaneCatalogRules = [];
   profile.guaranteedRules = [
-    guaranteedRule({ name: "Simple Ranged Weapon", category: "weapon", subtypes: ["simpleR"], qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    guaranteedRule({ name: "Martial Ranged Weapon", category: "weapon", subtypes: ["martialR"], qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    guaranteedRule({ name: "Light Armor", category: "equipment", subtypes: ["lightArmor"], qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    guaranteedRule({ name: "Medium Armor", category: "equipment", subtypes: ["mediumArmor"], qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    guaranteedRule({ name: "Heavy Armor", category: "equipment", subtypes: ["heavyArmor"], qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" })
+    guaranteedRule({ name: "Simple Ranged Weapons", category: "weapon", subtypes: ["simpleR"], quantityMode: "partyScaled", quantity: 2, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Other Simple Weapons", category: "weapon", subtypes: ["simpleM", "simpleR"], quantityMode: "partyScaled", quantity: 4, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Martial Ranged Weapons", category: "weapon", subtypes: ["martialR"], quantityMode: "partyScaled", quantity: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Two-Handed Martial Weapons", category: "weapon", subtypes: ["martialM", "martialR"], quantityMode: "partyScaled", quantity: 2, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithTwoHanded", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Other Martial Weapons", category: "weapon", subtypes: ["martialM", "martialR"], quantityMode: "partyScaled", quantity: 3, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Light Armor", category: "equipment", subtypes: ["lightArmor"], quantityMode: "partyScaled", quantity: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Medium Armor", category: "equipment", subtypes: ["mediumArmor"], quantityMode: "partyScaled", quantity: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Heavy Armor", category: "equipment", subtypes: ["heavyArmor"], quantityMode: "partyScaled", quantity: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1 }),
+    guaranteedRule({ name: "Shield (50% availability)", category: "equipment", subtypes: ["shield"], quantityMode: "partyScaled", quantity: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", chance: 50, maxPerFamily: 1 })
   ];
   profile.randomRules = [
-    randomRule({ name: "Simple Weapons", category: "weapon", subtypes: ["simpleM", "simpleR"], weight: 2, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    randomRule({ name: "Martial Weapons", category: "weapon", subtypes: ["martialM", "martialR"], weight: 3, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    randomRule({ name: "Armor & Shields", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: 2, qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase" }),
-    randomRule({ name: "Ammunition", category: "consumable", subtypes: ["ammunition"], weight: 1, qualityMode: "party", magicalState: "mundane", allowDuplicates: true, curation: "blacksmithAmmunition" })
+    randomRule({ name: "Named Magic Weapons", category: "weapon", subtypes: ["simpleM", "simpleR", "martialM", "martialR"], weight: access >= 3 ? 4 : 3, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", minimumVendorAccess: 1, maxPerFamily: 1 }),
+    randomRule({ name: "Named Magic Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: access >= 3 ? 3 : 2, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", minimumVendorAccess: 1, maxPerFamily: 1 }),
+    randomRule({ name: "Enchanted Ammunition", category: "consumable", subtypes: ["ammunition"], weight: 1.5, qualityMode: "party", magicalState: "mundane", allowDuplicates: true, curation: "blacksmithMagicAmmunition", minimumVendorAccess: 1, maxPerFamily: 2 })
   ];
-  if (access >= 2) {
-    profile.randomRules.push(
-      randomRule({
-        name: "Named Magic Weapons",
-        category: "weapon",
-        subtypes: ["simpleM", "simpleR", "martialM", "martialR"],
-        weight: access === 2 ? 0.25 : 0.75,
-        qualityMode: "source",
-        magicalState: "magical",
-        allowDuplicates: false,
-        curation: "blacksmithNamed"
-      }),
-      randomRule({
-        name: "Named Magic Armor",
-        category: "equipment",
-        subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"],
-        weight: access === 2 ? 0.25 : 0.75,
-        qualityMode: "source",
-        magicalState: "magical",
-        allowDuplicates: false,
-        curation: "blacksmithNamed"
-      })
-    );
-  }
 }
 
 function createGunsmith(profile, access) {
   profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.GunsmithDescription");
   profile.stockTotalMode = "perPlayer";
-  profile.stockTotal = [0.75, 1.25, 2][access - 1];
+  profile.stockTotal = [0.75, 1.25, 2, 2.75][access - 1];
   profile.mundaneCatalogRules = [
     catalogRule({ name: "Firearms", category: "weapon", quantityMode: "fixed", quantity: 1, curation: "firearmWeapons" }),
     catalogRule({ name: "Firearm Ammunition", category: "consumable", subtypes: ["ammunition"], quantityMode: access >= 2 ? "halfUp" : "fixed", quantity: 1, curation: "firearmAmmunition" }),
@@ -299,8 +295,12 @@ function createGunsmith(profile, access) {
 
 function createAlchemist(profile, access) {
   profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.AlchemistDescription");
-  profile.stockTotalMode = "perPlayer";
-  profile.stockTotal = [1, 1.5, 2][access - 1];
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  // Eight extra consumables is the Hammer four-member baseline. Access changes
+  // breadth and generosity while party size scales the final number of slots.
+  profile.stockTotal = [5, 8, 10, 12][access - 1];
+  profile.mundaneCatalogRules = [];
   profile.guaranteedRules = [
     guaranteedRule({
       name: "Healing Potions",
@@ -310,42 +310,64 @@ function createAlchemist(profile, access) {
       quantity: 1,
       includeFamilies: ["healingPotions"],
       allowDuplicates: true,
-      curation: "alchemicalConsumables"
+      curation: "alchemicalConsumables",
+      selectionDistribution: "hammerHealingPotions",
+      maxPerFamily: 0
     })
   ];
   profile.randomRules = [
     randomRule({
-      name: "Potions & Poisons",
+      name: "Potions, Elixirs & Poisons",
       category: "consumable",
-      subtypes: ["potion", "poison"],
-      weight: 3,
+      subtypes: ["potion", "poison", "trinket", "wondrous", "gear"],
+      weight: 4,
       allowDuplicates: true,
-      curation: "alchemicalConsumables"
-    })
-  ];
-  if (access >= 2) {
-    profile.randomRules.push(randomRule({
+      curation: "alchemicalConsumables",
+      rarityDistribution: "hammerAlchemistExtras",
+      maxPerFamily: 2
+    }),
+    randomRule({
       name: "Oils, Powders & Preparations",
       category: "consumable",
       subtypes: ["trinket", "wondrous", "gear"],
-      weight: access === 2 ? 1 : 2,
-      allowDuplicates: true,
-      curation: "alchemicalPreparations"
-    }));
-  }
+      weight: access >= 3 ? 2 : 1,
+      allowDuplicates: false,
+      curation: "alchemicalPreparations",
+      rarityDistribution: "hammerAlchemistExtras",
+      minimumVendorAccess: 2,
+      maxPerFamily: 1
+    })
+  ];
+  if (access === 1) profile.randomRules = profile.randomRules.filter(rule => Number(rule.minimumVendorAccess ?? 0) <= 1);
 }
 
 function createMagicAssortment(profile, access) {
   profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.MagicAssortmentDescription");
-  profile.stockTotalMode = "perPlayer";
-  profile.stockTotal = [1, 2, 3][access - 1];
-  const equipmentSubtypes = access === 1
-    ? ["ring", "trinket", "wand", "wondrous"]
-    : ["ring", "trinket", "clothing", "wand", "rod", "wondrous"];
+  profile.stockTotalMode = "levelPartyScaled";
+  profile.stockScaleBase = 4;
+  profile.stockBands = [
+    { min: 1, max: 2, total: 0, scrolls: 0 },
+    { min: 3, max: 7, total: 8, scrolls: 5 },
+    { min: 8, max: 11, total: 12, scrolls: 7 },
+    { min: 12, max: 20, total: 16, scrolls: 8 }
+  ];
+  profile.stockTotal = 0;
+  profile.mundaneCatalogRules = [];
+  profile.guaranteedRules = [
+    guaranteedRule({
+      name: "Spell Scrolls",
+      category: "spellScroll",
+      quantityMode: "levelPartyScaledScrolls",
+      quantity: 0,
+      allowDuplicates: true,
+      curation: "excludeCantrips",
+      maxPerFamily: 2
+    })
+  ];
   profile.randomRules = [
-    randomRule({ name: "Spell Scrolls", category: "spellScroll", weight: 2, allowDuplicates: true, curation: "excludeCantrips" }),
-    randomRule({ name: "Arcane Equipment", category: "equipment", subtypes: equipmentSubtypes, weight: access === 1 ? 1 : 1.5, magicalState: "magical", allowDuplicates: false, curation: "magicAssortment" }),
-    randomRule({ name: "Arcane Consumables", category: "consumable", subtypes: ["trinket", "wondrous", "scroll"], weight: access === 3 ? 1 : 0.5, magicalState: "magical", allowDuplicates: true, curation: "magicAssortment" })
+    randomRule({ name: "Arcane Equipment & Wondrous Items", category: "equipment", subtypes: ["ring", "trinket", "clothing", "wand", "rod", "wondrous"], weight: 4, magicalState: "magical", allowDuplicates: false, curation: "magicAssortment", maxPerFamily: 1 }),
+    randomRule({ name: "Arcane Tools, Staves & Foci", category: "tool", weight: 1.5, magicalState: "magical", allowDuplicates: false, curation: "magicAssortment", maxPerFamily: 1 }),
+    randomRule({ name: "Restricted Relics", category: "equipment", subtypes: ["ring", "trinket", "clothing", "wand", "rod", "wondrous"], weight: access >= 4 ? 2 : 0.35, magicalState: "magical", allowDuplicates: false, curation: "magicRelics", minimumVendorAccess: 2, maxPerFamily: 1 })
   ];
 }
 
@@ -407,7 +429,8 @@ export function createHomebrewSupplierProfile({ templateId, accessLevel = "2", n
 const ANIMAL_GROUPS = {
   1: ["chicken", "goat", "pig", "sheep", "cow", "ox", "mule", "donkey", "galinha", "cabra", "porco", "ovelha", "vaca", "boi", "mula", "burro"],
   2: ["chicken", "goat", "pig", "sheep", "cow", "ox", "mule", "donkey", "pony", "riding-horse", "draft-horse", "camel", "galinha", "cabra", "porco", "ovelha", "vaca", "boi", "mula", "burro", "ponei", "cavalo-de-montaria", "cavalo-de-tracao", "camelo"],
-  3: ["chicken", "goat", "pig", "sheep", "cow", "ox", "mule", "donkey", "pony", "riding-horse", "draft-horse", "warhorse", "camel", "mastiff", "elephant", "galinha", "cabra", "porco", "ovelha", "vaca", "boi", "mula", "burro", "ponei", "cavalo-de-montaria", "cavalo-de-tracao", "cavalo-de-guerra", "camelo", "mastim", "elefante"]
+  3: ["chicken", "goat", "pig", "sheep", "cow", "ox", "mule", "donkey", "pony", "riding-horse", "draft-horse", "warhorse", "camel", "mastiff", "elephant", "galinha", "cabra", "porco", "ovelha", "vaca", "boi", "mula", "burro", "ponei", "cavalo-de-montaria", "cavalo-de-tracao", "cavalo-de-guerra", "camelo", "mastim", "elefante"],
+  4: ["chicken", "goat", "pig", "sheep", "cow", "ox", "mule", "donkey", "pony", "riding-horse", "draft-horse", "warhorse", "camel", "mastiff", "elephant", "galinha", "cabra", "porco", "ovelha", "vaca", "boi", "mula", "burro", "ponei", "cavalo-de-montaria", "cavalo-de-tracao", "cavalo-de-guerra", "camelo", "mastim", "elefante"]
 };
 
 const STABLE_SUPPLY_TERMS = [
@@ -416,11 +439,15 @@ const STABLE_SUPPLY_TERMS = [
   "sela", "alforje", "freio", "arreio", "racao", "forragem", "barda", "carroca", "carruagem", "trenó", "estabulo"
 ];
 
+const GENERIC_ALCHEMICAL_PLACEHOLDERS = new Set([
+  "basic-potion", "generic-potion", "potion-template", "basic-poison", "generic-poison"
+]);
+
 const ALCHEMICAL_PREPARATION_TERMS = [
   "oil", "ointment", "unguent", "dust", "powder", "bead", "perfume", "philter", "elixir", "potion", "poison",
-  "serum", "salve", "incense", "balm", "antitoxin", "acid", "alchemists-fire", "elemental-gem", "feather-token",
+  "serum", "salve", "incense", "balm", "antitoxin", "acid", "alchemists-fire", "elemental-gem",
   "oleo", "unguento", "po", "perfume", "filtro", "elixir", "pocao", "veneno", "soro", "balsamo", "incenso",
-  "antitoxina", "acido", "fogo-alquimico", "gema-elemental", "pena-magica"
+  "antitoxina", "acido", "fogo-alquimico", "gema-elemental"
 ];
 
 const ARCANE_EQUIPMENT_TERMS = ["ring", "wand", "rod", "staff", "amulet", "talisman", "anel", "varinha", "bastao", "cajado", "amuleto", "talisma"];
@@ -438,6 +465,10 @@ function matchesAnyTerm(entry, terms) {
   return terms.some(term => values.some(value => valueMatchesTerm(value, term)));
 }
 
+function isGenericAlchemicalPlaceholder(entry) {
+  return normalizedValues(entry).some(value => GENERIC_ALCHEMICAL_PLACEHOLDERS.has(value));
+}
+
 function validMerchandise(entry) {
   if (isMechanicalItem(entry)) return false;
   if (isMaterializerItem(entry)) return isSupportedMaterializerEntry(entry);
@@ -450,8 +481,18 @@ function finalSellableMerchandise(entry) {
 
 export function homebrewCurationAllowsEntry(entry, curation) {
   if (!curation) return true;
-  if (curation === "blacksmithBase") return validMerchandise(entry) && !isFirearmRelated(entry);
-  if (curation === "blacksmithAmmunition") return validMerchandise(entry) && !isFirearmRelated(entry) && entry.primarySubtypeKey === "ammunition";
+  if (curation === "blacksmithBase") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry);
+  if (curation === "blacksmithTwoHanded") {
+    const properties = new Set((entry.properties ?? []).map(value => normalizeText(value).replaceAll("-", "")));
+    return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry)
+      && (properties.has("two") || properties.has("twohanded"));
+  }
+  if (curation === "blacksmithAmmunition") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && entry.primarySubtypeKey === "ammunition";
+  if (curation === "blacksmithMagicAmmunition") {
+    if (isFirearmRelated(entry) || entry.primarySubtypeKey !== "ammunition") return false;
+    if (isGeneratorItem(entry)) return entry.generatorKind === "ammunitionEnhancement";
+    return finalSellableMerchandise(entry) && !entry.isMagical;
+  }
   if (curation === "blacksmithNamed") {
     return validMerchandise(entry) && !isFirearmRelated(entry) && (entry.isMagical === true || isMaterializerItem(entry));
   }
@@ -463,14 +504,30 @@ export function homebrewCurationAllowsEntry(entry, curation) {
   }
   if (curation === "alchemicalConsumables") {
     return validMerchandise(entry)
+      && !isGenericAlchemicalPlaceholder(entry)
       && !isFirearmRelated(entry)
+      && entry.type === "consumable"
       && (["potion", "poison"].some(subtype => (entry.subtypeKeys ?? []).includes(subtype))
-        || (isMaterializerItem(entry) && matchesAnyTerm(entry, ALCHEMICAL_PREPARATION_TERMS)));
+        || matchesAnyTerm(entry, ALCHEMICAL_PREPARATION_TERMS));
   }
   if (curation === "alchemicalPreparations") {
-    return validMerchandise(entry) && !isFirearmRelated(entry) && matchesAnyTerm(entry, ALCHEMICAL_PREPARATION_TERMS);
+    return validMerchandise(entry) && !isGenericAlchemicalPlaceholder(entry) && entry.type === "consumable" && !isFirearmRelated(entry) && matchesAnyTerm(entry, ALCHEMICAL_PREPARATION_TERMS);
   }
-  if (curation === "magicAssortment") return validMerchandise(entry) && !isFirearmRelated(entry);
+  if (curation === "magicAssortment") {
+    if (!validMerchandise(entry) || isFirearmRelated(entry)) return false;
+    if (entry.type === "weapon") return false;
+    if (entry.type === "consumable") return false;
+    if (["lightArmor", "mediumArmor", "heavyArmor", "shield", "ammunition"].includes(entry.primarySubtypeKey)) return false;
+    return true;
+  }
+  if (curation === "magicRelics") {
+    if (!homebrewCurationAllowsEntry(entry, "magicAssortment")) return false;
+    // REL was a manual book-table grouping. Inside Item Creator, restricted
+    // merchandise is represented by Vendor Access instead of a hard-coded
+    // name list, so ordinary/simple relics can remain in lower Access tiers
+    // while major relics and artifacts rise to Access III or IV.
+    return minimumVendorAccess(entry) >= 3;
+  }
   if (curation === "generalTradeLoot") {
     return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && !matchesAnyTerm(entry, ANIMAL_GROUPS[3]);
   }
@@ -504,7 +561,7 @@ export function applyHomebrewSupplierCuration(profile, catalog, configuration) {
     rule.materializerExclusions = [...new Set((rule.materializerExclusions ?? []).map(String))];
     if (!curation) continue;
 
-    // v0.0.2b-v0.0.2d converted Homebrew curation into permanent
+    // An earlier migration converted Homebrew curation into permanent
     // poolExclusions. Remove only the stale Materializer keys that are now
     // valid for the rule. Ordinary user curation remains untouched.
     const staleMaterializerKeys = new Set(profileEntries

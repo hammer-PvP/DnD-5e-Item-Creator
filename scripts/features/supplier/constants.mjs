@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.0.2e-integrated";
-export const CONFIGURATION_VERSION = 14;
+export const SUPPLIER_FEATURE_VERSION = "0.2.0a-integrated";
+export const CONFIGURATION_VERSION = 15;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },
@@ -175,11 +175,13 @@ export const HAMMER_HOMEBREW_QUALITY_PRICE_ADDITIONS = {
   3: 5500
 };
 
-export function createRecommendedProgressionProfile({ id = RECOMMENDED_PROGRESSION_ID, name = "Supplier — Recommended for D&D 2024" } = {}) {
+export function createRecommendedProgressionProfile({ id = RECOMMENDED_PROGRESSION_ID, name = "Supplier — Official D&D 2024" } = {}) {
   return {
     id,
     name,
     recommended: true,
+    official: true,
+    useCorePricing: true,
     builtIn: "recommended",
     levelBands: foundry.utils.deepClone(DEFAULT_LEVEL_BANDS),
     enchantmentBands: foundry.utils.deepClone(DEFAULT_ENCHANTMENT_BANDS),
@@ -194,6 +196,8 @@ export function createHammerHomebrewProgressionProfile({ id = HAMMER_HOMEBREW_PR
     name,
     recommended: false,
     homebrew: true,
+    official: false,
+    useCorePricing: false,
     builtIn: "homebrew",
     levelBands: foundry.utils.deepClone(HAMMER_HOMEBREW_LEVEL_RANGES),
     enchantmentBands: foundry.utils.deepClone(HAMMER_HOMEBREW_ENCHANTMENT_RANGES),
@@ -208,7 +212,9 @@ export function createCustomProgressionProfile(source = null, name = "Custom Pro
     id: foundry.utils.randomID(),
     name,
     recommended: false,
+    official: false,
     homebrew: false,
+    useCorePricing: base.useCorePricing !== false,
     builtIn: "",
     levelBands: foundry.utils.deepClone(base.levelBands ?? DEFAULT_LEVEL_BANDS),
     enchantmentBands: foundry.utils.deepClone(base.enchantmentBands ?? DEFAULT_ENCHANTMENT_BANDS),
@@ -250,7 +256,13 @@ function baseRule() {
     excludeFamilies: [],
     includeFamilies: [],
     poolExclusions: [],
-    materializerExclusions: []
+    materializerExclusions: [],
+    chance: 100,
+    minimumVendorAccess: 0,
+    maximumVendorAccess: 0,
+    maxPerFamily: 0,
+    rarityDistribution: "",
+    selectionDistribution: ""
   };
 }
 
@@ -302,7 +314,7 @@ export const DEFAULT_PROFILE = {
   sourceIds: [],
   progressionProfileId: "world",
   homebrewTemplateId: "",
-  homebrewAccessLevel: "",
+  homebrewAccessLevel: "2",
   allowedItemTypes: [],
   stockTotalMode: "perPlayer",
   stockTotal: 1,

@@ -1,15 +1,52 @@
 # Changelog
 
+## 0.2.0a — Beta
+
+### Supplier profile rebuild
+
+- Rebuilt the integrated HAMMER Homebrew vendor presets around two independent layers: Supplier Profile / Vendor Type and Level, Quality & Price progression.
+- Added protected built-in `Supplier — Official D&D 2024` and `Supplier — HAMMER Homebrew` progression presets. Either preset can be duplicated into a fully editable custom profile.
+- Converted the manual Blacksmith, Herbalist / Alchemist, and Magic Assortment table flows into direct percentages, weighted pools, guarantees, and party-scaled quantities without simulated dice or RollTables.
+- Rebuilt Blacksmith stock with guaranteed simple and martial weapon coverage, ranged and two-handed guarantees, light/medium/heavy armor, optional shields, named magic equipment, and enchanted ammunition.
+- Rebuilt Alchemist stock with one level-appropriate healing potion per party member, thematic consumable-only random pools, rarity weights by party level, generic-placeholder exclusion, and family repetition limits.
+- Rebuilt Magic Assortment with level-band stock totals, party-scaled Scroll and magic Item slots, non-cantrip Scroll limits, and separate restricted-relic weighting.
+- Added one-time rebuilding of legacy HAMMER vendor presets while preserving profile IDs, names, source choices, bans, and mechanical-document overrides. Current duplicates remain editable and are not overwritten.
+
+### Access, quantity, and curation
+
+- Added Access IV with a gold visual identity for exceptional vendors and broader access to major relics, artifacts, and tightly restricted merchandise.
+- Made Vendor Access a standard editable property of every Supplier Profile, separate from rarity and party-level progression.
+- Added per-Item and per-rule minimum/maximum Vendor Access checks. Simpler relics may remain available below Access IV while major relics require higher access.
+- Added party-scaled quantities and editable level stock bands. Party level determines power and quality, party size determines quantity, Vendor Access determines commercial reach, and Vendor Type determines thematic stock.
+- Added rule-level appearance chance, maximum-per-family limits, and weighted rarity/selection distributions.
+- Strengthened family grouping for Feather Tokens, Bags of Tricks, Elemental Gems, resistance families, and other variant families to prevent one family from dominating a stock.
+- Added dedicated Alchemist curation that excludes unrelated generic consumables and placeholder documents such as Basic Potion.
+
+### Materialization and generation reliability
+
+- Added strict post-materialization validation so an Item cannot keep generated metadata unless its expected +1/+2/+3 mutation is actually present.
+- Corrected ammunition generation so mundane ammunition copies are not marked as generated models and +1/+2/+3 ammunition must retain name, magical bonus, rarity, magical property, and price.
+- Resolved Armor of Resistance descriptions at the actual `system.description` Effect change, removing the generic selection table after a damage type is chosen and retaining only the concrete resistance text.
+- Preserved the earlier Helm of Brilliance sellable classification, Wand of the War Mage concrete-variant handling, Efreeti Chain base compatibility, canonical names, placeholder cleanup, and duplicate-suffix protection.
+- Expanded fallback generation to reroll any failed stock slot from the same eligible rule, including ordinary base Items whose synthetic enhancement fails strict validation.
+- Added detailed generation diagnostics and the headless development API `game.itemCreator.auditSupplier({ profileId, level, players, runs })` for repeated previews without creating World Items.
+
+### Interface and compatibility
+
+- Restored a separate GM-only Supplier button to the World Items Directory when Supplier Tools are enabled, using an epic-purple tint.
+- Kept Scroll Factory inside the Item Creator start screen because it creates an individual Scroll loot Item rather than a vendor stock.
+- Updated the module to `0.2.0a` and Foundry VTT `compatibility.verified` to `14.365` while keeping the existing minimum requirement.
+
 ## 0.2.0 — Beta
 
 ### Unified module
 
-- Incorporated the complete Supplier v0.0.2e feature set into Item Creator as an optional internal feature.
+- Incorporated Supplier as an optional internal Item Creator feature for controlled vendor-stock generation.
 - Added a world setting named **Enable Supplier Tools**, disabled by default.
 - Hid the Supplier start-screen card and skipped Supplier catalog initialization while the feature is disabled.
 - Added **Configure Supplier** inside Item Creator Configuration when Supplier is enabled.
-- Kept one GM-only Item Creator button in the World Items Directory; Supplier and Scroll Factory are accessed from the unified start screen.
-- Moved all integrated Supplier settings and flags into the `dnd5e-item-creator` namespace without migrating the unpublished standalone Supplier namespace.
+- Kept Scroll Factory inside the Item Creator start screen and initially exposed Supplier through the integrated configuration flow.
+- Moved all integrated Supplier settings and flags into the `dnd5e-item-creator` namespace.
 - Assigned unique integrated Supplier Application IDs so the development standalone module can remain installed without an Application ID collision.
 
 ### Materialization Core

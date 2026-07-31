@@ -17,11 +17,8 @@
       </header>
       <label class="ic-settings-toggle">
         <input type="checkbox" name="supplierEnabled" {{#if supplierEnabled}}checked{{/if}}>
-        <span><strong>Enable Supplier Tools</strong><small>Add Supplier to the Item Creator start screen and make its configuration available.</small></span>
+        <span><strong>Enable Supplier Tools</strong><small>Add the separate Supplier button to the World Items Directory and make its configuration available.</small></span>
       </label>
-      {{#if standaloneSupplierActive}}
-      <p class="ic-mechanical-note"><i class="fa-solid fa-code-branch"></i> Standalone Supplier is also active. Its settings and windows remain separate during the transition, but future Supplier development belongs to Item Creator.</p>
-      {{/if}}
       {{#if supplierEnabled}}
       <button type="button" data-action="configure-supplier"><i class="fa-solid fa-store"></i> Configure Supplier</button>
       {{else}}

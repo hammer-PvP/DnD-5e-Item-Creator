@@ -44,10 +44,13 @@ function newProfile() {
     sourceIds: enabledSources,
     progressionProfileId: "world",
     homebrewTemplateId: "",
-    homebrewAccessLevel: "",
+    homebrewAccessLevel: "2",
     allowedItemTypes: [],
     stockTotalMode: "fixed",
     stockTotal: 10,
+    stockScaleBase: 4,
+    stockBands: [],
+    homebrewPresetVersion: 0,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -82,6 +85,8 @@ function quantityFlags(value) {
     quantityHalfDown: value === "halfDown",
     quantityHalfUp: value === "halfUp",
     quantityRange: value === "range",
+    quantityPartyScaled: value === "partyScaled",
+    quantityLevelPartyScaledScrolls: value === "levelPartyScaledScrolls",
     quantityRemainder: value === "remainder"
   };
 }
@@ -138,9 +143,13 @@ function ruleSummary(rule, categoryLabel, kind) {
     ? `${Number(rule.quantity ?? 1)} × ${game.i18n.localize("DND5E_SUPPLIER.Config.PlayersShort")}`
     : rule.quantityMode === "halfDown" || rule.quantityMode === "halfUp"
       ? game.i18n.localize("DND5E_SUPPLIER.Config.HalfPartyShort")
-      : rule.quantityMode === "range"
-        ? `${rule.quantityMin ?? 1}–${rule.quantityMax ?? 1}`
-        : String(rule.quantity ?? 1);
+      : rule.quantityMode === "partyScaled"
+        ? game.i18n.format("DND5E_SUPPLIER.Config.PartyScaledShort", { quantity: Number(rule.quantity ?? 1) })
+        : rule.quantityMode === "levelPartyScaledScrolls"
+          ? game.i18n.localize("DND5E_SUPPLIER.Config.LevelPartyScaledScrollsShort")
+          : rule.quantityMode === "range"
+            ? `${rule.quantityMin ?? 1}–${rule.quantityMax ?? 1}`
+            : String(rule.quantity ?? 1);
   return `${selection} • ${quantity}`;
 }
 
@@ -187,6 +196,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
     this.bannedSection = "manual";
     this.selectedProgressionProfileId = this.draft.activeProgressionProfileId ?? this.draft.progressionProfiles?.[0]?.id ?? null;
     this.validationPlayers = 5;
+    this.validationLevel = 10;
     this.viewState = { scroll: {}, focus: null, openRules: [], knownRules: [], captured: false };
   }
 
@@ -243,6 +253,8 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
             catalog,
             profileEntries,
             configuration: this.draft,
+            profile: selectedProfile,
+            level: this.validationLevel,
             applyProgression: false
           }).entries ?? [];
           const exclusions = new Set(rule.poolExclusions ?? []);
@@ -263,6 +275,8 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         catalog,
         profileEntries,
         configuration: this.draft,
+        profile: selectedProfile,
+        level: this.validationLevel,
         applyProgression: false
       });
       const categoryValues = kind === "catalog" ? CATALOG_CATEGORIES : RULE_CATEGORIES;
@@ -284,6 +298,8 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
           catalog,
           profileEntries,
           configuration: this.draft,
+          profile: selectedProfile,
+          level: this.validationLevel,
           applyProgression: false
         });
         const eligibleKeys = (subtypeInspection.entries ?? []).map(entry => entry.key);
@@ -486,13 +502,17 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       })),
       profileSourceOptions: globallyEnabled.map(source => ({ ...source, displayLabel: source.displayLabel || sourceDisplayLabel(source), checked: selectedProfile?.sourceIds?.includes(source.id) })),
       stockTotalFixed: selectedProfile?.stockTotalMode === "fixed",
-      stockTotalPerPlayer: selectedProfile?.stockTotalMode !== "fixed",
-      calculatedRandomTarget: selectedProfile ? calculateRandomTarget(selectedProfile, this.validationPlayers) : 0,
+      stockTotalPerPlayer: selectedProfile?.stockTotalMode === "perPlayer",
+      stockTotalPartyScaled: selectedProfile?.stockTotalMode === "partyScaled",
+      stockTotalLevelPartyScaled: selectedProfile?.stockTotalMode === "levelPartyScaled",
+      stockTotalUsesValue: selectedProfile?.stockTotalMode !== "levelPartyScaled",
+      calculatedRandomTarget: selectedProfile ? calculateRandomTarget(selectedProfile, this.validationPlayers, this.validationLevel) : 0,
       activeCatalogRules: selectedProfile?.mundaneCatalogRules?.filter(rule => rule.enabled && rule.category).length ?? 0,
       activeGuaranteedRules: selectedProfile?.guaranteedRules?.filter(rule => rule.enabled && rule.category).length ?? 0,
       activeRandomRules: selectedProfile?.randomRules?.filter(rule => rule.enabled && rule.category).length ?? 0,
       stockSections,
       validationPlayers: this.validationPlayers,
+      validationLevel: this.validationLevel,
       levelBands,
       enchantmentBands,
       progressionProfiles: progressionProfiles.map(profile => ({
@@ -504,6 +524,11 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
           : profile.homebrew
             ? game.i18n.localize("DND5E_SUPPLIER.Config.HomebrewProgressionName")
             : profile.name
+      })),
+      profileAccessOptions: ["1", "2", "3", "4"].map(value => ({
+        value,
+        label: game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Access${value}`),
+        selected: String(selectedProfile?.homebrewAccessLevel ?? "2") === value
       })),
       profileProgressionOptions: [
         {
@@ -530,7 +555,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       selectedProfileAccessLabel: selectedProfile?.homebrewAccessLevel
         ? game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Access${selectedProfile.homebrewAccessLevel}`)
         : game.i18n.localize("DND5E_SUPPLIER.Homebrew.AccessCustom"),
-      selectedProfileAccessClass: ["1", "2", "3"].includes(String(selectedProfile?.homebrewAccessLevel))
+      selectedProfileAccessClass: ["1", "2", "3", "4"].includes(String(selectedProfile?.homebrewAccessLevel))
         ? `access-${selectedProfile.homebrewAccessLevel}`
         : "access-custom",
       selectedProfileAccessHint: selectedProfile?.homebrewAccessLevel
@@ -546,10 +571,9 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
             : selectedProgressionProfile.name
       } : null,
       selectedProgressionIndex,
+      progressionLocked: Boolean(selectedProgressionProfile?.builtIn),
       canDeleteProgressionProfile: progressionProfiles.length > 1 && !selectedProgressionProfile?.builtIn,
-      useCorePricing: this.draft.useCorePricing !== false,
-      levelBands,
-      enchantmentBands,
+      useCorePricing: selectedProgressionProfile?.useCorePricing !== false,
       rarities: RARITIES.map(rarity => ({
         ...rarity,
         localized: game.i18n.localize(rarity.label),
@@ -754,6 +778,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       target.enchantmentBands = foundry.utils.deepClone(baseline.enchantmentBands);
       target.priceFallbacks = foundry.utils.deepClone(baseline.priceFallbacks);
       target.qualityPriceAdditions = foundry.utils.deepClone(baseline.qualityPriceAdditions);
+      target.useCorePricing = baseline.useCorePricing !== false;
       this.#renderWithState();
     });
 
@@ -969,6 +994,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
           rule: foundry.utils.deepClone(rule),
           subtype: button.dataset.subtype,
           configuration: foundry.utils.deepClone(this.draft),
+          level: this.validationLevel,
           onSave: exclusions => {
             rule.poolExclusions = exclusions.poolExclusions ?? [];
             rule.materializerExclusions = exclusions.materializerExclusions ?? [];
@@ -1112,6 +1138,9 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
     profile.progressionProfileId = String(profile.progressionProfileId ?? "world");
     profile.homebrewTemplateId = String(profile.homebrewTemplateId ?? "");
     profile.homebrewAccessLevel = String(profile.homebrewAccessLevel ?? "");
+    profile.stockScaleBase = Math.max(1, Number(profile.stockScaleBase ?? 4) || 4);
+    profile.stockBands = Array.isArray(profile.stockBands) ? profile.stockBands : [];
+    profile.homebrewPresetVersion = Math.max(0, Number(profile.homebrewPresetVersion ?? 0) || 0);
     profile.mechanicalItemOverrides = Array.isArray(profile.mechanicalItemOverrides)
       ? profile.mechanicalItemOverrides.filter(item => item?.uuid).map(item => ({ uuid: String(item.uuid), excluded: item.excluded === true }))
       : [];
@@ -1157,6 +1186,12 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         }
         rule.poolExclusions = Array.isArray(rule.poolExclusions) ? rule.poolExclusions : [];
         rule.includeFamilies = Array.isArray(rule.includeFamilies) ? rule.includeFamilies : [];
+        rule.chance = Math.min(100, Math.max(0, Number(rule.chance ?? 100)));
+        rule.minimumVendorAccess = Math.min(4, Math.max(0, Number(rule.minimumVendorAccess ?? 0)));
+        rule.maximumVendorAccess = Math.min(4, Math.max(0, Number(rule.maximumVendorAccess ?? 0)));
+        rule.maxPerFamily = Math.max(0, Math.floor(Number(rule.maxPerFamily ?? 0)));
+        rule.rarityDistribution = String(rule.rarityDistribution ?? "");
+        rule.selectionDistribution = String(rule.selectionDistribution ?? "");
         delete rule.rarityMode;
         delete rule.rarities;
         if (!supportsGeneratedQuality(rule)) {
@@ -1197,6 +1232,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       }
     }
     this.validationPlayers = Math.max(1, Number(root.querySelector("[name='validationPlayers']")?.value ?? this.validationPlayers));
+    this.validationLevel = Math.min(20, Math.max(1, Number(root.querySelector("[name='validationLevel']")?.value ?? this.validationLevel)));
     this.#normalizeRuleDependencies();
   }
 }

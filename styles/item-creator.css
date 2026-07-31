@@ -34,6 +34,32 @@
 
 .ic-item-directory-button > i { color: #78d27e; }
 
+.ic-supplier-directory-button {
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1 0 100%;
+  min-height: 34px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid rgba(163, 53, 238, .82);
+  background: linear-gradient(180deg, rgba(82, 31, 116, .96), rgba(48, 20, 68, .97));
+  color: #f2e6ff;
+  font-weight: 700;
+  box-shadow: inset 0 0 14px rgba(163, 53, 238, .12);
+}
+
+.ic-supplier-directory-button:hover,
+.ic-supplier-directory-button:focus-visible {
+  border-color: rgba(211, 156, 255, .95);
+  background: linear-gradient(180deg, rgba(108, 39, 153, .98), rgba(62, 23, 88, .98));
+  box-shadow: inset 0 0 18px rgba(189, 92, 255, .18), 0 0 10px rgba(163, 53, 238, .22);
+}
+
+.ic-supplier-directory-button > i { color: #bd5cff; }
+
 .ic-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
