@@ -34,7 +34,7 @@
               <article class="supplier-loot-row">
                 <img src="{{img}}" alt="{{name}}">
                 <div class="supplier-loot-main">
-                  <div class="supplier-loot-name-row"><strong>{{name}}</strong>{{#if materializationLabel}}<span class="supplier-materialization-badge"><i class="fa-solid fa-wand-magic-sparkles"></i>{{materializationLabel}}</span>{{/if}}</div>
+                  <div class="supplier-loot-name-row"><strong>{{name}}</strong>{{#if materializationLabel}}<span class="supplier-materialization-badge" title="{{materializationTitle}}"><i class="fa-solid fa-wand-magic-sparkles"></i>{{materializationLabel}}</span>{{/if}}</div>
                   <span>{{rarityLabel}}{{#if qualityLabel}} • {{qualityLabel}}{{/if}}{{#if spellLevelLabel}} • {{spellLevelLabel}}{{/if}} • {{type}}{{#if subtype}} / {{subtype}}{{/if}}</span>
                   <small>{{packLabel}} • {{unitPrice}} • {{priceOriginLabel}}</small>
                 </div>

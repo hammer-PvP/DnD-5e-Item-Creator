@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0b — Beta
+
+### Supplier stock diagnostics and distribution
+
+- Restored Materializer badges in the stock preview for synthetic +1/+2/+3 Items, generated models, resolved blueprints, and concrete variants. Badge tooltips now expose the generation strategy and source/base references for development inspection.
+- Changed random named-stock selection to draw from the complete eligible pool instead of forcing equal odds between subtype buckets. This removes the unintended shield bias caused by treating light, medium, heavy, and shield as four equally likely buckets.
+- Added family-normalized weighting and broader adaptable-family detection so multiple concrete Vicious Weapon, Mithral Armor, resistance, and similar variants no longer gain extra probability merely because the source contains several base-specific documents.
+- Strengthened non-firearm ammunition recognition throughout HAMMER Blacksmith curation so mundane ammunition and the Ammunition +1/+2/+3 generator can enter the enchanted-ammunition pool even when source metadata uses a nonstandard native subtype.
+
+### Materialization Core
+
+- Added a strict official-base contract for Armor of Etherealness: only Half Plate Armor or Plate Armor may be selected. Shields and other armor categories are rejected before materialization.
+- Made Armor of Resistance resolve a concrete damage type directly through equal percentage selection, independent of RollTable availability. Unresolved generic Armor of Resistance results are rejected rather than entering stock.
+- Marked successful native blueprints and concrete variants explicitly as materialized in returned metadata, improving preview badges and diagnostics.
+- Bumped the module, Supplier feature, and Materialization Core versions to `0.2.0b`.
+
 ## 0.2.0a — Beta
 
 ### Supplier profile rebuild

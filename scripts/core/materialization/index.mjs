@@ -9,7 +9,7 @@ import {
   materializeIdentityChanges
 } from "./naming.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.2.0a";
+export const MATERIALIZATION_ENGINE_VERSION = "0.2.0b";
 
 /**
  * HAMMER Materialization Core
@@ -477,9 +477,19 @@ async function chooseProfilePair(blueprintData, activity, {
     pairs = matches;
   }
 
-  const tableResult = forcedSelection
+  let tableResult = forcedSelection
     ? selectionFromText(forcedSelection.text ?? forcedSelection.label ?? forcedSelection.value ?? forcedSelection, forcedSelection)
-    : await rollLinkedTable(blueprintData, blueprintDocument);
+    : isResistanceBlueprint(blueprintData)
+      ? directResistanceSelection(blueprintData)
+      : await rollLinkedTable(blueprintData, blueprintDocument);
+
+  // Resistance blueprints must never survive as unresolved generic templates.
+  // When the source RollTable is absent, inaccessible, or returns generic text,
+  // choose directly from the official resistance types with equal percentage.
+  // This keeps the Core headless and avoids depending on a RollTable roll.
+  if ((!tableResult || tableResult.kind !== "damageType") && isResistanceBlueprint(blueprintData)) {
+    tableResult = directResistanceSelection(blueprintData);
+  }
   if (tableResult?.normalized) {
     const matched = pairs.find(pair => pairMatchesSelection(pair, tableResult));
     if (matched) return { pair: matched, tableResult, reason: "tableProfile" };
@@ -560,6 +570,30 @@ function isResistanceBlueprint(blueprintData) {
 function isArmorOfResistanceBlueprint(blueprintData) {
   const identity = normalize(`${blueprintData?.name ?? ""} ${foundry.utils.getProperty(blueprintData, "system.identifier") ?? ""}`);
   return identity.includes("armor-of-resistance") || identity.includes("armadura-de-resistencia");
+}
+
+const DIRECT_RESISTANCE_TYPES = Object.freeze([
+  ["acid", "Acid"],
+  ["cold", "Cold"],
+  ["fire", "Fire"],
+  ["force", "Force"],
+  ["lightning", "Lightning"],
+  ["necrotic", "Necrotic"],
+  ["poison", "Poison"],
+  ["psychic", "Psychic"],
+  ["radiant", "Radiant"],
+  ["thunder", "Thunder"]
+]);
+
+function directResistanceSelection(blueprintData) {
+  if (!isResistanceBlueprint(blueprintData)) return null;
+  const [value, label] = DIRECT_RESISTANCE_TYPES[Math.floor(Math.random() * DIRECT_RESISTANCE_TYPES.length)];
+  return selectionFromText(label, {
+    value,
+    label,
+    kind: "damageType",
+    source: "direct-percentage"
+  });
 }
 
 function resolvedArmorResistanceDescription(blueprintData, selection) {
@@ -766,6 +800,10 @@ export async function materializeNativeBlueprint({
     });
     const pair = chosen.pair;
     const tableResult = chosen.tableResult;
+    if (isArmorOfResistanceBlueprint(blueprintData) && tableResult?.kind !== "damageType") {
+      failures.push("unresolvedResistanceType");
+      continue;
+    }
     if (!pair?.effect) {
       failures.push(chosen.reason || "noProfile");
       continue;
@@ -848,7 +886,7 @@ export async function materializeNativeBlueprint({
       ok: true,
       documentData: result,
       display: validation.display,
-      metadata: { ...metadata, validation: validation.validation }
+      metadata: { ...metadata, materialized: true, validation: validation.validation }
     };
   }
 

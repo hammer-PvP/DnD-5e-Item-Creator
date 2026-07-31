@@ -44,6 +44,11 @@ function isMediumOrHeavyArmor(data) {
   return data?.type === "equipment" && ["medium", "heavy"].includes(itemCategory(data));
 }
 
+function isHalfPlateOrPlate(data) {
+  if (data?.type !== "equipment") return false;
+  return exactBase(data, ["half-plate-armor", "half-plate", "plate-armor", "plate"]);
+}
+
 function isMeleeWeapon(data) {
   if (data?.type !== "weapon") return false;
   const category = itemCategory(data);
@@ -116,6 +121,9 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
   }
   if (identity.includes("armor-of-vulnerability")) {
     return base.type === "equipment" && exactBase(base, ["plate-armor", "plate"]);
+  }
+  if (identity.includes("armor-of-etherealness")) {
+    return isHalfPlateOrPlate(base);
   }
   if (identity.includes("vorpal")) {
     return isSword(base) && damageTypes(base).has("slashing");

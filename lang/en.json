@@ -503,7 +503,8 @@
     },
     "Materialization": {
       "Blueprint": "Blueprint resolved",
-      "Generator": "Generated model"
+      "Generator": "Generated model",
+      "Variant": "Concrete variant"
     },
     "DocumentNature": {
       "Sellable": "Sellable",

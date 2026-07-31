@@ -7,6 +7,7 @@ import {
 import {
   canonicalKey,
   entriesForProfile,
+  isAmmunitionEntry,
   isFirearmAmmunition,
   isFirearmEntry,
   isFirearmRelated,
@@ -487,9 +488,9 @@ export function homebrewCurationAllowsEntry(entry, curation) {
     return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry)
       && (properties.has("two") || properties.has("twohanded"));
   }
-  if (curation === "blacksmithAmmunition") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && entry.primarySubtypeKey === "ammunition";
+  if (curation === "blacksmithAmmunition") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && isAmmunitionEntry(entry);
   if (curation === "blacksmithMagicAmmunition") {
-    if (isFirearmRelated(entry) || entry.primarySubtypeKey !== "ammunition") return false;
+    if (isFirearmRelated(entry) || !isAmmunitionEntry(entry)) return false;
     if (isGeneratorItem(entry)) return entry.generatorKind === "ammunitionEnhancement";
     return finalSellableMerchandise(entry) && !entry.isMagical;
   }

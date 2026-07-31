@@ -87,11 +87,22 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
         linePrice: line.price.origin === "priceless"
           ? game.i18n.localize("DND5E_SUPPLIER.PriceOrigin.priceless")
           : `${line.price.value * line.quantity} ${String(line.price.denomination || "gp").toUpperCase()}`,
-        materializationLabel: line.materializerKind === "blueprint"
+        materializationLabel: line.materializerKind === "blueprint" || line.generationKind === "materializedBlueprint"
           ? game.i18n.localize("DND5E_SUPPLIER.Materialization.Blueprint")
-          : line.materializerKind === "generator"
-            ? game.i18n.localize("DND5E_SUPPLIER.Materialization.Generator")
-            : ""
+          : line.materializerKind === "variant" || line.generationKind === "materializedVariant"
+            ? game.i18n.localize("DND5E_SUPPLIER.Materialization.Variant")
+            : line.materializerKind === "generator"
+              || line.generationKind === "materializedGenerator"
+              || line.generationKind === "enhanced"
+              || line.materialization?.materialized === true
+              ? game.i18n.localize("DND5E_SUPPLIER.Materialization.Generator")
+              : "",
+        materializationTitle: [
+          line.materialization?.strategy,
+          line.materializedBaseUuid ? `Base: ${line.materializedBaseUuid}` : "",
+          line.blueprintSourceUuid ? `Blueprint: ${line.blueprintSourceUuid}` : "",
+          line.generatorSourceUuid ? `Generator: ${line.generatorSourceUuid}` : ""
+        ].filter(Boolean).join(" • ")
       })),
       warnings: this.warnings,
       hasPreview: this.preview.length > 0,
