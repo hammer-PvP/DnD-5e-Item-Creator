@@ -35,6 +35,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     this.randomUnits = 0;
     this.diagnostics = null;
     this.busy = false;
+    this.viewState = null;
   }
 
   async _prepareContext() {
@@ -110,6 +111,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     super._onRender(context, options);
     const root = this.element;
     if (!root) return;
+    this.#restoreViewState();
 
     root.querySelectorAll("[data-profile-id]").forEach(button => {
       button.addEventListener("click", () => {
@@ -123,7 +125,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
         this.guaranteedUnits = 0;
         this.randomUnits = 0;
         this.diagnostics = null;
-        this.render();
+        this.#renderPreservingView();
       });
     });
 
@@ -142,14 +144,14 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.guaranteedUnits = 0;
       this.randomUnits = 0;
       this.diagnostics = null;
-      this.render();
+      this.#renderPreservingView();
     });
 
     root.querySelectorAll("[data-action='remove-line']").forEach(button => {
       button.addEventListener("click", () => {
         if (this.busy) return;
         this.preview.splice(Number(button.dataset.index), 1);
-        this.render();
+        this.#renderPreservingView();
       });
     });
 
@@ -158,9 +160,45 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
         const line = this.preview[Number(input.dataset.quantityIndex)];
         if (!line) return;
         line.quantity = Math.max(1, Number(input.value || 1));
-        this.render();
+        this.#renderPreservingView();
       });
     });
+  }
+
+  #captureViewState() {
+    const root = this.element;
+    if (!root) return null;
+    const scroll = {};
+    for (const selector of [".supplier-step-scroll", ".supplier-workspace", ".supplier-loot-scroll"]) {
+      const element = root.querySelector(selector);
+      if (element) scroll[selector] = { top: element.scrollTop, left: element.scrollLeft };
+    }
+    const active = root.querySelector(":focus");
+    return { scroll, focusName: active?.getAttribute?.("name") ?? "", focusAction: active?.dataset?.action ?? "" };
+  }
+
+  #restoreViewState() {
+    const state = this.viewState;
+    this.viewState = null;
+    if (!state || !this.element) return;
+    requestAnimationFrame(() => {
+      if (!this.element) return;
+      for (const [selector, position] of Object.entries(state.scroll ?? {})) {
+        const element = this.element.querySelector(selector);
+        if (!element) continue;
+        element.scrollTop = Number(position.top ?? 0);
+        element.scrollLeft = Number(position.left ?? 0);
+      }
+      const focus = state.focusName
+        ? this.element.querySelector(`[name="${CSS.escape(state.focusName)}"]`)
+        : state.focusAction ? this.element.querySelector(`[data-action="${CSS.escape(state.focusAction)}"]`) : null;
+      focus?.focus?.({ preventScroll: true });
+    });
+  }
+
+  #renderPreservingView() {
+    this.viewState = this.#captureViewState();
+    return this.render({ force: true });
   }
 
   #syncInputs() {
@@ -178,7 +216,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     if (!profile) return;
 
     this.busy = true;
-    this.render();
+    this.#renderPreservingView();
     try {
       const result = await generateStock({ profile, level: this.level, players: this.players });
       this.preview = result.preview;
@@ -194,7 +232,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       ui.notifications.error(error.message);
     } finally {
       this.busy = false;
-      this.render();
+      this.#renderPreservingView();
     }
   }
 
@@ -209,7 +247,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     if (!confirmed) return;
 
     this.busy = true;
-    this.render();
+    this.#renderPreservingView();
     try {
       const { folder } = await createWorldFolder({ profile, level: this.level, players: this.players, preview: this.preview });
       ui.notifications.info(game.i18n.format("DND5E_SUPPLIER.Success.Created", { name: folder.name }));
@@ -226,7 +264,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       ui.notifications.error(error.message);
     } finally {
       this.busy = false;
-      this.render();
+      this.#renderPreservingView();
     }
   }
 

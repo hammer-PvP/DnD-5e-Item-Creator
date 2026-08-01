@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.3.0 — Beta
+
+### HAMMER progression and vendor balance
+
+- Made HAMMER rarity access cumulative: higher party levels add stronger rarity bands without removing Common, Uncommon, Rare, Adamantine, Mithral, or other earlier merchandise.
+- Added weighted rarity distributions for party levels 1–4, 5–8, 9–12, 13–16, and 17–20.
+- Reserved 30% of Blacksmith random magical stock for armor rules, with Access-scaled minimum armor selections, preventing weapons and broad physical equipment pools from diluting named/materialized armor.
+- Replaced the Magic Assortment light/medium/heavy armor rules with one armory-curiosity rule capped at one selection and weighted at 5%, 15%, 30%, or 50% for Access I–IV.
+- Kept Alchemist / Herbalist, General Trade, and the remaining Magic Assortment structure unchanged.
+
+### Materialization Recipe Registry
+
+- Expanded the staged Materializer: native D&D5e resolution remains first; incomplete native output falls back to deterministic recipes and must pass post-materialization validation before receiving a resolved badge.
+- Added or reinforced recipes for Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, and enchanted ammunition.
+- Unified SRD and Player’s Handbook 2024 Wand of the War Mage templates under one canonical family and resolver.
+- Added a technical target catalog from each Supplier Profile's source snapshot so an eligible recipe resolves consistently even when the vendor does not visibly sell its mundane base.
+- Kept the visible mundane catalog as the preferred target source and preserved its party-sized quantities.
+- Added deterministic runtime recipe auditing through `game.itemCreator.auditMaterialization({ profileId, level, families })`.
+
+### Ammunition
+
+- Moved enchanted ammunition to an independent final Blacksmith pass instead of normal random-stock competition.
+- Added one 50% availability check per stock, at most one enchanted ammunition family, and one +1/+2/+3 result chosen from the active Level, Quality & Price profile.
+- Consolidated Arrow/Arrows, Crossbow Bolt/Bolts, Blowgun Needle/Needles, Sling Bullet/Bullets, and equivalent multi-source documents by canonical family.
+- Kept every mundane ammunition stack in stock and rejected Spells or name-only false positives before ammunition heuristics.
+- Added explicit ammunition diagnostics for roll result, eligible families, selected family, bonus, success, and failure.
+
+### Pricing, fallbacks, and cursed Items
+
+- Added a mandatory final price pass for materialized magic Items using resolved rarity and the active Level, Quality & Price profile.
+- Prevented magical blueprints from retaining 1 GP, 5 SP, or other mundane/template fallback prices.
+- Added a base-price floor for nonmagical material variants.
+- Restricted rerolls to the same rule intent/category so a failed named armor blueprint does not become unrelated generic equipment.
+- Disabled cursed merchandise in protected Official and HAMMER vendor presets by default.
+- Added safe unidentified names based on the resolved mundane target for recipe-backed cursed Items.
+- Completed Armor of Vulnerability resolution with one physical resistance, the other two physical vulnerabilities, effects, final description, and unidentified base name.
+
+### Sources and interface
+
+- Added runtime Content Source signature validation and forced registry rebuilds on save, Item Creator open, and world reload when pack state changes.
+- Preserved Supplier source snapshots: existing Supplier Profiles still use the sources available when they were created or imported.
+- Preserved scroll position and focus during same-screen Supplier rerenders; scroll resets remain limited to actual section changes.
+- Rebuilt protected HAMMER profiles once to preset schema version 7 while preserving source snapshots, progression selection, bans, and local overrides where applicable.
+
 ## 0.2.0e
 
 ### Staged Materialization Recipes

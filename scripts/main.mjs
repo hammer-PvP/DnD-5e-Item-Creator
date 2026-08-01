@@ -12,7 +12,7 @@ import {
   registerMaterializationSettings
 } from "./core/materialization/pricing.mjs";
 import { SupplierApplication } from "./features/supplier/supplier-app.mjs";
-import { auditSupplierStock } from "./features/supplier/generator.mjs";
+import { auditMaterializationRecipes, auditSupplierStock } from "./features/supplier/generator.mjs";
 import { SupplierConfigApplication } from "./features/supplier/config-app.mjs";
 import {
   getConfiguration as getSupplierConfiguration,
@@ -77,6 +77,14 @@ Hooks.once("init", () => {
         ?? configuration.profiles[0];
       if (!profile) throw new Error("No Supplier profile is configured.");
       return auditSupplierStock({ profile, level, players, runs });
+    },
+    auditMaterialization: async ({ profileId = "", level = 20, families = [] } = {}) => {
+      if (!isSupplierEnabled()) throw new Error("Enable Supplier Tools before running an audit.");
+      const configuration = getSupplierConfiguration();
+      const profile = configuration.profiles.find(entry => entry.id === profileId || entry.name === profileId)
+        ?? configuration.profiles[0];
+      if (!profile) throw new Error("No Supplier profile is configured.");
+      return auditMaterializationRecipes({ profile, level, families });
     },
     closeSupplier: () => closeSupplierWindows(),
     configureSources: () => openSourceSettings(),

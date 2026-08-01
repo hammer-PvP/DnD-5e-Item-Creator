@@ -18,7 +18,7 @@ import {
   recipeTargetCompatibility
 } from "./recipes.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.2.0e";
+export const MATERIALIZATION_ENGINE_VERSION = "0.3.0";
 
 /**
  * HAMMER Materialization Core
@@ -105,7 +105,7 @@ function hasNativeBlueprintData(data) {
 
 export function isBlueprintCandidateData(data) {
   const recipe = materializationRecipe(data);
-  return enchantActivities(data).length > 0 || Boolean(recipe && ["materialize", "template-transplant"].includes(recipe.mode));
+  return enchantActivities(data).length > 0 || Boolean(recipe && ["materialize", "template-transplant", "materialize-dragon-scale", "materialize-vulnerability"].includes(recipe.mode));
 }
 
 export function classifyDocumentNature(documentOrData, { mechanical = false, generator = null } = {}) {
@@ -114,7 +114,7 @@ export function classifyDocumentNature(documentOrData, { mechanical = false, gen
   if (generator) return { nature: "materializer", materializerKind: "generator", family: generator.id ?? "generator" };
   const recipe = materializationRecipe(data);
   if (recipe?.mode === "resolve-variant") return { nature: "materializer", materializerKind: "variant", family: recipe.id };
-  if (recipe && ["materialize", "template-transplant"].includes(recipe.mode)) {
+  if (recipe && ["materialize", "template-transplant", "materialize-dragon-scale", "materialize-vulnerability"].includes(recipe.mode)) {
     return { nature: "materializer", materializerKind: "blueprint", family: recipe.id };
   }
   if (isSelfContainedSellableData(data)) return { nature: "sellable", materializerKind: "", family: "" };
@@ -941,6 +941,11 @@ export async function materializeNativeBlueprint({
     const validation = validateAndPrepareData(result, enchantment);
     if (!validation.ok) {
       failures.push(validation.reason ?? "validationFailed");
+      continue;
+    }
+    const recipeIssues = hasMaterializationRecipe(blueprintData) ? recipeOutputIssues(blueprintData, result) : [];
+    if (recipeIssues.length) {
+      failures.push(`recipeContract:${recipeIssues[0]}`);
       continue;
     }
     return {

@@ -132,6 +132,20 @@ function genericOption(entry, summary, pack) {
   };
 }
 
+function runtimePackSignature() {
+  const packs = [...game.packs]
+    .filter(pack => pack.documentName === "Item")
+    .map(pack => {
+      const packageName = pack.metadata?.packageName ?? pack.metadata?.package ?? "";
+      const packageVersion = packageName === game.system?.id
+        ? game.system?.version
+        : game.modules?.get(packageName)?.version ?? "";
+      return `${pack.collection}:${packageName}:${packageVersion}:${pack.index?.size ?? "?"}`;
+    })
+    .sort();
+  return `${game.system?.version ?? ""}|${packs.join("|")}`;
+}
+
 export class ItemCreatorSourceRegistry {
   static #instance;
   static get instance() { this.#instance ??= new ItemCreatorSourceRegistry(); return this.#instance; }
@@ -166,11 +180,13 @@ export class ItemCreatorSourceRegistry {
     this.activePackSummaries = [];
     this.loaded = false;
     this.signature = "";
+    this.packRuntimeSignature = "";
   }
 
   invalidate() {
     this.loaded = false;
     this.signature = "";
+    this.packRuntimeSignature = "";
     this.packSummaries = [];
     this.sourceSummaries = [];
     this.activePackSummaries = [];
@@ -279,10 +295,13 @@ export class ItemCreatorSourceRegistry {
   }
 
   async loadAll({ force = false } = {}) {
-    const sources = await this.discoverItemSources({ force });
+    const runtimeSignature = runtimePackSignature();
+    const runtimeChanged = runtimeSignature !== this.packRuntimeSignature;
+    const refresh = force || runtimeChanged;
+    const sources = await this.discoverItemSources({ force: refresh });
     const settings = this.resolveSourceSettings(sources);
-    const signature = `${settings.initialized}:${settings.enabledSources.join("|")}:${settings.sourceOrder.join("|")}`;
-    if (this.loaded && !force && signature === this.signature) return this;
+    const signature = `${runtimeSignature}:${settings.initialized}:${settings.enabledSources.join("|")}:${settings.sourceOrder.join("|")}`;
+    if (this.loaded && !refresh && signature === this.signature) return this;
 
     this.weaponSourceGroups = []; this.weaponPackGroups = []; this.weaponOptions = [];
     this.templateSourceGroups = []; this.templateOptions = []; this.templateByUuid.clear();
@@ -411,7 +430,10 @@ export class ItemCreatorSourceRegistry {
     this.toolPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
 
     this.loaded = true;
-    this.signature = signature;
+    // getIndex may populate pack.index during this rebuild, so persist the
+    // post-index signature rather than the pre-load placeholder signature.
+    this.packRuntimeSignature = runtimePackSignature();
+    this.signature = `${this.packRuntimeSignature}:${settings.initialized}:${settings.enabledSources.join("|")}:${settings.sourceOrder.join("|")}`;
     return this;
   }
 

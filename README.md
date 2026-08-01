@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0e Beta
+**Version:** 0.3.0 Beta
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -136,26 +136,29 @@ Supplier is integrated but disabled by default. Enable it through:
 When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
 
 When enabled, the Item Directory receives a separate GM-only **Supplier** button with an epic-purple tint. Inside the Supplier window, the gear beside **Supplier Profiles** opens the profile and **Level, Quality & Price** configuration directly.
+Selections and partial rerenders inside Supplier preserve the current scroll position and focused control. Scroll resets only when the GM actually changes to another screen or section.
 
 Supplier separates two independent controls:
 
 - **Level, Quality & Price** determines party-level rarity access, enchantment distribution, Spell limits, and prices. The protected presets are **Supplier — Official D&D 2024** and **Supplier — HAMMER Homebrew**. Duplicate a preset to create a fully editable custom copy.
 - **Supplier Profiles** determine vendor identity, Access I–IV, thematic catalogs, guarantees, weighted magical pools, exclusions, repetition limits, and source compendiums.
 
-### Content Source snapshots
+### Content Source refresh and Supplier snapshots
+
+Item Creator rebuilds its live Base Item/template registry when Content Sources are saved, whenever a fresh Item Creator window opens, and after a world reload when the installed-pack signature changes. This prevents checked PHB 2024 sources from remaining visually enabled while their templates or icons are absent from the runtime catalog.
 
 A Supplier Profile copies the Content Sources enabled at the moment it is created or imported. Source changes are intentionally not applied retroactively. Enable every desired PHB, DMG, system, or module pack before creating the profile; a richer enabled catalog produces a richer preset.
 
-### Mundane catalog and magical slots
+### Mundane catalog, magical slots, and technical targets
 
 HAMMER vendor profiles build stock in two layers:
 
 1. **Mundane Catalog** — every eligible mundane Item for that vendor is always included, with quantity equal to the current party size. A party of ten therefore finds ten copies of each eligible mundane weapon, armor, kit, focus, container, or supply.
 2. **Magical Stock** — a separate number of slots is calculated from party size, Vendor Access, vendor type, and the selected Level, Quality & Price profile. These slots produce +1/+2/+3 enhancements, named Items, resolved blueprints, concrete variants, and restricted relics.
 
-The mundane catalog is also the Materialization Core's target catalog. Supplier chooses a magical family, filters the vendor's existing mundane bases through that family's compatibility contract, clones a valid base, applies the resolved effect, and validates the final Item. The mundane copy remains in stock and is not consumed.
+The Materialization Core prefers the vendor's mundane catalog as its target source. For a recipe-backed curiosity whose vendor intentionally does not display the required mundane base, the Core may use a separate technical target catalog built from that Supplier Profile's source snapshot. Vendor affinity controls how often a family is selected; it does not make the same official recipe succeed in one vendor and fail in another. The base document is cloned and never consumes the mundane stock.
 
-Every stock therefore continues to depend on the current **party level** and **party size**. Party level controls power, rarity, Spell level, and enchantment quality; party size controls available quantities and stock scaling; Vendor Access controls commercial reach and special-item frequency.
+Every stock therefore continues to depend on the current **party level** and **party size**. Party level controls the power ceiling, Spell level, enchantment quality, and weighted rarity distribution; party size controls available quantities and stock scaling; Vendor Access controls commercial reach and special-item frequency. HAMMER progression is cumulative: reaching a higher band adds stronger rarities without removing Adamantine, Mithral, Uncommon, Rare, or other useful merchandise from earlier bands.
 
 HAMMER Access uses gradual probabilities for ordinary magical merchandise:
 
@@ -168,14 +171,33 @@ Only explicit restrictions, artifacts, and major relics are normally hard-gated.
 
 ### HAMMER vendor presets
 
-- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, and physical wondrous equipment. Enchanted ammunition is checked independently once per stock: when party progression permits it, there is a 50% chance to add exactly one +1/+2/+3 ammunition family while retaining its mundane stack.
+- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, and physical wondrous equipment. Thirty percent of its random magical budget is reserved for armor rules, with an Access-scaled minimum, so the broader physical catalog cannot dilute armor below Magic Assortment curiosities. Enchanted ammunition is checked independently once per stock: when party progression permits it, there is a 50% chance to add exactly one +1/+2/+3 ammunition family while retaining every mundane stack.
 - **Alchemist / Herbalist** always carries thematic mundane kits, remedies, reagents, vessels, and field supplies; guarantees one level-appropriate healing-potion slot per party member; and adds thematic consumables, poisons, oils, powders, and preparations.
-- **Magic Assortment** always carries mundane arcane foci, component supplies, scribing tools, cases, ink, and related accessories; adds Spell Scrolls from the profile's source snapshot; and rolls magical implements, accessories, wondrous Items, low-weight armory curiosities, and Access-weighted relics.
+- **Magic Assortment** always carries mundane arcane foci, component supplies, scribing tools, cases, ink, and related accessories; adds Spell Scrolls from the profile's source snapshot; and rolls magical implements, accessories, wondrous Items, Access-weighted relics, and at most one armory curiosity. That single armor rule uses an Access-scaled chance of 5%, 15%, 30%, or 50% for Access I–IV.
 - **Gunsmith**, **General Trade**, and **Stable & Livestock** also use deterministic party-sized mundane catalogs appropriate to their themes.
+
+
+### Cumulative HAMMER rarity distribution
+
+The protected HAMMER preset keeps all unlocked lower rarities eligible and weights magical slots as follows:
+
+| Party level | Common | Uncommon | Rare | Very Rare | Legendary |
+|---|---:|---:|---:|---:|---:|
+| 1–4 | 70% | 25% | 5% | 0% | 0% |
+| 5–8 | 35% | 45% | 18% | 2% | 0% |
+| 9–12 | 15% | 35% | 35% | 14% | 1% |
+| 13–16 | 5% | 25% | 35% | 30% | 5% |
+| 17–20 | 5% | 20% | 30% | 35% | 10% |
+
+These percentages weight magical selections; they do not remove the deterministic mundane catalog.
+
+### Cursed merchandise
+
+Protected Official and HAMMER vendor presets exclude cursed Items by default. The recipe layer can still resolve cursed families for manual Item creation or explicitly customized vendor profiles. When a cursed Item is allowed, the Core writes a safe unidentified name based on the mundane target, such as `Plate Armor` instead of revealing `Plate Armor of Vulnerability`.
 
 Adaptable families compete as families rather than receiving one lottery ticket for every installed concrete variant. Per-family caps and weighted selection reduce repeated Vicious weapons, shields, giant-strength belts, Feather Tokens, and similar variant-heavy groups.
 
-Supplier diagnostics are printed for every generation. Developers can run repeated headless previews through `game.itemCreator.auditSupplier({ profileId, level, players, runs })` without creating World Items.
+Supplier diagnostics are printed for every generation. Developers can run repeated headless previews through `game.itemCreator.auditSupplier({ profileId, level, players, runs })` without creating World Items. Known recipe families and every enabled source variant can be forced without random stock generation through `game.itemCreator.auditMaterialization({ profileId, level, families })`.
 
 ## Materialization Core
 
@@ -189,9 +211,9 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0e Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
+The v0.3.0 Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
 
-Current focused recipes cover Armor of Resistance, Demon Armor, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, and enchanted ammunition. Equivalent SRD and PHB 2024 documents converge on the same canonical family. The vendor's mundane catalog remains the preferred target source; recipe-backed Magic Assortment curiosities may use compatible mundane targets from that profile's source snapshot when the visible vendor catalog intentionally does not sell those bases. Unknown incomplete templates are rejected and rerolled rather than guessed.
+Current focused recipes cover Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, and enchanted ammunition. Equivalent SRD and PHB 2024 documents converge on the same canonical family. The vendor's mundane catalog remains the preferred target source; recipe-backed Magic Assortment curiosities may use compatible mundane targets from that profile's source snapshot when the visible vendor catalog intentionally does not sell those bases. Unknown incomplete templates are rejected and rerolled rather than guessed.
 
 The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
@@ -216,6 +238,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.2.0e package URL is:
+The v0.3.0 package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0e/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.3.0/item-creator.zip`

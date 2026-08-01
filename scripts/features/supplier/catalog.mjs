@@ -30,6 +30,8 @@ const INDEX_FIELDS = [
   "system.armor.type",
   "system.armor.value",
   "system.activities",
+  "system.description.value",
+  "system.unidentified.name",
   "effects",
   "flags.dnd5e-item-creator.supplier.minimumAccess",
   "flags.dnd5e-item-creator.minimumVendorAccess"
@@ -485,7 +487,12 @@ export function familyMemberKey(entry, familyId) {
 }
 
 function sourceSignature(configuration) {
-  return JSON.stringify((configuration.sources ?? []).map(source => [source.id, source.enabled, source.priority]));
+  const configured = (configuration.sources ?? []).map(source => [source.id, source.enabled, source.priority]);
+  const runtime = [...game.packs]
+    .filter(pack => pack.documentName === "Item")
+    .map(pack => [pack.collection, pack.metadata?.packageName ?? "", pack.index?.size ?? -1])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify({ system: game.system?.version ?? "", configured, runtime });
 }
 
 export function clearCatalogCache() {
@@ -563,6 +570,7 @@ function mergeEntryGroup(group) {
     variantConcrete: false,
     variantPlaceholder: Boolean(placeholderVariant),
     isMechanical: isMechanicalGroup,
+    isCursed: group.some(variant => variant.isCursed === true),
     mechanicalReason: group.find(variant => variant.mechanicalReason)?.mechanicalReason ?? "",
     generatorKind: group.find(variant => variant.generatorKind)?.generatorKind ?? "",
     generatorBaseHint: group.find(variant => variant.generatorBaseHint)?.generatorBaseHint ?? "",
@@ -602,6 +610,7 @@ function mergeEntryGroup(group) {
       priceValue: variant.priceValue,
       priceDenomination: variant.priceDenomination,
       isMagical: variant.isMagical === true,
+      isCursed: variant.isCursed === true,
       isMechanical: variant.isMechanical === true,
       mechanicalReason: variant.mechanicalReason ?? "",
       generatorKind: variant.generatorKind ?? "",
@@ -620,6 +629,13 @@ function mergeEntryGroup(group) {
       isFirearmRelated: variant.isFirearmRelated === true
     }))
   };
+}
+
+function isCursedRecord(record) {
+  const identity = normalizeText(`${foundry.utils.getProperty(record, "system.identifier") ?? ""} ${record?.name ?? ""}`);
+  if (["armor-of-vulnerability", "demon-armor", "shield-of-missile-attraction"].some(term => identity.includes(term))) return true;
+  const description = String(foundry.utils.getProperty(record, "system.description.value") ?? "").replace(/<[^>]+>/g, " ");
+  return /(?:^|\b)curse(?:d)?(?:\b|:)/i.test(description);
 }
 
 export async function buildCatalog({ force = false, configurationOverride = null } = {}) {
@@ -713,6 +729,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
         properties,
         enhancement,
         isMagical: variantInfo ? true : generatorRule ? generatorRule.magical === true : isMagical,
+        isCursed: isCursedRecord(record),
         variantFamily: variantInfo?.id ?? "",
         variantFamilyInfo: variantInfo,
         variantConcrete: variantInfo?.concrete === true,

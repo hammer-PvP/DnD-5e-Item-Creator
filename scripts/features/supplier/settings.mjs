@@ -208,6 +208,8 @@ function normalizeRule(rule, defaults) {
   migrated.selectionDistribution = String(migrated.selectionDistribution ?? "");
   migrated.silentIfEmpty = migrated.silentIfEmpty === true;
   migrated.requireMagicalResult = migrated.requireMagicalResult === true;
+  migrated.maxSelections = Math.max(0, Number(migrated.maxSelections ?? 0));
+  migrated.reservationGroup = String(migrated.reservationGroup ?? "");
   migrated.stockScaleBase = Math.max(1, Number(migrated.stockScaleBase ?? 4));
   migrated.coverageMode = migrated.coverageMode === "rolls" ? "slots" : (migrated.coverageMode ?? "slots");
 
@@ -398,6 +400,12 @@ function migrateConfiguration(stored) {
       homebrewTemplateId: String(profile.homebrewTemplateId ?? ""),
       homebrewAccessLevel: ["1", "2", "3", "4"].includes(String(profile.homebrewAccessLevel)) ? String(profile.homebrewAccessLevel) : "2",
       homebrewPresetVersion: Number(profile.homebrewPresetVersion ?? 0),
+      allowCursedItems: profile.allowCursedItems === true,
+      randomReservations: arrayValue(profile.randomReservations).map(reservation => ({
+        id: String(reservation?.id ?? ""),
+        share: Math.min(1, Math.max(0, Number(reservation?.share ?? 0))),
+        minimumByAccess: arrayValue(reservation?.minimumByAccess, [0, 0, 0, 0]).map(value => Math.max(0, Number(value ?? 0)))
+      })).filter(reservation => reservation.id),
       stockScaleBase: Math.max(1, Number(profile.stockScaleBase ?? 4)),
       stockBands: arrayValue(profile.stockBands).map(band => ({
         min: Number(band?.min ?? 1),
@@ -498,9 +506,9 @@ export async function initializeDefaultSources() {
     changed = true;
   }
 
-  // Rebuild legacy HAMMER vendor snapshots once for the v6 recipe-registry architecture.
+  // Rebuild legacy HAMMER vendor snapshots once for the v7 cumulative-progression architecture.
   // Names, selected sources, bans, and mechanical overrides are preserved.
-  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 6);
+  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 7);
   if (legacyHomebrew.length) {
     const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
     for (const legacy of legacyHomebrew) {
@@ -515,6 +523,7 @@ export async function initializeDefaultSources() {
       rebuilt.progressionProfileId = legacy.progressionProfileId ?? rebuilt.progressionProfileId;
       rebuilt.bannedItems = foundry.utils.deepClone(legacy.bannedItems ?? []);
       rebuilt.mechanicalItemOverrides = foundry.utils.deepClone(legacy.mechanicalItemOverrides ?? []);
+      rebuilt.allowCursedItems = legacy.allowCursedItems === true;
       const index = configuration.profiles.indexOf(legacy);
       configuration.profiles[index] = rebuilt;
     }

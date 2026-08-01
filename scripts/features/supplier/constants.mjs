@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.2.0e-integrated";
-export const CONFIGURATION_VERSION = 19;
+export const SUPPLIER_FEATURE_VERSION = "0.3.0-integrated";
+export const CONFIGURATION_VERSION = 20;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },
@@ -134,13 +134,36 @@ export const RECOMMENDED_PROGRESSION_ID = "recommended-dnd2024";
 export const HAMMER_HOMEBREW_PROGRESSION_ID = "hammer-homebrew";
 
 export const HAMMER_HOMEBREW_LEVEL_RANGES = [
-  { id: "hammer-range-1", min: 1, max: 2, rarities: ["none", "common"], maxSpellLevel: 1 },
-  { id: "hammer-range-2", min: 3, max: 4, rarities: ["none", "common", "uncommon"], maxSpellLevel: 3 },
-  { id: "hammer-range-3", min: 5, max: 7, rarities: ["none", "common", "uncommon", "rare"], maxSpellLevel: 4 },
-  { id: "hammer-range-4", min: 8, max: 10, rarities: ["none", "common", "uncommon", "rare"], maxSpellLevel: 6 },
-  { id: "hammer-range-5", min: 11, max: 13, rarities: ["none", "uncommon", "rare", "veryRare"], maxSpellLevel: 8 },
-  { id: "hammer-range-6", min: 14, max: 16, rarities: ["none", "uncommon", "rare", "veryRare", "legendary"], maxSpellLevel: 9 },
-  { id: "hammer-range-7", min: 17, max: 20, rarities: ["none", "rare", "veryRare", "legendary"], maxSpellLevel: 9 }
+  {
+    id: "hammer-range-1", min: 1, max: 4,
+    rarities: ["none", "common", "uncommon", "rare"],
+    rarityWeights: { common: 70, uncommon: 25, rare: 5, veryRare: 0, legendary: 0 },
+    maxSpellLevel: 2
+  },
+  {
+    id: "hammer-range-2", min: 5, max: 8,
+    rarities: ["none", "common", "uncommon", "rare", "veryRare"],
+    rarityWeights: { common: 35, uncommon: 45, rare: 18, veryRare: 2, legendary: 0 },
+    maxSpellLevel: 4
+  },
+  {
+    id: "hammer-range-3", min: 9, max: 12,
+    rarities: ["none", "common", "uncommon", "rare", "veryRare", "legendary"],
+    rarityWeights: { common: 15, uncommon: 35, rare: 35, veryRare: 14, legendary: 1 },
+    maxSpellLevel: 6
+  },
+  {
+    id: "hammer-range-4", min: 13, max: 16,
+    rarities: ["none", "common", "uncommon", "rare", "veryRare", "legendary"],
+    rarityWeights: { common: 5, uncommon: 25, rare: 35, veryRare: 30, legendary: 5 },
+    maxSpellLevel: 8
+  },
+  {
+    id: "hammer-range-5", min: 17, max: 20,
+    rarities: ["none", "common", "uncommon", "rare", "veryRare", "legendary"],
+    rarityWeights: { common: 5, uncommon: 20, rare: 30, veryRare: 35, legendary: 10 },
+    maxSpellLevel: 9
+  }
 ];
 
 export const HAMMER_HOMEBREW_ENCHANTMENT_RANGES = [
@@ -264,7 +287,9 @@ function baseRule() {
     rarityDistribution: "",
     selectionDistribution: "",
     silentIfEmpty: false,
-    requireMagicalResult: false
+    requireMagicalResult: false,
+    maxSelections: 0,
+    reservationGroup: ""
   };
 }
 
@@ -317,6 +342,8 @@ export const DEFAULT_PROFILE = {
   progressionProfileId: "world",
   homebrewTemplateId: "",
   homebrewAccessLevel: "2",
+  allowCursedItems: false,
+  randomReservations: [],
   allowedItemTypes: [],
   stockTotalMode: "perPlayer",
   stockTotal: 1,

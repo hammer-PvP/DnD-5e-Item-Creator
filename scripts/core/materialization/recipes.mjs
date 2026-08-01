@@ -12,7 +12,7 @@ import {
  * deterministic fallbacks used only when the native template flow cannot
  * produce a complete, validated Item.
  */
-export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 1;
+export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 2;
 
 export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
   Object.freeze({
@@ -33,6 +33,41 @@ export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
     rarity: "veryRare",
     nameTemplate: "Demon Armor",
     pricing: "rarity"
+  }),
+  Object.freeze({
+    id: "adamantine-armor",
+    mode: "template-transplant",
+    aliases: ["adamantine-armor", "adamantine-armour"],
+    target: Object.freeze({ types: ["equipment"], categories: ["medium", "heavy"], excludeCategories: ["shield"], useSourceCategories: true }),
+    rarity: "uncommon",
+    nameTemplate: "Adamantine {base}",
+    pricing: "rarity"
+  }),
+  Object.freeze({
+    id: "mithral-armor",
+    mode: "template-transplant",
+    aliases: ["mithral-armor", "mithral-armour"],
+    target: Object.freeze({ types: ["equipment"], categories: ["medium", "heavy"], excludeCategories: ["shield"], useSourceCategories: true }),
+    rarity: "uncommon",
+    nameTemplate: "Mithral {base}",
+    pricing: "rarity"
+  }),
+  Object.freeze({
+    id: "dragon-scale-mail",
+    mode: "materialize-dragon-scale",
+    aliases: ["dragon-scale-mail", "dragon-scalemail"],
+    target: Object.freeze({ types: ["equipment"], exactBases: ["scale-mail", "scalemail"] }),
+    rarity: "veryRare",
+    pricing: "rarity"
+  }),
+  Object.freeze({
+    id: "armor-of-vulnerability",
+    mode: "materialize-vulnerability",
+    aliases: ["armor-of-vulnerability", "armour-of-vulnerability"],
+    target: Object.freeze({ types: ["equipment"], categories: ["light", "medium", "heavy"], excludeCategories: ["shield"] }),
+    rarity: "rare",
+    pricing: "rarity",
+    cursed: true
   }),
   Object.freeze({
     id: "armor-of-etherealness",
@@ -73,6 +108,19 @@ const ENCHANTMENT_RARITY = Object.freeze({ 1: "uncommon", 2: "rare", 3: "veryRar
 const DAMAGE_TYPES = Object.freeze([
   "acid", "cold", "fire", "force", "lightning",
   "necrotic", "poison", "psychic", "radiant", "thunder"
+]);
+const PHYSICAL_DAMAGE_TYPES = Object.freeze(["bludgeoning", "piercing", "slashing"]);
+const DRAGON_SCALE_VARIANTS = Object.freeze([
+  { dragon: "Black", resistance: "acid" },
+  { dragon: "Blue", resistance: "lightning" },
+  { dragon: "Brass", resistance: "fire" },
+  { dragon: "Bronze", resistance: "lightning" },
+  { dragon: "Copper", resistance: "acid" },
+  { dragon: "Gold", resistance: "fire" },
+  { dragon: "Green", resistance: "poison" },
+  { dragon: "Red", resistance: "fire" },
+  { dragon: "Silver", resistance: "cold" },
+  { dragon: "White", resistance: "cold" }
 ]);
 
 function clone(value) {
@@ -450,6 +498,9 @@ function materializeTemplateTransplant({ recipe, sourceDocument, baseDocument })
   const name = canonicalizeItemName(requestedName, { baseName: baseData.name, fallbackName: sourceData.name });
   if (!name.ok) return { ok: false, reason: name.reason };
   result.name = name.name;
+  if (recipe.cursed === true || recipe.id === "demon-armor") {
+    foundry.utils.setProperty(result, "system.unidentified.name", String(baseData.name ?? "Armor"));
+  }
 
   const metadata = {
     kind: "blueprint",
@@ -460,6 +511,70 @@ function materializeTemplateTransplant({ recipe, sourceDocument, baseDocument })
     blueprintUuid: sourceDocument?.uuid ?? "",
     targetContract: "recipe-validated"
   };
+  addRecipeFlags(result, metadata);
+  return { ok: true, documentData: result, metadata };
+}
+
+function materializeDragonScaleMail({ sourceDocument, baseDocument, selection = null }) {
+  const sourceData = asData(sourceDocument);
+  const baseData = asData(baseDocument);
+  if (!recipeTargetCompatibility("dragon-scale-mail", baseData, sourceData)) return { ok: false, reason: "recipeIncompatibleTarget" };
+  const selected = normalizeRecipeIdentity(selection?.dragon ?? selection?.value ?? selection ?? "");
+  const variant = DRAGON_SCALE_VARIANTS.find(entry => normalizeRecipeIdentity(entry.dragon) === selected)
+    ?? DRAGON_SCALE_VARIANTS[Math.floor(Math.random() * DRAGON_SCALE_VARIANTS.length)];
+  const result = clone(sourceData);
+  delete result._id;
+  mergeBasePhysicalData(result, baseData);
+  removeEnchantActivities(result);
+  result.name = `${variant.dragon} Dragon Scale Mail`;
+  foundry.utils.setProperty(result, "system.rarity", "veryRare");
+  foundry.utils.setProperty(result, "system.description.value",
+    `<p><em>(Requires attunement)</em></p><p>This armor is made from ${variant.dragon.toLowerCase()} dragon scales. While wearing it, you have Resistance to ${damageTypeLabel(variant.resistance)} damage. You also have advantage on saving throws against the Frightful Presence and breath weapons of dragons.</p>`);
+  ensureMagical(result);
+  attunementRequired(result);
+  result.effects = effectsOf(sourceData).filter(effect => effect?.type !== "enchantment").map(clone);
+  result.effects.push({
+    _id: freshId(), name: `${damageTypeLabel(variant.resistance)} Resistance`, img: sourceData.img || result.img,
+    type: "enchantment", disabled: false, transfer: true, origin: sourceDocument?.uuid ?? "",
+    system: { changes: [{ key: "system.traits.dr.value", mode: effectModeAdd(), value: variant.resistance, priority: 20 }] },
+    flags: { "hammer-materialization-core": { recipeId: "dragon-scale-mail", dragon: variant.dragon, resistanceType: variant.resistance } }
+  });
+  const metadata = { kind: "blueprint", family: "dragon-scale-mail", strategy: "recipe-fallback", recipeId: "dragon-scale-mail", baseUuid: baseDocument?.uuid ?? "", blueprintUuid: sourceDocument?.uuid ?? "", selection: variant.dragon, targetContract: "recipe-validated" };
+  addRecipeFlags(result, metadata);
+  return { ok: true, documentData: result, metadata };
+}
+
+function materializeArmorOfVulnerability({ sourceDocument, baseDocument, selection = null }) {
+  const sourceData = asData(sourceDocument);
+  const baseData = asData(baseDocument);
+  if (!recipeTargetCompatibility("armor-of-vulnerability", baseData, sourceData)) return { ok: false, reason: "recipeIncompatibleTarget" };
+  const selected = normalizeRecipeIdentity(selection?.value ?? selection?.label ?? selection ?? "");
+  const resistance = PHYSICAL_DAMAGE_TYPES.includes(selected)
+    ? selected
+    : PHYSICAL_DAMAGE_TYPES[Math.floor(Math.random() * PHYSICAL_DAMAGE_TYPES.length)];
+  const vulnerabilities = PHYSICAL_DAMAGE_TYPES.filter(type => type !== resistance);
+  const result = clone(baseData);
+  delete result._id;
+  const baseName = String(baseData.name ?? "Armor");
+  result.name = `${baseName} of Vulnerability`;
+  foundry.utils.setProperty(result, "system.rarity", "rare");
+  foundry.utils.setProperty(result, "system.unidentified.name", baseName);
+  foundry.utils.setProperty(result, "system.description.value",
+    `<p><em>(Requires attunement)</em></p><p>While wearing this armor, you have Resistance to ${damageTypeLabel(resistance)} damage.</p><p><strong>Curse.</strong> This armor is cursed. While wearing it, you have Vulnerability to ${vulnerabilities.map(damageTypeLabel).join(" and ")} damage.</p>`);
+  ensureMagical(result);
+  attunementRequired(result);
+  result.effects = effectsOf(result).filter(effect => effect?.flags?.["hammer-materialization-core"]?.recipeId !== "armor-of-vulnerability");
+  result.effects.push({
+    _id: freshId(), name: "Armor of Vulnerability", img: sourceData.img || result.img,
+    type: "enchantment", disabled: false, transfer: true, origin: sourceDocument?.uuid ?? "",
+    system: { changes: [
+      { key: "system.traits.dr.value", mode: effectModeAdd(), value: resistance, priority: 20 },
+      ...vulnerabilities.map(type => ({ key: "system.traits.dv.value", mode: effectModeAdd(), value: type, priority: 20 }))
+    ] },
+    flags: { "hammer-materialization-core": { recipeId: "armor-of-vulnerability", resistanceType: resistance, vulnerabilityTypes: vulnerabilities } }
+  });
+  removeEnchantActivities(result);
+  const metadata = { kind: "blueprint", family: "armor-of-vulnerability", strategy: "recipe-fallback", recipeId: "armor-of-vulnerability", baseUuid: baseDocument?.uuid ?? "", blueprintUuid: sourceDocument?.uuid ?? "", selection: resistance, cursed: true, targetContract: "recipe-validated" };
   addRecipeFlags(result, metadata);
   return { ok: true, documentData: result, metadata };
 }
@@ -570,6 +685,21 @@ export function recipeOutputIssues(recipeOrSource, documentOrData) {
     if (!DAMAGE_TYPES.some(type => normalizeRecipeIdentity(name).includes(type))) issues.push("missingResistanceVariant");
     if (!serialized.includes("system.traits.dr.value")) issues.push("missingResistanceEffect");
   }
+  if (recipe.id === "dragon-scale-mail") {
+    const serialized = JSON.stringify(data).toLowerCase();
+    if (!/dragon scale mail/i.test(name)) issues.push("missingDragonVariant");
+    if (!serialized.includes("system.traits.dr.value")) issues.push("missingResistanceEffect");
+  }
+  if (recipe.id === "armor-of-vulnerability") {
+    const serialized = JSON.stringify(data).toLowerCase();
+    if (!serialized.includes("system.traits.dr.value")) issues.push("missingResistanceEffect");
+    if (!serialized.includes("system.traits.dv.value")) issues.push("missingVulnerabilityEffect");
+    if (!foundry.utils.getProperty(data, "system.unidentified.name")) issues.push("missingUnidentifiedName");
+  }
+  if (["adamantine-armor", "mithral-armor"].includes(recipe.id)) {
+    if (!normalizeRecipeIdentity(name).includes(recipe.id.split("-")[0])) issues.push("missingMaterialIdentity");
+    if (!rarity || rarity === "none") issues.push("missingRarity");
+  }
   if (recipe.id === "enchanted-ammunition") {
     const bonus = Number(foundry.utils.getProperty(data, "system.magicalBonus") ?? 0);
     if (![1, 2, 3].includes(bonus)) issues.push("missingAmmunitionBonus");
@@ -593,6 +723,12 @@ export async function materializeWithRecipe({
   if (recipe.id === "armor-of-resistance") {
     if (!sourceDocument || !baseDocument) return { ok: false, reason: "recipeMissingTarget" };
     result = materializeArmorOfResistance({ sourceDocument, baseDocument, selection });
+  } else if (recipe.id === "dragon-scale-mail") {
+    if (!sourceDocument || !baseDocument) return { ok: false, reason: "recipeMissingTarget" };
+    result = materializeDragonScaleMail({ sourceDocument, baseDocument, selection });
+  } else if (recipe.id === "armor-of-vulnerability") {
+    if (!sourceDocument || !baseDocument) return { ok: false, reason: "recipeMissingTarget" };
+    result = materializeArmorOfVulnerability({ sourceDocument, baseDocument, selection });
   } else if (recipe.id === "wand-of-the-war-mage") {
     if (!sourceDocument) return { ok: false, reason: "recipeMissingSource" };
     result = materializeWandOfTheWarMage({ sourceDocument, requestedBonus, maxBonus });

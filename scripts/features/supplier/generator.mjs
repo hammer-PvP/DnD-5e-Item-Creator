@@ -34,6 +34,7 @@ import {
   materializeEnhancement,
   materializeNativeBlueprint,
   materializeRecipe,
+  materializationRecipe,
   materializeSyntheticEnhancement,
   recipeOutputIssues,
   recipeTargetCompatibility
@@ -332,7 +333,8 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
       .filter(Boolean);
     const found = references.map(reference => findEntry(catalog, reference, profileEntries)).filter(Boolean);
     const eligible = found.filter(entry =>
-      homebrewCurationAllowsEntry(entry, rule.homebrewCuration)
+      (profile?.allowCursedItems === true || entry.isCursed !== true)
+      && homebrewCurationAllowsEntry(entry, rule.homebrewCuration)
       && vendorAccessAllowsEntry(entry, profile, rule)
       && magicMatch(entry, rule, configuration, level, { applyProgression })
       && rarityMatch(entry, rule, configuration, level, { applyProgression })
@@ -350,7 +352,8 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
 
   const stageCategory = categoryEntries(profileEntries, rule, catalog);
   const stageSubtype = stageCategory.filter(entry => subtypeMatch(entry, rule));
-  const stageCuration = stageSubtype.filter(entry => homebrewCurationAllowsEntry(entry, rule.homebrewCuration));
+  const stageCursed = stageSubtype.filter(entry => profile?.allowCursedItems === true || entry.isCursed !== true);
+  const stageCuration = stageCursed.filter(entry => homebrewCurationAllowsEntry(entry, rule.homebrewCuration));
   const stageAccess = stageCuration.filter(entry => vendorAccessAllowsEntry(entry, profile, rule));
   const stageMagic = stageAccess.filter(entry => magicMatch(entry, rule, configuration, level, { applyProgression }));
   const stageRarity = stageMagic.filter(entry => rarityMatch(entry, rule, configuration, level, { applyProgression }));
@@ -365,6 +368,7 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
   let reason = "";
   if (!stageCategory.length) reason = "category";
   else if (!stageSubtype.length) reason = "subtype";
+  else if (!stageCursed.length) reason = "curation";
   else if (!stageCuration.length) reason = "curation";
   else if (!stageAccess.length) reason = "access";
   else if (!stageMagic.length) reason = "magic";
@@ -383,6 +387,7 @@ export function inspectRulePool({ rule, catalog, profileEntries, configuration, 
       source: profileEntries.length,
       category: stageCategory.length,
       subtype: stageSubtype.length,
+      cursed: stageCursed.length,
       curation: stageCuration.length,
       access: stageAccess.length,
       magic: stageMagic.length,
@@ -425,7 +430,22 @@ function finalMaterializedAvailabilityAccepted(pick, rarity) {
   return vendorAccessAllowsEntry(finalEntry, pick?.profile ?? null, pick?.rule ?? null);
 }
 
-function entrySelectionWeight(entry, rule, level, profile = null) {
+function progressionRarityWeight(entry, configuration, level) {
+  const band = bandForLevel(configuration, level);
+  const weights = band?.rarityWeights ?? null;
+  if (!weights) return 1;
+  const candidates = [];
+  const direct = normalizeRarity(entry?.rarity);
+  if (!["none", "varies", "artifact"].includes(direct)) candidates.push(direct);
+  for (const rarity of entry?.materializerRarities ?? []) {
+    const normalized = normalizeRarity(rarity);
+    if (!["none", "varies", "artifact"].includes(normalized)) candidates.push(normalized);
+  }
+  if (!candidates.length) return 1;
+  return Math.max(0.01, ...candidates.map(rarity => Math.max(0, Number(weights?.[rarity] ?? 0))));
+}
+
+function entrySelectionWeight(entry, rule, level, profile = null, configuration = null) {
   let weight = 1;
   if (rule?.selectionDistribution === "hammerHealingPotions") {
     const tier = (() => {
@@ -449,6 +469,7 @@ function entrySelectionWeight(entry, rule, level, profile = null) {
   // the party-level rarity progression and only becomes a hard gate for
   // explicit restrictions, artifacts, and major relics.
   weight *= vendorAccessWeight(entry, profile);
+  if (configuration) weight *= progressionRarityWeight(entry, configuration, level);
   return weight;
 }
 
@@ -497,7 +518,7 @@ function stockFamilyKey(entry) {
   return canonicalKey(entry);
 }
 
-function weightedEntryChoice(entries, rule, level, profile = null) {
+function weightedEntryChoice(entries, rule, level, profile = null, configuration = null) {
   if (!entries.length) return null;
   const familySizes = new Map();
   for (const entry of entries) {
@@ -508,7 +529,7 @@ function weightedEntryChoice(entries, rule, level, profile = null) {
     // Every adaptable family receives one effective lottery ticket regardless
     // of how many source-specific variants are installed.
     const familySize = Math.max(1, Number(familySizes.get(stockFamilyKey(entry)) ?? 1));
-    return { entry, weight: entrySelectionWeight(entry, rule, level, profile) / familySize };
+    return { entry, weight: entrySelectionWeight(entry, rule, level, profile, configuration) / familySize };
   }).filter(option => option.weight > 0);
   if (!weighted.length) return null;
   const total = weighted.reduce((sum, option) => sum + option.weight, 0);
@@ -575,7 +596,7 @@ export function buildRuleBuckets(pool, rule) {
   return [...groups.entries()].map(([key, entries]) => ({ key, entries }));
 }
 
-function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, familyCounts = new Map(), profile = null) {
+function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, familyCounts = new Map(), profile = null, configuration = null) {
   const groups = buildRuleBuckets(pool, rule).map(group => ({ ...group, available: [...group.entries] }));
   if (!groups.length || quantity <= 0) return [];
   const chosen = [];
@@ -589,7 +610,7 @@ function chooseFromBuckets(pool, rule, quantity, allowDuplicates, level = 1, fam
       if (!allowDuplicates) group.available.length = 0;
       continue;
     }
-    const entry = weightedEntryChoice(source, rule, level, profile);
+    const entry = weightedEntryChoice(source, rule, level, profile, configuration);
     if (!entry) continue;
     chosen.push(entry);
     recordFamily(entry, familyCounts);
@@ -621,7 +642,7 @@ function selectRuleEntries({ rule, catalog, profileEntries, configuration, profi
       for (let repeat = 0; repeat < Math.max(1, quantity); repeat += 1) {
         for (const group of groups) {
           const eligible = group.entries.filter(entry => familyAllowed(entry, rule, familyCounts));
-          const entry = weightedEntryChoice(eligible, rule, level, profile);
+          const entry = weightedEntryChoice(eligible, rule, level, profile, configuration);
           if (!entry) continue;
           selected.push(entry);
           recordFamily(entry, familyCounts);
@@ -631,7 +652,7 @@ function selectRuleEntries({ rule, catalog, profileEntries, configuration, profi
     }
   }
 
-  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false, level, familyCounts, profile);
+  const selected = chooseFromBuckets(pool, rule, quantity, rule.allowDuplicates !== false, level, familyCounts, profile, configuration);
   if (rule.allowDuplicates === false && selected.length < quantity) {
     warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.NotEnoughUnique", {
       requested: quantity,
@@ -833,13 +854,39 @@ function priceFromMaterializedData(documentData, display, fallback, origin = "ma
   return fallback;
 }
 
-function forceBlueprintRarityPrice(documentData, rarity, configuration) {
-  const resolved = fallbackPrice(configuration, rarity);
+const PRICE_IN_COPPER = Object.freeze({ cp: 1, sp: 10, ep: 50, gp: 100, pp: 1000 });
+
+function priceInCopper(price = {}) {
+  const denomination = String(price?.denomination ?? "gp").toLowerCase();
+  const multiplier = Number(PRICE_IN_COPPER[denomination] ?? PRICE_IN_COPPER.gp);
+  return Math.max(0, Number(price?.value ?? 0) || 0) * multiplier;
+}
+
+function finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry = null, catalog = null) {
+  const normalized = normalizeRarity(rarity);
+  let resolved;
+  if (!["none", "varies"].includes(normalized)) {
+    // A resolved magic rarity is authoritative. Never keep the mundane base
+    // price or a 1 GP template placeholder on a materialized magic Item.
+    resolved = { ...fallbackPrice(configuration, normalized), origin: "materializedRarity" };
+  } else {
+    const base = baseEntry && catalog ? resolvePrice(baseEntry, catalog, configuration) : { value: 1, denomination: "gp" };
+    const current = {
+      value: Math.max(0, Number(foundry.utils.getProperty(documentData, "system.price.value") ?? 0)),
+      denomination: foundry.utils.getProperty(documentData, "system.price.denomination") ?? base.denomination ?? "gp"
+    };
+    const useCurrent = priceInCopper(current) >= priceInCopper(base);
+    resolved = {
+      ...(useCurrent ? current : base),
+      value: Math.max(1, Number((useCurrent ? current : base).value ?? 1)),
+      origin: "materializedBaseFloor"
+    };
+  }
   foundry.utils.setProperty(documentData, "system.price", {
     value: Math.max(0, Number(resolved.value) || 0),
     denomination: resolved.denomination || "gp"
   });
-  return { ...resolved, origin: "materializedBlueprint" };
+  return resolved;
 }
 
 async function createGeneratorPreview(pick, catalog, configuration, targetEntries, level) {
@@ -1025,7 +1072,7 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
   // A blueprint result is a new magic Item. Never let the mundane target's
   // copper/silver price survive as the final price of a Rare/Very Rare result.
   // The active Supplier Level, Quality & Price profile is authoritative.
-  const price = forceBlueprintRarityPrice(documentData, rarity, configuration);
+  const price = finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry, catalog);
   const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
   return {
     key: `${canonicalKey(pick.entry)}|base:${canonicalKey(baseEntry)}|selection:${selectionKey}`,
@@ -1332,6 +1379,15 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
   };
 }
 
+function fallbackIntent(entry, rule) {
+  const armor = ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry?.primarySubtypeKey)
+    || rule?.reservationGroup === "armor";
+  if (armor) return isMaterializerItem(entry) ? "materialized-armor" : entry?.isMagical ? "named-armor" : "enhanced-armor";
+  if (isAmmunitionEntry(entry)) return "ammunition";
+  if (entry?.type === "weapon") return isMaterializerItem(entry) ? "materialized-weapon" : entry?.isMagical ? "named-weapon" : "enhanced-weapon";
+  return isMaterializerItem(entry) ? "materializer" : String(entry?.type ?? "other");
+}
+
 async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, materializationTargets, level, warnings, diagnostics = null) {
   try {
     const line = await buildPreviewLine(pick, catalog, configuration, { profileEntries, materializationTargets, level });
@@ -1343,7 +1399,11 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
     // rule. This covers both native materializers and ordinary base Items whose
     // synthetic +1/+2/+3 conversion failed strict validation.
     const inspection = inspectRulePool({ rule: pick.rule, catalog, profileEntries, configuration, profile: pick.profile ?? null, level });
-    const alternatives = shuffle((inspection.entries ?? []).filter(entry => canonicalKey(entry) !== canonicalKey(pick.entry)));
+    const intent = fallbackIntent(pick.entry, pick.rule);
+    const alternatives = shuffle((inspection.entries ?? []).filter(entry =>
+      canonicalKey(entry) !== canonicalKey(pick.entry)
+      && fallbackIntent(entry, pick.rule) === intent
+    ));
     for (const alternative of alternatives) {
       try {
         const replacement = await buildPreviewLine({ ...pick, entry: alternative }, catalog, configuration, { profileEntries, materializationTargets, level });
@@ -1364,6 +1424,52 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
     }
     throw originalError;
   }
+}
+
+function enchantedAmmunitionPick({ profile, level, configuration, mundaneTargets, diagnostics }) {
+  if (profile?.homebrewTemplateId !== "blacksmith") return null;
+  const record = { rolled: true, passed: false, eligibleFamilies: [], selectedFamily: "", bonus: 0, status: "not-available" };
+  diagnostics.ammunitionPass = record;
+  if (Math.random() >= 0.5) {
+    record.status = "chance-failed";
+    return null;
+  }
+  record.passed = true;
+  const byFamily = new Map();
+  for (const entry of mundaneTargets ?? []) {
+    if (!isAmmunitionEntry(entry) || isFirearmRelated(entry) || String(entry.type ?? "") === "spell") continue;
+    const family = ammunitionFamilyKey(entry);
+    if (!family || byFamily.has(family)) continue;
+    byFamily.set(family, entry);
+  }
+  record.eligibleFamilies = [...byFamily.keys()];
+  if (!byFamily.size) {
+    record.status = "no-families";
+    return null;
+  }
+  const bonus = weightedBonus(configuration, level, { positiveOnly: true });
+  if (bonus <= 0) {
+    record.status = "quality-unavailable";
+    return null;
+  }
+  const [family, entry] = randomChoice([...byFamily.entries()]);
+  record.selectedFamily = family;
+  record.bonus = bonus;
+  record.status = "queued";
+  const rule = {
+    id: `hammer-enchanted-ammunition-${foundry.utils.randomID()}`,
+    name: "Enchanted Ammunition",
+    category: "consumable",
+    subtypes: ["ammunition"],
+    qualityMode: "fixed",
+    fixedBonus: bonus,
+    allowDuplicates: false,
+    maxPerFamily: 1,
+    materializationRecipe: "enchanted-ammunition",
+    homebrewCuration: "blacksmithAmmunition",
+    requireMagicalResult: true
+  };
+  return { entry, enhancement: bonus, units: 1, rule, ruleType: "ammunitionPass", profile };
 }
 
 function addPicks(target, entries, rule, ruleType, configuration, level, players, warnings, profile = null) {
@@ -1474,31 +1580,59 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
       });
     }
 
-    const activeStates = [...allStates];
-    while (randomUnits < randomTarget && activeStates.length) {
-      const state = weightedStateChoice(activeStates);
-      if (!state) break;
-      const allowDuplicates = state.rule.allowDuplicates !== false;
-      const source = (allowDuplicates ? state.pool : state.available)
-        .filter(entry => familyAllowed(entry, state.rule, familyCounts));
-      if (!source.length) {
-        activeStates.splice(activeStates.indexOf(state), 1);
-        continue;
+    const stateHasCapacity = state => {
+      const maximum = Math.max(0, Number(state.rule.maxSelections ?? 0));
+      return !maximum || state.selected.length < maximum;
+    };
+    const selectFromStates = (states, target) => {
+      const activeStates = states.filter(stateHasCapacity);
+      let selected = 0;
+      while (selected < target && activeStates.length && randomUnits < randomTarget) {
+        const state = weightedStateChoice(activeStates);
+        if (!state) break;
+        if (!stateHasCapacity(state)) {
+          activeStates.splice(activeStates.indexOf(state), 1);
+          continue;
+        }
+        const allowDuplicates = state.rule.allowDuplicates !== false;
+        const source = (allowDuplicates ? state.pool : state.available)
+          .filter(entry => familyAllowed(entry, state.rule, familyCounts));
+        if (!source.length) {
+          activeStates.splice(activeStates.indexOf(state), 1);
+          continue;
+        }
+        const entry = weightedEntryChoice(source, state.rule, level, profile, configuration);
+        if (!entry) {
+          activeStates.splice(activeStates.indexOf(state), 1);
+          continue;
+        }
+        if (!allowDuplicates) {
+          const index = state.available.indexOf(entry);
+          if (index >= 0) state.available.splice(index, 1);
+        }
+        state.selected.push(entry);
+        if (state.diagnosticRule) state.diagnosticRule.selected = state.selected.length;
+        recordFamily(entry, familyCounts);
+        randomUnits += 1;
+        selected += 1;
+        if (!stateHasCapacity(state)) activeStates.splice(activeStates.indexOf(state), 1);
       }
-      const entry = weightedEntryChoice(source, state.rule, level, profile);
-      if (!entry) {
-        activeStates.splice(activeStates.indexOf(state), 1);
-        continue;
-      }
-      if (!allowDuplicates) {
-        const index = state.available.indexOf(entry);
-        if (index >= 0) state.available.splice(index, 1);
-      }
-      state.selected.push(entry);
-      if (state.diagnosticRule) state.diagnosticRule.selected = state.selected.length;
-      recordFamily(entry, familyCounts);
-      randomUnits += 1;
+      return selected;
+    };
+
+    // Vendor-specific reservations prevent a very broad pool from diluting its
+    // defining merchandise. Blacksmith armor is the first built-in use.
+    diagnostics.reservations = [];
+    for (const reservation of profile.randomReservations ?? []) {
+      const access = Math.max(1, Math.min(4, Number(profileAccessLevel(profile) ?? 1)));
+      const minimum = Math.max(0, Number(reservation?.minimumByAccess?.[access - 1] ?? 0));
+      const desired = Math.min(randomTarget - randomUnits, Math.max(minimum, Math.ceil(randomTarget * Math.max(0, Number(reservation?.share ?? 0)))));
+      const states = allStates.filter(state => String(state.rule.reservationGroup ?? "") === String(reservation.id ?? ""));
+      const filled = selectFromStates(states, desired);
+      diagnostics.reservations.push({ id: reservation.id, requested: desired, filled });
     }
+
+    selectFromStates(allStates, randomTarget - randomUnits);
 
     // Apply quality once per pool so enchanted minimums are evaluated against
     // the full set won by that pool, not independently for every slot.
@@ -1515,16 +1649,33 @@ export async function generateStock({ profile, level, players, logDiagnostics = 
     }));
   }
 
+  // Enchanted ammunition is a final, independent Blacksmith pass. It does not
+  // compete with weapons, armor, or named magic Items and never replaces the
+  // mundane ammunition stack.
+  const ammunitionPick = enchantedAmmunitionPick({
+    profile,
+    level,
+    configuration,
+    mundaneTargets: [...mundaneTargetMap.values()],
+    diagnostics
+  });
+  if (ammunitionPick) picks.push(ammunitionPick);
+
   const materializationTargets = mundaneTargetMap.size ? [...mundaneTargetMap.values()] : profileEntries;
   diagnostics.mundaneTargetCount = materializationTargets.length;
   const lines = [];
   for (const pick of picks) {
     try {
       lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, materializationTargets, level, warnings, diagnostics));
+      if (pick.ruleType === "ammunitionPass" && diagnostics.ammunitionPass) diagnostics.ammunitionPass.status = "success";
     } catch (error) {
       console.error(`${MODULE_ID} | Failed to prepare ${pick.entry?.name}`, error);
       diagnostics.materializationFailures.push({ item: pick.entry?.name ?? "", rule: pick.rule?.name ?? "", error: error.message });
-      warnings.push(error.message);
+      if (pick.ruleType === "ammunitionPass" && diagnostics.ammunitionPass) {
+        diagnostics.ammunitionPass.status = "failed";
+        diagnostics.ammunitionPass.error = error.message;
+        warnings.push(`Enchanted ammunition could not be produced: ${error.message}`);
+      } else warnings.push(error.message);
     }
   }
 
@@ -1660,6 +1811,78 @@ export async function auditSupplierStock({ profile, level = 1, players = 4, runs
   console.debug?.(summary, samples);
   console.groupEnd?.();
   return { summary, samples };
+}
+
+/** Deterministically validate every installed source variant for known recipe
+ * families against the profile's technical target catalog. Nothing is created. */
+export async function auditMaterializationRecipes({ profile, level = 20, families = [] } = {}) {
+  if (!profile) throw new Error("A Supplier profile is required for recipe audit.");
+  const worldConfiguration = getConfiguration();
+  const configuration = configurationForProfile(worldConfiguration, profile);
+  const catalog = await buildCatalog({ force: true });
+  const entries = entriesForProfile(catalog, profile, worldConfiguration, { includeMechanical: false });
+  const requested = new Set((families ?? []).map(normalizeText).filter(Boolean));
+  const targets = entries.filter(entry => !isMaterializerItem(entry) && !isMechanicalItem(entry) && !entry.isMagical);
+  const report = [];
+
+  for (const entry of entries.filter(candidate => isMaterializerItem(candidate) && hasMaterializationRecipe(candidate))) {
+    const variants = (entry.sourceVariants?.length ? entry.sourceVariants : [entry])
+      .filter(variant => variant.uuid && (variant.recipeSupported === true || hasMaterializationRecipe(variant)));
+    for (const variant of variants) {
+      const sourceDocument = await loadItemDocument(variant);
+      const recipe = materializationRecipe(sourceDocument);
+      if (!recipe || (requested.size && !requested.has(normalizeText(recipe.id)))) continue;
+      if (recipe.mode === "resolve-variant") {
+        for (const bonus of [1, 2, 3]) {
+          const result = await materializeRecipe({ sourceDocument, requestedBonus: bonus, maxBonus: 3 });
+          report.push({ family: recipe.id, source: variant.uuid, sourceName: sourceDocument.name, target: "", selection: `+${bonus}`, ok: result.ok === true, reason: result.reason ?? "", issues: result.ok ? recipeOutputIssues(recipe, result.documentData) : (result.issues ?? []) });
+        }
+        continue;
+      }
+      const compatible = targets.filter(target => recipeTargetCompatibility(recipe, target, sourceDocument) !== false);
+      if (!compatible.length) {
+        report.push({ family: recipe.id, source: variant.uuid, sourceName: sourceDocument.name, target: "", selection: "", ok: false, reason: "noCompatibleTarget", issues: [] });
+        continue;
+      }
+      const target = compatible[0];
+      const baseDocument = await loadItemDocument(target);
+      const selections = recipe.id === "armor-of-resistance" ? ["force"]
+        : recipe.id === "armor-of-vulnerability" ? ["slashing"]
+          : recipe.id === "dragon-scale-mail" ? ["red"] : [null];
+      for (const selection of selections) {
+        const result = await materializeRecipe({ sourceDocument, baseDocument, selection, requestedBonus: 2, maxBonus: 3, qualityPriceAdditions: configuration.qualityPriceAdditions ?? {} });
+        report.push({ family: recipe.id, source: variant.uuid, sourceName: sourceDocument.name, target: target.uuid, targetName: target.name, selection: selection ?? "", ok: result.ok === true, reason: result.reason ?? "", issues: result.ok ? recipeOutputIssues(recipe, result.documentData) : (result.issues ?? []) });
+      }
+    }
+  }
+
+  const ammunitionTargets = new Map();
+  for (const target of targets.filter(isAmmunitionEntry)) {
+    const family = ammunitionFamilyKey(target);
+    if (family && !ammunitionTargets.has(family)) ammunitionTargets.set(family, target);
+  }
+  if (!requested.size || requested.has("enchanted-ammunition")) {
+    for (const [family, target] of ammunitionTargets) {
+      const baseDocument = await loadItemDocument(target);
+      for (const bonus of [1, 2, 3]) {
+        const result = await materializeRecipe({ recipeId: "enchanted-ammunition", sourceDocument: baseDocument, baseDocument, requestedBonus: bonus, maxBonus: 3, qualityPriceAdditions: configuration.qualityPriceAdditions ?? {} });
+        report.push({ family: "enchanted-ammunition", source: target.uuid, sourceName: target.name, target: target.uuid, targetName: target.name, selection: `${family} +${bonus}`, ok: result.ok === true, reason: result.reason ?? "", issues: result.ok ? recipeOutputIssues("enchanted-ammunition", result.documentData) : (result.issues ?? []) });
+      }
+    }
+  }
+  const summary = {
+    profile: profile.name,
+    level,
+    tested: report.length,
+    passed: report.filter(row => row.ok && !row.issues.length).length,
+    failed: report.filter(row => !row.ok || row.issues.length).length,
+    byFamily: report.reduce((groups, row) => ((groups[row.family] ??= []).push(row), groups), {})
+  };
+  console.groupCollapsed?.(`${MODULE_ID} | Materialization recipe audit — ${profile.name}`);
+  console.table?.(report.map(({ family, sourceName, targetName, selection, ok, reason, issues }) => ({ family, sourceName, targetName, selection, ok, reason, issues: issues.join(", ") })));
+  console.debug?.(summary, report);
+  console.groupEnd?.();
+  return { summary, report };
 }
 
 function resolveProgressionProfileName(configuration, profile) {

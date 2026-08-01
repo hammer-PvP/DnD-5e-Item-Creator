@@ -30,7 +30,10 @@
       "generatedQuality": "Generated enhancement price",
       "materializedBlueprint": "Materialized blueprint price",
       "materialized": "Materialized Item price",
-      "priceless": "Priceless"
+      "priceless": "Priceless",
+      "materializedRarity": "Materialized rarity price",
+      "materializedBaseFloor": "Materialized base-price floor",
+      "materializationRecipe": "Materialization recipe price"
     },
     "Confirm": {
       "Title": "Confirm Supplier Stock",
