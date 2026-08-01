@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0d
+
+- Forced every materialized blueprint to use the active Supplier rarity price after the final rarity is resolved, preventing Very Rare results such as Frost Brand from retaining a mundane silver price.
+- Added a dedicated Blacksmith Materialized Magic Armor pool with mundane Blacksmith armor as its target catalog.
+- Kept only finished, sellable magic armor in Magic Assortment armory curiosities so Armor of Resistance and Efreeti Chain are no longer attempted without valid armor bases.
+- Excluded Improvised Weapon placeholders from Blacksmith mundane and enhanced merchandise.
+- Consolidated legacy and modern Arrow/Arrows, Bolt/Bolts, Needle/Needles, and Sling Bullet documents by canonical ammunition family.
+- Rebuilt Item Creator Content Sources on world ready, on first opening each fresh Item Creator window, and immediately after saving source settings.
+- Preserved scroll position when selecting Supplier templates, Access Levels, existing Supplier Profiles, and Level, Quality & Price profiles within the same screen.
+
 ## 0.2.0c
 
 - Changed HAMMER Homebrew Blacksmith enchanted ammunition to a single independent 50% availability check per generated stock.

@@ -32,6 +32,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
     this.templateId = "blacksmith";
     this.accessLevel = "2";
     this.name = "";
+    this.restoreScrollTop = null;
   }
 
   async _prepareContext() {
@@ -69,7 +70,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
       button.addEventListener("click", () => {
         this.name = root.querySelector("[name='supplierName']")?.value ?? this.name;
         this.mode = button.dataset.mode;
-        this.render();
+        this.#renderPreservingScroll();
       });
     });
 
@@ -78,7 +79,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
         this.name = root.querySelector("[name='supplierName']")?.value ?? this.name;
         this.templateId = button.dataset.templateId;
         this.mode = "homebrew";
-        this.render();
+        this.#renderPreservingScroll();
       });
     });
 
@@ -86,7 +87,7 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
       button.addEventListener("click", () => {
         this.name = root.querySelector("[name='supplierName']")?.value ?? this.name;
         this.accessLevel = button.dataset.accessLevel;
-        this.render();
+        this.#renderPreservingScroll();
       });
     });
 
@@ -103,5 +104,25 @@ export class HomebrewSupplierPicker extends HandlebarsApplicationMixin(Applicati
       await this.onCreate?.(profile);
       this.close();
     });
+
+    if (Number.isFinite(this.restoreScrollTop)) {
+      const top = this.restoreScrollTop;
+      this.restoreScrollTop = null;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const container = this.#scrollContainer();
+        if (container) container.scrollTop = top;
+      }));
+    }
+  }
+
+  #scrollContainer() {
+    return this.element?.querySelector(".window-content")
+      ?? this.element?.querySelector(".supplier-homebrew-shell")
+      ?? this.element;
+  }
+
+  #renderPreservingScroll() {
+    this.restoreScrollTop = this.#scrollContainer()?.scrollTop ?? 0;
+    this.render();
   }
 }

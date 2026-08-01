@@ -229,7 +229,7 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     stockTotalMode: "fixed",
     stockTotal: 0,
     stockScaleBase: 4,
-    homebrewPresetVersion: 4,
+    homebrewPresetVersion: 5,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -284,7 +284,8 @@ function createBlacksmith(profile, access) {
     randomRule({ name: "Enhanced Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor"], weight: Math.max(1, enhancedWeight * 0.72), qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
     randomRule({ name: "Enhanced Shields", category: "equipment", subtypes: ["shield"], weight: Math.max(0.35, enhancedWeight * 0.18), qualityMode: "party", magicalState: "mundane", allowDuplicates: false, curation: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true, requireMagicalResult: true }),
     randomRule({ name: "Named Magic Weapons", category: "weapon", subtypes: ["simpleM", "simpleR", "martialM", "martialR"], weight: namedWeaponWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", maxPerFamily: 1, silentIfEmpty: true }),
-    randomRule({ name: "Named Magic Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: namedArmorWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamed", maxPerFamily: 1, silentIfEmpty: true }),
+    randomRule({ name: "Materialized Magic Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: Math.max(0.12, namedArmorWeight * 0.9), qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithMaterializedArmor", generatorResultCuration: "blacksmithBase", maxPerFamily: 1, silentIfEmpty: true }),
+    randomRule({ name: "Named Magic Armor", category: "equipment", subtypes: ["lightArmor", "mediumArmor", "heavyArmor", "shield"], weight: namedArmorWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithNamedArmor", maxPerFamily: 1, silentIfEmpty: true }),
     randomRule({ name: "Physical Wondrous Gear", category: "equipment", subtypes: ["clothing", "trinket", "wondrous"], weight: wearableWeight, qualityMode: "source", magicalState: "magical", allowDuplicates: false, curation: "blacksmithWearables", maxPerFamily: 1, silentIfEmpty: true })
   ];
 }
@@ -550,6 +551,22 @@ function isGenericAlchemicalPlaceholder(entry) {
   return normalizedValues(entry).some(value => GENERIC_ALCHEMICAL_PLACEHOLDERS.has(value));
 }
 
+function isImprovisedWeaponMerchandise(entry) {
+  if (String(entry?.type ?? "") !== "weapon") return false;
+  const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
+  if (subtypeKeys.has("improv") || subtypeKeys.has("improvised")) return true;
+  const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
+  return identity.includes("improvised-weapon");
+}
+
+function isArmorMaterializerMerchandise(entry) {
+  if (!isMaterializerItem(entry) || String(entry?.type ?? "") !== "equipment") return false;
+  const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
+  if (["lightArmor", "mediumArmor", "heavyArmor", "shield"].some(value => subtypeKeys.has(value))) return true;
+  const identity = normalizeText(`${entry?.materializerFamily ?? ""} ${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
+  return identity.includes("armor") || identity.includes("armour") || identity.includes("efreeti-chain") || identity.includes("efreet-chain");
+}
+
 function validMerchandise(entry) {
   if (isMechanicalItem(entry)) return false;
   if (isMaterializerItem(entry)) return isSupportedMaterializerEntry(entry);
@@ -562,7 +579,7 @@ function finalSellableMerchandise(entry) {
 
 export function homebrewCurationAllowsEntry(entry, curation) {
   if (!curation) return true;
-  if (curation === "blacksmithBase") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry);
+  if (curation === "blacksmithBase") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && !isImprovisedWeaponMerchandise(entry);
   if (curation === "blacksmithTwoHanded") {
     const properties = new Set((entry.properties ?? []).map(value => normalizeText(value).replaceAll("-", "")));
     return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry)
@@ -577,6 +594,15 @@ export function homebrewCurationAllowsEntry(entry, curation) {
   }
   if (curation === "blacksmithNamed") {
     return validMerchandise(entry) && !isFirearmRelated(entry) && (entry.isMagical === true || isMaterializerItem(entry));
+  }
+  if (curation === "blacksmithNamedArmor") {
+    return finalSellableMerchandise(entry)
+      && entry.isMagical === true
+      && !isFirearmRelated(entry)
+      && ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry.primarySubtypeKey);
+  }
+  if (curation === "blacksmithMaterializedArmor") {
+    return isArmorMaterializerMerchandise(entry) && !isFirearmRelated(entry);
   }
   if (curation === "blacksmithWearables") {
     return finalSellableMerchandise(entry) && entry.isMagical === true && !isFirearmRelated(entry) && matchesAnyTerm(entry, BLACKSMITH_WEARABLE_TERMS);
@@ -605,7 +631,7 @@ export function homebrewCurationAllowsEntry(entry, curation) {
   if (curation === "magicMundaneSupplies") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, MAGIC_MUNDANE_TERMS);
   if (curation === "magicMundaneWearables") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, MAGIC_WEARABLE_TERMS);
   if (curation === "magicArcaneImplements") return validMerchandise(entry) && !isFirearmRelated(entry) && (entry.isMagical === true || isMaterializerItem(entry)) && matchesAnyTerm(entry, MAGIC_IMPLEMENT_TERMS);
-  if (curation === "magicArmoryCuriosity") return validMerchandise(entry) && !isFirearmRelated(entry) && (entry.isMagical === true || isMaterializerItem(entry)) && ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry.primarySubtypeKey);
+  if (curation === "magicArmoryCuriosity") return finalSellableMerchandise(entry) && !isFirearmRelated(entry) && entry.isMagical === true && ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry.primarySubtypeKey);
   if (curation === "magicAssortment") {
     if (!validMerchandise(entry) || isFirearmRelated(entry)) return false;
     if (entry.type === "weapon") return false;

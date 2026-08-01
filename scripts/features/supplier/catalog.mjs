@@ -462,6 +462,10 @@ export function entryFamilyIds(entry) {
 export function canonicalKey(entry) {
   const variant = entry?.variantFamily || variantFamilyInfo(entry)?.id;
   if (variant) return `variant:${variant}`;
+  // Arrow/Arrows and legacy Equipment/modern Consumable representations are
+  // one merchandise family, not separate stock lines or lottery tickets.
+  const ammunitionFamily = !isMaterializerItem(entry) && isAmmunitionEntry(entry) ? ammunitionFamilyKey(entry) : "";
+  if (ammunitionFamily) return `ammunition:${ammunitionFamily}`;
   const identifier = normalizeText(entry.identifier);
   if (identifier) return `identifier:${identifier}`;
   return `name:${normalizeText(entry.name)}|type:${normalizeText(entry.type)}`;
@@ -485,9 +489,28 @@ export function clearCatalogCache() {
   cacheSignature = "";
 }
 
+function ammunitionRepresentativeScore(entry) {
+  if (!isAmmunitionEntry(entry)) return 0;
+  const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
+  let score = 0;
+  if (entry.type === "consumable") score += 100;
+  if (subtypeKeys.has("ammunition")) score += 50;
+  if (entry.identifier) score += 10;
+  if (Number(entry.priceValue ?? 0) > 0) score += 5;
+  const family = ammunitionFamilyKey(entry);
+  const identity = normalizeText(entry.identifier ?? entry.name ?? "");
+  if (family && identity === family) score += 10;
+  return score;
+}
+
 function mergeEntryGroup(group) {
   if (!group?.length) return null;
-  const primary = group[0];
+  const ammunitionGroup = group.some(entry => isAmmunitionEntry(entry));
+  const primary = ammunitionGroup
+    ? [...group].sort((a, b) => ammunitionRepresentativeScore(b) - ammunitionRepresentativeScore(a)
+      || Number(a.priority ?? 0) - Number(b.priority ?? 0)
+      || a.name.localeCompare(b.name))[0]
+    : group[0];
   const subtypeKeys = [];
   const subtypeAliases = [];
   const familyIds = new Set();

@@ -148,8 +148,12 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
       enabledSources,
       sourceOrder
     });
-    ItemCreatorSourceRegistry.instance.invalidate();
-    ui.notifications.info("Item Creator content sources saved.");
+    const registry = ItemCreatorSourceRegistry.instance;
+    registry.invalidate();
+    // Rebuild now instead of waiting for the next wizard session. This keeps
+    // the visible checkbox state and the runtime template/icon catalog in sync.
+    await registry.loadAll({ force: true });
+    ui.notifications.info("Item Creator content sources saved and refreshed.");
     await this.close();
   }
 }

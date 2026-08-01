@@ -811,6 +811,15 @@ function priceFromMaterializedData(documentData, display, fallback, origin = "ma
   return fallback;
 }
 
+function forceBlueprintRarityPrice(documentData, rarity, configuration) {
+  const resolved = fallbackPrice(configuration, rarity);
+  foundry.utils.setProperty(documentData, "system.price", {
+    value: Math.max(0, Number(resolved.value) || 0),
+    denomination: resolved.denomination || "gp"
+  });
+  return { ...resolved, origin: "materializedBlueprint" };
+}
+
 async function createGeneratorPreview(pick, catalog, configuration, targetEntries, level) {
   const kind = pick.entry.generatorKind;
   const candidates = shuffle(generatorResultCandidates(pick.entry, targetEntries, pick.rule));
@@ -954,12 +963,10 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
   if (!finalMaterializedAvailabilityAccepted(pick, rarity)) {
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationAccessRejected", { item: display.name ?? documentData.name }));
   }
-  const price = priceFromMaterializedData(
-    documentData,
-    display,
-    resolvePrice(pick.entry, catalog, configuration),
-    "materializedBlueprint"
-  );
+  // A blueprint result is a new magic Item. Never let the mundane target's
+  // copper/silver price survive as the final price of a Rare/Very Rare result.
+  // The active Supplier Level, Quality & Price profile is authoritative.
+  const price = forceBlueprintRarityPrice(documentData, rarity, configuration);
   const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
   return {
     key: `${canonicalKey(pick.entry)}|base:${canonicalKey(baseEntry)}|selection:${selectionKey}`,

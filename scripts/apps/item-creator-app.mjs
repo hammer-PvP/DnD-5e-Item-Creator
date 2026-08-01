@@ -906,6 +906,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.reviewBuildError = "";
     this.savingItem = false;
     this.restoreScrollTop = null;
+    this.sourceRegistryValidated = false;
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
     this.iconBrowserApp = null;
@@ -1214,7 +1215,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async _prepareContext() {
     const registry = ItemCreatorSourceRegistry.instance;
-    await registry.loadAll();
+    // A fresh Item Creator window performs one forced registry rebuild. This
+    // reconciles persisted checkboxes with the packs that are actually ready
+    // after world reloads and module/package activation changes. Subsequent
+    // rerenders reuse the validated registry for responsiveness.
+    await registry.loadAll({ force: !this.sourceRegistryValidated });
+    this.sourceRegistryValidated = true;
     await this.#initializeEditState(registry);
 
     const expectedType = ["equipment", "tool"].includes(this.selectedType) ? this.selectedType : "weapon";

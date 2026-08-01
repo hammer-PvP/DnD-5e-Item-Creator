@@ -4,6 +4,7 @@ import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
 import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
+import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
   getMaterializationSettings,
@@ -93,6 +94,13 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", async () => {
   if (isSupplierEnabled()) await initializeDefaultSources();
+  try {
+    // Validate enabled Item Creator sources after every full world reload.
+    // Opening the wizard repeats this once per fresh window as a safe guard.
+    await ItemCreatorSourceRegistry.instance.loadAll({ force: true });
+  } catch (error) {
+    console.warn(`${MODULE_ID} | Unable to refresh Item Creator content sources during ready.`, error);
+  }
   const module = game.modules.get(MODULE_ID);
   if (module) module.api = game.itemCreator;
 });

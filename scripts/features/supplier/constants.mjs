@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.2.0c-integrated";
-export const CONFIGURATION_VERSION = 17;
+export const SUPPLIER_FEATURE_VERSION = "0.2.0d-integrated";
+export const CONFIGURATION_VERSION = 18;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },

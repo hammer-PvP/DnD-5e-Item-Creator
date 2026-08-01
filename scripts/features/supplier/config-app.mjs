@@ -639,7 +639,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         this.selectedProfileId = button.dataset.profileId;
         this.profileSection = "stock";
         this.bannedSection = "manual";
-        this.#renderWithState({ resetContent: true });
+        this.#renderWithState();
       });
     });
 
@@ -748,7 +748,7 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       this.#syncForm();
       this.selectedProgressionProfileId = event.currentTarget.value;
       this.draft.activeProgressionProfileId = this.selectedProgressionProfileId;
-      this.#renderWithState({ resetContent: true });
+      this.#renderWithState();
     });
 
     root.querySelector("[data-action='new-progression-profile']")?.addEventListener("click", () => {

@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0c Beta
+**Version:** 0.2.0d Beta
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -189,7 +189,7 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0c Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
+The v0.2.0d Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
 
 The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
@@ -214,6 +214,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.2.0c package URL is:
+The v0.2.0d package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0c/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0d/item-creator.zip`
