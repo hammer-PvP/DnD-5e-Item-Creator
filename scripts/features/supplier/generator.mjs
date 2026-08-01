@@ -53,8 +53,16 @@ function configurationForProfile(configuration, profile) {
     levelBands: foundry.utils.deepClone(progression.levelBands ?? configuration.levelBands ?? []),
     enchantmentBands: foundry.utils.deepClone(progression.enchantmentBands ?? configuration.enchantmentBands ?? []),
     priceFallbacks: foundry.utils.deepClone(progression.priceFallbacks ?? configuration.priceFallbacks ?? {}),
-    qualityPriceAdditions: foundry.utils.deepClone(progression.qualityPriceAdditions ?? configuration.qualityPriceAdditions ?? {})
-  } : { ...configuration };
+    qualityPriceAdditions: foundry.utils.deepClone(progression.qualityPriceAdditions ?? configuration.qualityPriceAdditions ?? {}),
+    resolvedProgressionProfileId: progression.id ?? resolvedProgressionId,
+    resolvedProgressionBuiltIn: progression.builtIn ?? "",
+    resolvedProgressionHomebrew: progression.homebrew === true
+  } : {
+    ...configuration,
+    resolvedProgressionProfileId: resolvedProgressionId,
+    resolvedProgressionBuiltIn: "",
+    resolvedProgressionHomebrew: false
+  };
   const progressionUsesCorePricing = progression ? progression.useCorePricing !== false : resolved.useCorePricing !== false;
   if (progressionUsesCorePricing) {
     resolved.priceFallbacks = {
@@ -862,10 +870,41 @@ function priceInCopper(price = {}) {
   return Math.max(0, Number(price?.value ?? 0) || 0) * multiplier;
 }
 
-function finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry = null, catalog = null) {
+function priceFromCopper(copper, { origin = "materialized" } = {}) {
+  const total = Math.max(0, Math.round(Number(copper) || 0));
+  if (total % PRICE_IN_COPPER.gp === 0) {
+    return { value: total / PRICE_IN_COPPER.gp, denomination: "gp", origin };
+  }
+  if (total % PRICE_IN_COPPER.sp === 0) {
+    return { value: total / PRICE_IN_COPPER.sp, denomination: "sp", origin };
+  }
+  return { value: total, denomination: "cp", origin };
+}
+
+function isHammerHomebrewPricing(configuration) {
+  return configuration?.resolvedProgressionHomebrew === true
+    || String(configuration?.resolvedProgressionBuiltIn ?? "") === "homebrew"
+    || String(configuration?.resolvedProgressionProfileId ?? "") === "hammer-homebrew";
+}
+
+function finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry = null, catalog = null, materialization = null) {
   const normalized = normalizeRarity(rarity);
+  const recipeId = String(materialization?.recipeId ?? materialization?.family ?? "");
+  const recipe = recipeId ? materializationRecipe(recipeId) : null;
   let resolved;
-  if (!["none", "varies"].includes(normalized)) {
+
+  if (recipe?.pricing === "base-plus-rarity" && baseEntry && catalog) {
+    const base = resolvePrice(baseEntry, catalog, configuration);
+    const normalMagicPrice = fallbackPrice(configuration, normalized);
+    const magicPrice = recipe.id === "adamantine-armor" && isHammerHomebrewPricing(configuration)
+      ? { value: Number(recipe.hammerMagicSurcharge ?? 1500), denomination: "gp" }
+      : normalMagicPrice;
+    resolved = priceFromCopper(priceInCopper(base) + priceInCopper(magicPrice), {
+      origin: recipe.id === "adamantine-armor" && isHammerHomebrewPricing(configuration)
+        ? "hammerAdamantine"
+        : "materializedBasePlusRarity"
+    });
+  } else if (!["none", "varies"].includes(normalized)) {
     // A resolved magic rarity is authoritative. Never keep the mundane base
     // price or a 1 GP template placeholder on a materialized magic Item.
     resolved = { ...fallbackPrice(configuration, normalized), origin: "materializedRarity" };
@@ -998,7 +1037,50 @@ function blueprintCandidateEntries(blueprintDocument, targetEntries, rule) {
   return shuffle(candidates);
 }
 
+async function createPassThroughRecipePreview(pick, catalog, configuration, sourceDocument) {
+  const result = await materializeRecipe({ sourceDocument });
+  if (!result.ok) {
+    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
+  }
+  const documentData = result.documentData;
+  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? pick.entry.rarity);
+  const currentPrice = {
+    value: Math.max(0, Number(foundry.utils.getProperty(documentData, "system.price.value") ?? pick.entry.priceValue ?? 0)),
+    denomination: foundry.utils.getProperty(documentData, "system.price.denomination") ?? pick.entry.priceDenomination ?? "gp"
+  };
+  const price = priceInCopper(currentPrice) > PRICE_IN_COPPER.gp
+    ? { ...currentPrice, origin: "official" }
+    : { ...fallbackPrice(configuration, rarity), origin: "materializationRecipe" };
+  foundry.utils.setProperty(documentData, "system.price", { value: price.value, denomination: price.denomination });
+  return {
+    key: `${canonicalKey(pick.entry)}|recipe-pass-through`,
+    name: documentData.name ?? pick.entry.name,
+    img: documentData.img ?? pick.entry.img,
+    type: documentData.type ?? pick.entry.type,
+    subtype: foundry.utils.getProperty(documentData, "system.type.value") ?? pick.entry.subtype,
+    rarity,
+    quantity: Math.max(1, Number(pick.units ?? 1)),
+    packLabel: pick.entry.packLabel,
+    sourceUuid: pick.entry.uuid,
+    generatorSourceUuid: "",
+    blueprintSourceUuid: "",
+    materializedBaseUuid: "",
+    materialization: result.metadata ?? {},
+    price,
+    documentData,
+    generationKind: "copy",
+    documentNature: "sellable",
+    materializerKind: "",
+    enhancement: 0,
+    ruleIds: [pick.rule.id]
+  };
+}
+
 async function createBlueprintPreview(pick, catalog, configuration, targetEntries, blueprintDocument, level, fallbackTargetEntries = []) {
+  const recipe = materializationRecipe(blueprintDocument);
+  if (recipe?.mode === "pass-through") {
+    return createPassThroughRecipePreview(pick, catalog, configuration, blueprintDocument);
+  }
   const candidates = blueprintCandidateEntries(blueprintDocument, targetEntries, pick.rule);
   let materialized = null;
   let baseEntry = null;
@@ -1072,7 +1154,11 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
   // A blueprint result is a new magic Item. Never let the mundane target's
   // copper/silver price survive as the final price of a Rare/Very Rare result.
   // The active Supplier Level, Quality & Price profile is authoritative.
-  const price = finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry, catalog);
+  const priceMetadata = {
+    ...(materialized.metadata ?? {}),
+    recipeId: materialized.metadata?.recipeId ?? recipe?.id ?? ""
+  };
+  const price = finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry, catalog, priceMetadata);
   const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
   return {
     key: `${canonicalKey(pick.entry)}|base:${canonicalKey(baseEntry)}|selection:${selectionKey}`,

@@ -12,7 +12,7 @@ import {
  * deterministic fallbacks used only when the native template flow cannot
  * produce a complete, validated Item.
  */
-export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 2;
+export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 3;
 
 export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
   Object.freeze({
@@ -41,7 +41,8 @@ export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
     target: Object.freeze({ types: ["equipment"], categories: ["medium", "heavy"], excludeCategories: ["shield"], useSourceCategories: true }),
     rarity: "uncommon",
     nameTemplate: "Adamantine {base}",
-    pricing: "rarity"
+    pricing: "base-plus-rarity",
+    hammerMagicSurcharge: 1500
   }),
   Object.freeze({
     id: "mithral-armor",
@@ -50,7 +51,7 @@ export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
     target: Object.freeze({ types: ["equipment"], categories: ["medium", "heavy"], excludeCategories: ["shield"], useSourceCategories: true }),
     rarity: "uncommon",
     nameTemplate: "Mithral {base}",
-    pricing: "rarity"
+    pricing: "base-plus-rarity"
   }),
   Object.freeze({
     id: "dragon-scale-mail",
@@ -85,6 +86,14 @@ export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
     target: Object.freeze({ types: ["equipment"], exactBases: ["chain-mail", "chainmail"] }),
     rarity: "legendary",
     nameTemplate: "Efreeti Chain",
+    pricing: "rarity"
+  }),
+  Object.freeze({
+    id: "oil-of-sharpness",
+    mode: "pass-through",
+    aliases: ["oil-of-sharpness"],
+    target: null,
+    rarity: "veryRare",
     pricing: "rarity"
   }),
   Object.freeze({
@@ -579,6 +588,21 @@ function materializeArmorOfVulnerability({ sourceDocument, baseDocument, selecti
   return { ok: true, documentData: result, metadata };
 }
 
+function materializePassThrough({ recipe, sourceDocument }) {
+  const sourceData = asData(sourceDocument);
+  const result = clone(sourceData);
+  delete result._id;
+  const metadata = {
+    kind: "sellable",
+    family: recipe.id,
+    strategy: "recipe-pass-through",
+    recipeId: recipe.id,
+    sourceUuid: sourceDocument?.uuid ?? "",
+    targetContract: "self-contained-source"
+  };
+  return { ok: true, documentData: result, metadata };
+}
+
 function materializeWandOfTheWarMage({ sourceDocument, requestedBonus = null, maxBonus = null }) {
   const sourceData = asData(sourceDocument);
   const result = clone(sourceData);
@@ -674,7 +698,7 @@ export function recipeOutputIssues(recipeOrSource, documentOrData) {
   const description = String(foundry.utils.getProperty(data, "system.description.value") ?? "");
 
   if (/\+\s*1\s*,\s*\+\s*2|\+1-2-or-3|\+1,\s*\+2,\s*or\s*\+3/i.test(name)) issues.push("unresolvedVariantName");
-  if (/make magical items with templates|template items/i.test(description)) issues.push("templateInstructionsRemain");
+  if (recipe.mode !== "pass-through" && /make magical items with templates|template items/i.test(description)) issues.push("templateInstructionsRemain");
   if (recipe.id === "wand-of-the-war-mage") {
     if (!/\+[123]\s*$/.test(name)) issues.push("missingResolvedBonus");
     if (!rarity || rarity === "none") issues.push("missingRarity");
@@ -720,7 +744,10 @@ export async function materializeWithRecipe({
   const recipe = materializationRecipe(recipeId || sourceDocument);
   if (!recipe) return { ok: false, reason: "recipeNotFound" };
   let result;
-  if (recipe.id === "armor-of-resistance") {
+  if (recipe.mode === "pass-through") {
+    if (!sourceDocument) return { ok: false, reason: "recipeMissingSource" };
+    result = materializePassThrough({ recipe, sourceDocument });
+  } else if (recipe.id === "armor-of-resistance") {
     if (!sourceDocument || !baseDocument) return { ok: false, reason: "recipeMissingTarget" };
     result = materializeArmorOfResistance({ sourceDocument, baseDocument, selection });
   } else if (recipe.id === "dragon-scale-mail") {

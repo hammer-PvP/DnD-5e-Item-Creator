@@ -33,7 +33,9 @@
       "priceless": "Priceless",
       "materializedRarity": "Materialized rarity price",
       "materializedBaseFloor": "Materialized base-price floor",
-      "materializationRecipe": "Materialization recipe price"
+      "materializationRecipe": "Materialization recipe price",
+      "materializedBasePlusRarity": "Base price plus magical rarity price",
+      "hammerAdamantine": "Base price plus HAMMER adamantine surcharge"
     },
     "Confirm": {
       "Title": "Confirm Supplier Stock",

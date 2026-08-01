@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — Beta
+
+### Material pricing and Alchemist reliability
+
+- Changed Adamantine Armor pricing to preserve the mundane armor price and add the magical component instead of replacing the base value.
+- Added the HAMMER Homebrew Adamantine override of base armor price + 1,500 GP.
+- Audited Mithral Armor under the same base-plus-rarity pricing rule, using the active Level, Quality & Price profile for the magical component.
+- Registered Oil of Sharpness as a self-contained pass-through consumable. It now enters Alchemist / Herbalist stock without requiring a weapon or ammunition target and preserves its native use/enchantment activity.
+- Added final price-origin diagnostics for base-plus-rarity material recipes and the HAMMER Adamantine surcharge.
+- Kept the v0.3.0 stock generation, vendor balance, recipes, ammunition pass, source refresh, cursed-item defaults, and interface behavior unchanged.
+
 ## 0.3.0 — Beta
 
 ### HAMMER progression and vendor balance
