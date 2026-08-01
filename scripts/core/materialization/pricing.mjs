@@ -1,7 +1,7 @@
 import { MODULE_ID } from "../../constants.mjs";
 
 export const MATERIALIZATION_SETTINGS_KEY = "materializationSettings";
-export const MATERIALIZATION_CORE_VERSION = "0.2.0d";
+export const MATERIALIZATION_CORE_VERSION = "0.2.0e";
 export const MATERIALIZATION_PRICING_SCHEMA_VERSION = 1;
 
 export const OFFICIAL_RARITY_PRICES = Object.freeze({

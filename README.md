@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.2.0d Beta
+**Version:** 0.2.0e Beta
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -189,7 +189,9 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.2.0d Core uses the vendor's mundane catalog as its preferred target source, applies family-specific compatibility contracts, and rejects incomplete results before they enter stock. Focused handling includes concrete Armor of Resistance damage types and descriptions, Half Plate/Plate-only Armor of Etherealness, ammunition represented by multiple native Item types, canonical idempotent naming, and concrete Wand of the War Mage variants.
+The v0.2.0e Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
+
+Current focused recipes cover Armor of Resistance, Demon Armor, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, and enchanted ammunition. Equivalent SRD and PHB 2024 documents converge on the same canonical family. The vendor's mundane catalog remains the preferred target source; recipe-backed Magic Assortment curiosities may use compatible mundane targets from that profile's source snapshot when the visible vendor catalog intentionally does not sell those bases. Unknown incomplete templates are rejected and rerolled rather than guessed.
 
 The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
@@ -214,6 +216,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.2.0d package URL is:
+The v0.2.0e package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0d/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.2.0e/item-creator.zip`

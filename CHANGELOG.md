@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.0e
+
+### Staged Materialization Recipes
+
+- Added a versioned internal **Materialization Recipe Registry** for stable official Item families whose SRD, PHB 2024, DMG, or legacy documents encode equivalent templates differently.
+- Kept native D&D5e materialization as the first stage. A deterministic recipe is used only when the native activity/profile flow cannot produce a complete validated result.
+- Added source-agnostic recipes for Armor of Resistance, Demon Armor, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, and enchanted ammunition.
+- Unified SRD and Player's Handbook Wand of the War Mage templates under one canonical resolver, including concrete +1/+2/+3 name, rarity, spell-attack bonus, description, and Supplier rarity price.
+- Made recipe recognition use canonical family aliases and source metadata rather than one exact display name.
+- Added recipe target contracts and output validation so unresolved template titles, template instructions, fallback 1 GP prices, missing resistance effects, and invalid ammunition results cannot receive a resolved badge.
+
+### Armor and ammunition reliability
+
+- Recovered Armor of Resistance through a deterministic fallback that selects one concrete damage type, clones a compatible mundane armor target, applies the resistance Effect, removes generic RollTable/template instructions, and prices the final Rare Item correctly.
+- Added recipe fallback for Demon Armor using the official source template and its own target restrictions; source restrictions remain authoritative when present.
+- Added deterministic target recipes for Armor of Etherealness and Efreeti Chain while preserving the native Materializer as the preferred path.
+- Allowed low-weight Magic Assortment armory curiosities to use recipe-backed physical targets from the profile's source snapshot, so a cursed or unusual armor can be sold there without requiring armor in its visible mundane catalog.
+- Rebuilt enchanted ammunition as an explicit recipe over one canonical mundane ammunition family. The existing mundane stack remains, one 50% check is made, and at most one Arrow, Bolt, Needle, Bullet, or other valid family receives one +1/+2/+3 result.
+- Kept Spell documents excluded before all ammunition name heuristics.
+
+### Supplier integration
+
+- Rebuilt protected HAMMER profile snapshots once for the v6 recipe-registry architecture while preserving profile names, sources, progression selection, bans, and overrides.
+- Extended diagnostics with recipe IDs, native failures, selected bases, resolved bonuses, and recipe-fallback strategies.
+
 ## 0.2.0d
 
 - Forced every materialized blueprint to use the active Supplier rarity price after the final rarity is resolved, preventing Very Rare results such as Frost Brand from retaining a mundane silver price.

@@ -8,8 +8,17 @@ import {
   cleanResolvedBlueprintDescription,
   materializeIdentityChanges
 } from "./naming.mjs";
+import {
+  MATERIALIZATION_RECIPE_REGISTRY,
+  MATERIALIZATION_RECIPE_SCHEMA_VERSION,
+  hasMaterializationRecipe,
+  materializationRecipe,
+  materializeWithRecipe,
+  recipeOutputIssues,
+  recipeTargetCompatibility
+} from "./recipes.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.2.0d";
+export const MATERIALIZATION_ENGINE_VERSION = "0.2.0e";
 
 /**
  * HAMMER Materialization Core
@@ -95,13 +104,19 @@ function hasNativeBlueprintData(data) {
 }
 
 export function isBlueprintCandidateData(data) {
-  return enchantActivities(data).length > 0;
+  const recipe = materializationRecipe(data);
+  return enchantActivities(data).length > 0 || Boolean(recipe && ["materialize", "template-transplant"].includes(recipe.mode));
 }
 
 export function classifyDocumentNature(documentOrData, { mechanical = false, generator = null } = {}) {
   const data = asData(documentOrData);
   if (mechanical) return { nature: "mechanical", materializerKind: "", family: "" };
   if (generator) return { nature: "materializer", materializerKind: "generator", family: generator.id ?? "generator" };
+  const recipe = materializationRecipe(data);
+  if (recipe?.mode === "resolve-variant") return { nature: "materializer", materializerKind: "variant", family: recipe.id };
+  if (recipe && ["materialize", "template-transplant"].includes(recipe.mode)) {
+    return { nature: "materializer", materializerKind: "blueprint", family: recipe.id };
+  }
   if (isSelfContainedSellableData(data)) return { nature: "sellable", materializerKind: "", family: "" };
   if (isBlueprintCandidateData(data)) {
     return {
@@ -779,14 +794,19 @@ export function inspectBlueprintSupport(documentOrData) {
   const effects = enchantmentEffects(data);
   const profileCount = activities.reduce((count, activity) => count + profilePairs(data, activity).length, 0);
   const itemRiderCount = activities.reduce((count, activity) => count + valuesOf(activity?.effects).reduce((inner, profile) => inner + stringList(profile?.riders?.item).length, 0), 0);
+  const recipe = materializationRecipe(data);
+  const nativeSupported = activities.length > 0 && effects.length > 0 && profileCount > 0 && itemRiderCount === 0;
   return {
-    candidate: activities.length > 0,
-    supported: activities.length > 0 && effects.length > 0 && profileCount > 0 && itemRiderCount === 0,
+    candidate: activities.length > 0 || Boolean(recipe),
+    supported: nativeSupported || Boolean(recipe),
+    nativeSupported,
+    recipeSupported: Boolean(recipe),
+    recipeId: recipe?.id ?? "",
     activityCount: activities.length,
     effectCount: effects.length,
     profileCount,
     itemRiderCount,
-    reason: !activities.length ? "notBlueprint" : !effects.length ? "missingEnchantmentEffects" : !profileCount ? "missingProfiles" : itemRiderCount ? "hasItemRiders" : "supported"
+    reason: nativeSupported ? "supported" : recipe ? "supportedRecipeFallback" : !activities.length ? "notBlueprint" : !effects.length ? "missingEnchantmentEffects" : !profileCount ? "missingProfiles" : itemRiderCount ? "hasItemRiders" : "unsupported"
   };
 }
 
@@ -803,6 +823,18 @@ export async function materializeNativeBlueprint({
   const baseData = asData(baseDocument);
   const activities = shuffle(enchantActivities(blueprintData).filter(activity => canMaterializeOnto(blueprintData, baseData, activity)));
   if (!activities.length || !hasNativeBlueprintData(blueprintData)) {
+    if (hasMaterializationRecipe(blueprintData)
+      && recipeTargetCompatibility(blueprintData, baseData, blueprintData) !== false) {
+      const recipe = await materializeRecipe({
+        sourceDocument: blueprintDocument,
+        baseDocument,
+        requestedBonus,
+        maxBonus,
+        selection
+      });
+      if (recipe.ok) return recipe;
+      return { ok: false, reason: recipe.reason ?? "recipeFailed", failures: ["unsupportedNativeBlueprint", recipe.reason ?? "recipeFailed"] };
+    }
     return { ok: false, reason: "unsupportedBlueprint" };
   }
 
@@ -919,7 +951,50 @@ export async function materializeNativeBlueprint({
     };
   }
 
+  // The native D&D5e template flow is authoritative. A versioned recipe is
+  // attempted only after every native activity/profile failed. This recovers
+  // official families whose SRD and PHB/DMG documents encode the same Item in
+  // different template structures.
+  if (hasMaterializationRecipe(blueprintData)
+    && recipeTargetCompatibility(blueprintData, baseData, blueprintData) !== false) {
+    const recipe = await materializeWithRecipe({
+      sourceDocument: blueprintDocument,
+      baseDocument,
+      requestedBonus,
+      maxBonus,
+      selection
+    });
+    if (recipe.ok) {
+      const validation = validateAndPrepareData(recipe.documentData);
+      if (validation.ok) {
+        return {
+          ok: true,
+          documentData: recipe.documentData,
+          display: validation.display,
+          metadata: {
+            ...(recipe.metadata ?? {}),
+            validation: validation.validation,
+            nativeFailures: [...failures]
+          }
+        };
+      }
+      failures.push(validation.reason ?? "recipeValidationFailed");
+    } else failures.push(recipe.reason ?? "recipeFailed");
+  }
+
   return { ok: false, reason: failures.at(-1) ?? "noProfile", failures };
+}
+
+export async function materializeRecipe(options = {}) {
+  const result = await materializeWithRecipe(options);
+  if (!result.ok) return result;
+  const validation = validateAndPrepareData(result.documentData);
+  if (!validation.ok) return { ok: false, reason: validation.reason, error: validation.error, issues: result.issues ?? [] };
+  return {
+    ...result,
+    display: validation.display,
+    metadata: { ...(result.metadata ?? {}), validation: validation.validation }
+  };
 }
 
 function defaultAmmoDamage(source = null) {
@@ -1139,10 +1214,16 @@ export async function materialize({
 }
 
 export {
+  MATERIALIZATION_RECIPE_REGISTRY,
+  MATERIALIZATION_RECIPE_SCHEMA_VERSION,
   canonicalizeItemName,
+  hasMaterializationRecipe,
   isAmmunitionData,
   isSelfContainedSellableData,
-  knownBaseCompatibility
+  knownBaseCompatibility,
+  materializationRecipe,
+  recipeOutputIssues,
+  recipeTargetCompatibility
 };
 
 export const MaterializationCore = Object.freeze({
@@ -1156,7 +1237,14 @@ export const MaterializationCore = Object.freeze({
   canonicalizeItemName,
   materialize,
   materializeNativeBlueprint,
+  materializeRecipe,
   materializeEnhancement,
   materializeSyntheticEnhancement,
-  isMeaningfullyMaterializedData
+  isMeaningfullyMaterializedData,
+  hasMaterializationRecipe,
+  materializationRecipe,
+  recipeTargetCompatibility,
+  recipeOutputIssues,
+  recipes: MATERIALIZATION_RECIPE_REGISTRY,
+  recipeSchemaVersion: MATERIALIZATION_RECIPE_SCHEMA_VERSION
 });

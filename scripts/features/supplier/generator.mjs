@@ -30,9 +30,13 @@ import {
   canMaterializeOnto,
   canonicalizeItemName,
   classifyDocumentNature,
+  hasMaterializationRecipe,
   materializeEnhancement,
   materializeNativeBlueprint,
-  materializeSyntheticEnhancement
+  materializeRecipe,
+  materializeSyntheticEnhancement,
+  recipeOutputIssues,
+  recipeTargetCompatibility
 } from "../../core/materialization/index.mjs";
 import { activeRarityPrices } from "../../core/materialization/pricing.mjs";
 
@@ -223,9 +227,19 @@ function magicMatch(entry, rule, configuration, level, { applyProgression = true
   if (isVariantFamilyItem(entry)) {
     if (rule.magicalState === "mundane") return false;
     const maximum = applyProgression ? maxEnhancementForLevel(configuration, level) : 3;
-    return (entry.sourceVariants ?? []).some(variant => variant.variantConcrete === true
+    const concreteVariant = (entry.sourceVariants ?? []).some(variant => variant.variantConcrete === true
       && Number(variant.enhancement ?? 0) > 0
       && Number(variant.enhancement ?? 0) <= maximum);
+    if (concreteVariant) return true;
+
+    // Some official sources expose only the unresolved family template (for
+    // example the PHB 2024 Wand of the War Mage). A registered recipe can
+    // resolve that template even when no concrete +1/+2/+3 source document is
+    // available, so keep it in the magical pool whenever progression allows a
+    // positive tier.
+    return maximum > 0
+      && entry.materializerSupported === true
+      && (entry.sourceVariants ?? []).some(variant => variant.recipeSupported === true);
   }
 
   if (isGeneratorItem(entry)) {
@@ -270,9 +284,17 @@ function rarityMatch(entry, rule, configuration, level, { applyProgression = tru
   if (isVariantFamilyItem(entry)) {
     const rarities = new Set(raritiesForLevel(configuration, level).map(normalizeRarity));
     const maximum = maxEnhancementForLevel(configuration, level);
-    return (entry.sourceVariants ?? []).some(variant => variant.variantConcrete === true
+    const concreteVariant = (entry.sourceVariants ?? []).some(variant => variant.variantConcrete === true
       && Number(variant.enhancement ?? 0) <= maximum
       && (!rarities.size || rarities.has(normalizeRarity(variant.rarity))));
+    if (concreteVariant) return true;
+
+    // A recipe-backed family selects its concrete tier only after entering the
+    // pool. Its unresolved source document intentionally has no final rarity,
+    // so eligibility is governed by the current enhancement ceiling instead.
+    return maximum > 0
+      && entry.materializerSupported === true
+      && (entry.sourceVariants ?? []).some(variant => variant.recipeSupported === true);
   }
   if (isGeneratorItem(entry)) {
     if (entry.generatorKind === "ammunitionVaries") return true;
@@ -929,14 +951,17 @@ function blueprintCandidateEntries(blueprintDocument, targetEntries, rule) {
   return shuffle(candidates);
 }
 
-async function createBlueprintPreview(pick, catalog, configuration, targetEntries, blueprintDocument, level) {
+async function createBlueprintPreview(pick, catalog, configuration, targetEntries, blueprintDocument, level, fallbackTargetEntries = []) {
   const candidates = blueprintCandidateEntries(blueprintDocument, targetEntries, pick.rule);
   let materialized = null;
   let baseEntry = null;
   for (const candidate of candidates) {
     try {
       const baseDocument = await loadItemDocument(candidate);
-      if (!canMaterializeOnto(blueprintDocument, baseDocument)) continue;
+      const nativeCompatible = canMaterializeOnto(blueprintDocument, baseDocument);
+      const recipeCompatible = hasMaterializationRecipe(blueprintDocument)
+        && recipeTargetCompatibility(blueprintDocument, baseDocument, blueprintDocument) !== false;
+      if (!nativeCompatible && !recipeCompatible) continue;
       const attempt = await materializeNativeBlueprint({
         blueprintDocument,
         baseDocument,
@@ -950,6 +975,40 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
       break;
     } catch (error) {
       console.warn(`${MODULE_ID} | Blueprint base rejected`, blueprintDocument.name, candidate.name, error);
+    }
+  }
+
+  // Some official recipe families are valid merchandise for a vendor even
+  // when that vendor's visible mundane catalog does not include their physical
+  // target (for example a rare cursed armor in Magic Assortment). Native
+  // materialization still gets the first attempt. Only a known recipe may use
+  // the broader source snapshot as a fallback target catalog.
+  if ((!materialized || !baseEntry) && hasMaterializationRecipe(blueprintDocument)) {
+    const primaryKeys = new Set(candidates.map(canonicalKey));
+    const recipeCandidates = shuffle((fallbackTargetEntries ?? []).filter(entry =>
+      !primaryKeys.has(canonicalKey(entry))
+      && !isMaterializerItem(entry)
+      && !isMechanicalItem(entry)
+      && !entry.isMagical
+    ));
+    for (const candidate of recipeCandidates) {
+      try {
+        const baseDocument = await loadItemDocument(candidate);
+        if (recipeTargetCompatibility(blueprintDocument, baseDocument, blueprintDocument) === false) continue;
+        const attempt = await materializeRecipe({
+          sourceDocument: blueprintDocument,
+          baseDocument,
+          partyLevel: level,
+          allowedRarities: raritiesForLevel(configuration, level),
+          maxBonus: maxEnhancementForLevel(configuration, level)
+        });
+        if (!attempt.ok) continue;
+        materialized = attempt;
+        baseEntry = candidate;
+        break;
+      } catch (error) {
+        console.warn(`${MODULE_ID} | Recipe fallback base rejected`, blueprintDocument.name, candidate.name, error);
+      }
     }
   }
 
@@ -1003,14 +1062,17 @@ function variantCandidates(entry, configuration, level) {
   );
 }
 
+function variantTargetBonus(pick, configuration, level) {
+  const rule = pick.rule ?? {};
+  if (rule.qualityMode === "fixed") return clampInteger(rule.fixedBonus, 1, 3);
+  if (rule.qualityMode === "party") return weightedBonus(configuration, level, { positiveOnly: true });
+  if (Number(pick.enhancement ?? 0) > 0) return clampInteger(pick.enhancement, 1, 3);
+  return weightedBonus(configuration, level, { positiveOnly: true }) || Math.max(1, maxEnhancementForLevel(configuration, level));
+}
+
 function chooseVariantCandidate(pick, candidates, configuration, level) {
   if (!candidates.length) return null;
-  const rule = pick.rule ?? {};
-  let target = 0;
-  if (rule.qualityMode === "fixed") target = clampInteger(rule.fixedBonus, 1, 3);
-  else if (rule.qualityMode === "party") target = weightedBonus(configuration, level, { positiveOnly: true });
-  else if (Number(pick.enhancement ?? 0) > 0) target = clampInteger(pick.enhancement, 1, 3);
-
+  const target = variantTargetBonus(pick, configuration, level);
   if (target > 0) {
     const exact = candidates.filter(candidate => Number(candidate.enhancement) === target);
     if (exact.length) return exact[Math.floor(Math.random() * exact.length)];
@@ -1022,15 +1084,66 @@ function chooseVariantCandidate(pick, candidates, configuration, level) {
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
+function variantRecipeSource(entry) {
+  return (entry.sourceVariants ?? []).find(variant => variant.variantPlaceholder === true || variant.recipeSupported === true)
+    ?? (entry.materializerSourceUuid ? { uuid: entry.materializerSourceUuid, packLabel: entry.packLabel } : null);
+}
+
+async function createRecipeVariantPreview(pick, configuration, level, sourceEntry) {
+  if (!sourceEntry?.uuid) {
+    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
+  }
+  const sourceDocument = await loadItemDocument(sourceEntry);
+  const bonus = variantTargetBonus(pick, configuration, level);
+  const result = await materializeRecipe({
+    sourceDocument,
+    requestedBonus: bonus,
+    partyLevel: level,
+    maxBonus: maxEnhancementForLevel(configuration, level)
+  });
+  if (!result.ok) {
+    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
+  }
+  const documentData = result.documentData;
+  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity"));
+  const price = fallbackPrice(configuration, rarity);
+  foundry.utils.setProperty(documentData, "system.price", { value: price.value, denomination: price.denomination });
+  const metadata = result.metadata ?? {};
+  return {
+    key: `${canonicalKey(pick.entry)}|recipe:${metadata.recipeId ?? pick.entry.variantFamily}|bonus:${bonus}`,
+    name: result.display?.name ?? documentData.name,
+    img: result.display?.img ?? documentData.img ?? pick.entry.img,
+    type: result.display?.type ?? documentData.type ?? pick.entry.type,
+    subtype: result.display?.subtype ?? foundry.utils.getProperty(documentData, "system.type.value") ?? pick.entry.subtype,
+    rarity,
+    quantity: Math.max(1, Number(pick.units ?? 1)),
+    packLabel: sourceEntry.packLabel ?? pick.entry.packLabel,
+    sourceUuid: sourceEntry.uuid,
+    generatorSourceUuid: "",
+    blueprintSourceUuid: sourceEntry.uuid,
+    materializedBaseUuid: "",
+    materialization: metadata,
+    price: { ...price, origin: "materializationRecipe" },
+    documentData,
+    generationKind: "materializedVariant",
+    documentNature: "materializer",
+    materializerKind: "variant",
+    enhancement: Number(metadata.bonus ?? bonus),
+    ruleIds: [pick.rule.id]
+  };
+}
+
 async function createVariantPreview(pick, catalog, configuration, level) {
   const candidates = variantCandidates(pick.entry, configuration, level);
   const selected = chooseVariantCandidate(pick, candidates, configuration, level);
-  if (!selected) {
-    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
-  }
+  if (!selected) return createRecipeVariantPreview(pick, configuration, level, variantRecipeSource(pick.entry));
 
   const document = await loadItemDocument(selected);
-  const documentData = document.toObject();
+  const rawData = document.toObject();
+  const issues = hasMaterializationRecipe(document) ? recipeOutputIssues(document, rawData) : [];
+  if (issues.length) return createRecipeVariantPreview(pick, configuration, level, selected);
+
+  const documentData = rawData;
   delete documentData._id;
   const canonical = canonicalizeItemName(documentData.name, { fallbackName: selected.name ?? pick.entry.name });
   if (!canonical.ok) {
@@ -1082,7 +1195,56 @@ async function createVariantPreview(pick, catalog, configuration, level) {
   };
 }
 
+async function createAmmunitionRecipePreview(pick, catalog, configuration, level) {
+  const baseDocument = await loadItemDocument(pick.entry);
+  const bonus = Math.max(1, Math.min(3, Number(pick.enhancement ?? 0) || weightedBonus(configuration, level, { positiveOnly: true })));
+  const result = await materializeRecipe({
+    recipeId: "enchanted-ammunition",
+    sourceDocument: baseDocument,
+    baseDocument,
+    requestedBonus: bonus,
+    maxBonus: maxEnhancementForLevel(configuration, level),
+    qualityPriceAdditions: configuration.qualityPriceAdditions ?? {}
+  });
+  if (!result.ok) {
+    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
+  }
+  const documentData = result.documentData;
+  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity"));
+  const price = {
+    value: Math.max(1, Number(foundry.utils.getProperty(documentData, "system.price.value") ?? 1)),
+    denomination: foundry.utils.getProperty(documentData, "system.price.denomination") ?? "gp",
+    origin: "materializationRecipe"
+  };
+  const metadata = result.metadata ?? {};
+  return {
+    key: `${canonicalKey(pick.entry)}|recipe:enchanted-ammunition|bonus:${bonus}`,
+    name: result.display?.name ?? documentData.name,
+    img: result.display?.img ?? documentData.img ?? pick.entry.img,
+    type: result.display?.type ?? documentData.type,
+    subtype: result.display?.subtype ?? foundry.utils.getProperty(documentData, "system.type.value") ?? "ammo",
+    rarity,
+    quantity: Math.max(1, Number(pick.units ?? 1)),
+    packLabel: pick.entry.packLabel,
+    sourceUuid: pick.entry.uuid,
+    generatorSourceUuid: "",
+    blueprintSourceUuid: "",
+    materializedBaseUuid: pick.entry.uuid,
+    materialization: metadata,
+    price,
+    documentData,
+    generationKind: "materializedGenerator",
+    documentNature: "materializer",
+    materializerKind: "generator",
+    enhancement: bonus,
+    ruleIds: [pick.rule.id]
+  };
+}
+
 async function buildPreviewLine(pick, catalog, configuration, { profileEntries = [], materializationTargets = profileEntries, level = 1 } = {}) {
+  if (pick.rule?.materializationRecipe === "enchanted-ammunition") {
+    return createAmmunitionRecipePreview(pick, catalog, configuration, level);
+  }
   if (isVariantFamilyItem(pick.entry)) {
     return createVariantPreview(pick, catalog, configuration, level);
   }
@@ -1124,7 +1286,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MechanicalDocumentSelected", { item: pick.entry.name }));
   }
   if (actualNature.materializerKind === "blueprint" || isBlueprintItem(pick.entry)) {
-    return createBlueprintPreview(pick, catalog, configuration, materializationTargets, document, level);
+    return createBlueprintPreview(pick, catalog, configuration, materializationTargets, document, level, profileEntries);
   }
 
   const basePrice = resolvePrice(pick.entry, catalog, configuration);

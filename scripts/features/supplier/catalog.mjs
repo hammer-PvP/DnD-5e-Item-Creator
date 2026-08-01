@@ -1,6 +1,7 @@
 import { MODULE_ID } from "./constants.mjs";
 import { getConfiguration } from "./settings.mjs";
 import {
+  hasMaterializationRecipe,
   inspectBlueprintSupport,
   isBlueprintCandidateData,
   isSelfContainedSellableData
@@ -197,8 +198,11 @@ export function variantFamilyInfo(entry) {
   const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""}`);
   const rule = VARIANT_FAMILY_RULES.find(candidate => candidate.terms.some(term => identity.includes(term)));
   if (!rule) return null;
-  const bonus = variantBonus(entry);
-  const placeholder = !bonus && /(?:1-2-(?:or-)?3|plus-1-plus-2-(?:or-)?plus-3)/.test(identity);
+  // Source templates sometimes expose a provisional magicalBonus even though
+  // their title still says "+1, +2, or +3". The unresolved title wins: such a
+  // document is a recipe/template source, never a concrete +1 variant.
+  const placeholder = /(?:1-2-(?:or-)?3|plus-1-plus-2-(?:or-)?plus-3)/.test(identity);
+  const bonus = placeholder ? 0 : variantBonus(entry);
   return { ...rule, bonus, concrete: bonus > 0, placeholder };
 }
 
@@ -571,10 +575,10 @@ function mergeEntryGroup(group) {
       ? (placeholderVariant?.uuid ?? concreteVariants[0]?.uuid ?? "")
       : group.find(variant => variant.materializerKind)?.uuid ?? "",
     materializerSupported: isVariant
-      ? concreteVariants.length > 0
+      ? (concreteVariants.length > 0 || group.some(variant => variant.recipeSupported === true))
       : group.some(variant => variant.materializerSupported === true),
     materializerSupportReason: isVariant
-      ? (concreteVariants.length ? "supportedVariantFamily" : "missingConcreteVariants")
+      ? (concreteVariants.length ? "supportedVariantFamily" : group.some(variant => variant.recipeSupported === true) ? "supportedRecipeFallback" : "missingConcreteVariants")
       : group.find(variant => variant.materializerSupportReason)?.materializerSupportReason ?? "",
     isFirearmWeapon: group.some(variant => variant.isFirearmWeapon === true),
     isFirearmAmmunition: group.some(variant => variant.isFirearmAmmunition === true),
@@ -606,6 +610,7 @@ function mergeEntryGroup(group) {
       variantFamily: variant.variantFamily ?? "",
       variantConcrete: variant.variantConcrete === true,
       variantPlaceholder: variant.variantPlaceholder === true,
+      recipeSupported: variant.recipeSupported === true,
       documentNature: variant.documentNature ?? "sellable",
       materializerKind: variant.materializerKind ?? "",
       materializerFamily: variant.materializerFamily ?? "",
@@ -676,6 +681,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
       const variantInfo = variantFamilyInfo(identity);
       const generatorRule = variantInfo ? null : generatorItemRule(identity);
       const selfContained = isSelfContainedSellableData(record);
+      const recipeSupported = hasMaterializationRecipe(record);
       const blueprintCandidate = !variantInfo && !generatorRule && !selfContained && isBlueprintCandidateData(record);
       const blueprintSupport = blueprintCandidate ? inspectBlueprintSupport(record) : null;
       const firearm = firearmClassification(identity);
@@ -711,6 +717,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
         variantFamilyInfo: variantInfo,
         variantConcrete: variantInfo?.concrete === true,
         variantPlaceholder: variantInfo?.placeholder === true,
+        recipeSupported,
         generatorKind: generatorRule?.id ?? "",
         generatorBaseHint: generatorRule?.baseHint ?? "",
         generatorMagical: generatorRule?.magical === true,

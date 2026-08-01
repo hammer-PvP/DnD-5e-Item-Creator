@@ -132,7 +132,8 @@ function guaranteedRule({
   rarityDistribution = "",
   selectionDistribution = "",
   silentIfEmpty = false,
-  requireMagicalResult = false
+  requireMagicalResult = false,
+  materializationRecipe = ""
 }) {
   return {
     ...createDefaultGuaranteedRule(),
@@ -156,7 +157,8 @@ function guaranteedRule({
     rarityDistribution,
     selectionDistribution,
     silentIfEmpty,
-    requireMagicalResult
+    requireMagicalResult,
+    materializationRecipe
   };
 }
 
@@ -229,7 +231,7 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     stockTotalMode: "fixed",
     stockTotal: 0,
     stockScaleBase: 4,
-    homebrewPresetVersion: 5,
+    homebrewPresetVersion: 6,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -270,7 +272,8 @@ function createBlacksmith(profile, access) {
       maxPerFamily: 1,
       selectionDistribution: "ammunitionFamily",
       silentIfEmpty: true,
-      requireMagicalResult: true
+      requireMagicalResult: true,
+      materializationRecipe: "enchanted-ammunition"
     })
   ];
 
@@ -631,7 +634,11 @@ export function homebrewCurationAllowsEntry(entry, curation) {
   if (curation === "magicMundaneSupplies") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, MAGIC_MUNDANE_TERMS);
   if (curation === "magicMundaneWearables") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, MAGIC_WEARABLE_TERMS);
   if (curation === "magicArcaneImplements") return validMerchandise(entry) && !isFirearmRelated(entry) && (entry.isMagical === true || isMaterializerItem(entry)) && matchesAnyTerm(entry, MAGIC_IMPLEMENT_TERMS);
-  if (curation === "magicArmoryCuriosity") return finalSellableMerchandise(entry) && !isFirearmRelated(entry) && entry.isMagical === true && ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry.primarySubtypeKey);
+  if (curation === "magicArmoryCuriosity") {
+    if (isFirearmRelated(entry)) return false;
+    if (isArmorMaterializerMerchandise(entry)) return true;
+    return finalSellableMerchandise(entry) && entry.isMagical === true && ["lightArmor", "mediumArmor", "heavyArmor", "shield"].includes(entry.primarySubtypeKey);
+  }
   if (curation === "magicAssortment") {
     if (!validMerchandise(entry) || isFirearmRelated(entry)) return false;
     if (entry.type === "weapon") return false;
