@@ -66,6 +66,12 @@ function numeric(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function isProficiencyBonusFormula(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/[()\s]/g, "") === "@prof";
+}
+
 function collectionValues(value) {
   if (value instanceof Set || Array.isArray(value)) return [...value].map(String).filter(Boolean);
   if (value && typeof value === "object") return Object.entries(value).filter(([, enabled]) => Boolean(enabled)).map(([key]) => key);
@@ -208,6 +214,7 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
       const change = changes[index];
       const key = String(change?.key ?? "");
       const value = numeric(change?.value);
+      const proficiencyBonus = isProficiencyBonusFormula(change?.value);
       let recognized = false;
 
       if (key === "system.attributes.ac.bonus" && value !== null) {
@@ -222,11 +229,17 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
         recognized = setScalar("maximumHitPointsBonus", { bonus: value, availability }, `Maximum Hit Points Bonus: ${modifier(value)}`);
       } else if (key === "system.attributes.init.roll.mode" && value !== null && value > 0) {
         recognized = setScalar("initiativeAdvantage", { availability }, "Initiative Advantage");
-      } else if (key === "system.bonuses.abilities.save" && value !== null) {
-        recognized = appendRows("savingThrowBonus", [effectRow({ target: "all", bonus: value })], availability, `All Saving Throws: ${modifier(value)}`);
-      } else if (/^system[.]abilities[.][a-z]{3}[.]bonuses[.]save$/.test(key) && value !== null) {
+      } else if (key === "system.bonuses.abilities.save" && (value !== null || proficiencyBonus)) {
+        const row = proficiencyBonus
+          ? effectRow({ target: "all", mode: "proficiency", bonus: 0 })
+          : effectRow({ target: "all", mode: "fixed", bonus: value });
+        recognized = appendRows("savingThrowBonus", [row], availability, proficiencyBonus ? "All Saving Throws: Proficiency Bonus" : `All Saving Throws: ${modifier(value)}`);
+      } else if (/^system[.]abilities[.][a-z]{3}[.]bonuses[.]save$/.test(key) && (value !== null || proficiencyBonus)) {
         const ability = key.split(".")[2];
-        recognized = appendRows("savingThrowBonus", [effectRow({ target: ability, bonus: value })], availability, `${labelForAbility(ability)} Saving Throws: ${modifier(value)}`);
+        const row = proficiencyBonus
+          ? effectRow({ target: ability, mode: "proficiency", bonus: 0 })
+          : effectRow({ target: ability, mode: "fixed", bonus: value });
+        recognized = appendRows("savingThrowBonus", [row], availability, proficiencyBonus ? `${labelForAbility(ability)} Saving Throws: Proficiency Bonus` : `${labelForAbility(ability)} Saving Throws: ${modifier(value)}`);
       } else if (/^system[.]abilities[.][a-z]{3}[.]save[.]roll[.]mode$/.test(key) && value !== null && value > 0) {
         const ability = key.split(".")[2];
         recognized = appendRows("savingThrowAdvantage", [effectRow({ target: ability })], availability, `${labelForAbility(ability)} Saving Throw Advantage`);

@@ -18,7 +18,7 @@ import {
   recipeTargetCompatibility
 } from "./recipes.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.3.1";
+export const MATERIALIZATION_ENGINE_VERSION = "0.3.2";
 
 /**
  * HAMMER Materialization Core

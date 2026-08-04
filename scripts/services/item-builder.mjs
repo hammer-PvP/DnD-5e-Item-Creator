@@ -231,7 +231,7 @@ function expandSkills(target) {
   return target === "all" ? Object.keys(CONFIG.DND5E.skills ?? {}) : [target];
 }
 
-function buildGrantedEffects(enabled, values) {
+export function buildGrantedEffects(enabled, values) {
   const effects = [];
   const addEffect = (key, label, availability, changes, description = "") => {
     if (!changes.length) return;
@@ -273,7 +273,9 @@ function buildGrantedEffects(enabled, values) {
   if (enabled.savingThrowBonus) {
     const changes = [];
     for (const row of values.savingThrowBonus.entries ?? []) {
-      for (const ability of expandAbilities(row.target)) addChange(changes, `system.abilities.${ability}.bonuses.save`, add, row.bonus);
+      const value = row.mode === "proficiency" ? "@prof" : row.bonus;
+      if (row.target === "all") addChange(changes, "system.bonuses.abilities.save", add, value);
+      else addChange(changes, `system.abilities.${row.target}.bonuses.save`, add, value);
     }
     addEffect("savingThrowBonus", "Saving Throw Bonus", values.savingThrowBonus.availability, changes);
   }
@@ -945,9 +947,12 @@ function itemPropertyEntries(draft) {
     const scope = setting.scope === "weapon" ? "weapon attacks" : setting.scope === "spell" ? "spell attacks" : "weapon and spell attacks";
     add("Actor Critical Threshold", `Critical hit on ${threshold === 20 ? "20" : `${threshold}–20`} for ${scope}`, setting.availability);
   }
-  if (effects.savingThrowBonus && !settingHasProgression(effectValues.savingThrowBonus)) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => row.target === "all"
-    ? `${signedValue(row.bonus)} to all saving throws`
-    : `${signedValue(row.bonus)} to ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowBonus?.availability);
+  if (effects.savingThrowBonus && !settingHasProgression(effectValues.savingThrowBonus)) add("Saving Throws", formatRows(effectValues.savingThrowBonus?.entries, row => {
+    const value = row.mode === "proficiency" ? "Proficiency Bonus" : signedValue(row.bonus);
+    return row.target === "all"
+      ? `${value} to all saving throws`
+      : `${value} to ${abilityLabel(row.target)} saving throws`;
+  }), effectValues.savingThrowBonus?.availability);
   if (effects.savingThrowAdvantage && !settingHasProgression(effectValues.savingThrowAdvantage)) add("Saving Throw Advantage", formatRows(effectValues.savingThrowAdvantage?.entries, row => row.target === "all"
     ? "Advantage on all saving throws"
     : `Advantage on ${abilityLabel(row.target)} saving throws`), effectValues.savingThrowAdvantage?.availability);

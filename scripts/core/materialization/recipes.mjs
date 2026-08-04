@@ -12,7 +12,7 @@ import {
  * deterministic fallbacks used only when the native template flow cannot
  * produce a complete, validated Item.
  */
-export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 3;
+export const MATERIALIZATION_RECIPE_SCHEMA_VERSION = 4;
 
 export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
   Object.freeze({
@@ -52,6 +52,15 @@ export const MATERIALIZATION_RECIPE_REGISTRY = Object.freeze([
     rarity: "uncommon",
     nameTemplate: "Mithral {base}",
     pricing: "base-plus-rarity"
+  }),
+  Object.freeze({
+    id: "elven-chain",
+    mode: "template-transplant",
+    aliases: ["elven-chain", "elven-chain-armor", "elfin-chain"],
+    target: Object.freeze({ types: ["equipment"], exactBases: ["chain-shirt", "chain-mail", "chainmail"] }),
+    rarity: "rare",
+    nameTemplate: "Elven {base}",
+    pricing: "rarity"
   }),
   Object.freeze({
     id: "dragon-scale-mail",
@@ -176,7 +185,19 @@ export function materializationRecipe(recipeOrSource) {
   if (typeof recipeOrSource === "string" && RECIPE_BY_ID.has(recipeOrSource)) return RECIPE_BY_ID.get(recipeOrSource);
   const data = asData(recipeOrSource);
   const identity = sourceIdentity(data);
-  return MATERIALIZATION_RECIPE_REGISTRY.find(recipe => recipe.aliases.some(alias => identity.includes(alias))) ?? null;
+  const direct = MATERIALIZATION_RECIPE_REGISTRY.find(recipe => recipe.aliases.some(alias => identity.includes(alias)));
+  if (direct) return direct;
+
+  // Ready-made concrete source Items do not always retain the generic template
+  // identifier (for example "Adamantine Chain Mail"). Recognize those stable
+  // armor families here so the same recipe and global price finalizer apply no
+  // matter whether the Item arrived as a blueprint, pass-through, or copy.
+  const category = normalizeRecipeIdentity(foundry.utils.getProperty(data, "system.type.value"));
+  const isArmor = String(data?.type ?? "") === "equipment" && ["light", "medium", "heavy"].includes(category);
+  if (isArmor && /(?:^|-)adamantine(?:-|$)/.test(identity)) return RECIPE_BY_ID.get("adamantine-armor") ?? null;
+  if (isArmor && /(?:^|-)mithral(?:-|$)/.test(identity)) return RECIPE_BY_ID.get("mithral-armor") ?? null;
+  if (isArmor && /(?:^|-)elven-chain(?:-|$)/.test(identity)) return RECIPE_BY_ID.get("elven-chain") ?? null;
+  return null;
 }
 
 export function hasMaterializationRecipe(recipeOrSource) {
@@ -722,6 +743,12 @@ export function recipeOutputIssues(recipeOrSource, documentOrData) {
   }
   if (["adamantine-armor", "mithral-armor"].includes(recipe.id)) {
     if (!normalizeRecipeIdentity(name).includes(recipe.id.split("-")[0])) issues.push("missingMaterialIdentity");
+    if (!rarity || rarity === "none") issues.push("missingRarity");
+  }
+  if (recipe.id === "elven-chain") {
+    const identity = baseIdentity(data);
+    if (!normalizeRecipeIdentity(name).includes("elven")) issues.push("missingMaterialIdentity");
+    if (!["chain-shirt", "chain-mail", "chainmail"].some(term => identity.includes(term))) issues.push("invalidElvenChainBase");
     if (!rarity || rarity === "none") issues.push("missingRarity");
   }
   if (recipe.id === "enchanted-ammunition") {

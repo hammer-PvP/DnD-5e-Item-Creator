@@ -928,6 +928,84 @@ function finalizeMaterializedPrice(documentData, rarity, configuration, baseEntr
   return resolved;
 }
 
+function mundaneRecipeBaseCandidates(catalog) {
+  return (catalog?.entries ?? []).filter(entry =>
+    entry?.type === "equipment"
+    && entry?.isMagical !== true
+    && ["light", "medium", "heavy"].includes(String(entry?.armorCategory ?? ""))
+  );
+}
+
+function recipeBaseEntryForLine(line, pick, recipe, catalog) {
+  const explicitReference = line?.materializedBaseUuid
+    || line?.materialization?.baseUuid
+    || foundry.utils.getProperty(line?.documentData, "flags.hammer-materialization-core.baseUuid")
+    || "";
+  if (explicitReference) {
+    const direct = findEntry(catalog, explicitReference);
+    if (direct && direct.isMagical !== true) return direct;
+  }
+
+  const candidates = mundaneRecipeBaseCandidates(catalog);
+  const explicitBase = normalizeText(foundry.utils.getProperty(line?.documentData, "system.type.baseItem"));
+  if (explicitBase) {
+    const match = candidates.find(entry => [entry.identifier, entry.baseItem, entry.name]
+      .map(normalizeText)
+      .some(value => value && (value === explicitBase || value.endsWith(`-${explicitBase}`) || explicitBase.endsWith(`-${value}`))));
+    if (match) return match;
+  }
+
+  const prefixes = {
+    "adamantine-armor": ["adamantine"],
+    "mithral-armor": ["mithral"],
+    "elven-chain": ["elven"]
+  }[recipe?.id] ?? [];
+  let stripped = normalizeText(line?.name ?? line?.documentData?.name ?? pick?.entry?.name ?? "");
+  for (const prefix of prefixes) stripped = stripped.replace(new RegExp(`^${prefix}-?`), "");
+  stripped = stripped.replace(/^armor-/, "").replace(/-armor$/, "");
+
+  const ordered = [...candidates].sort((a, b) => normalizeText(b.name).length - normalizeText(a.name).length);
+  return ordered.find(entry => {
+    const identities = [entry.identifier, entry.baseItem, entry.name].map(normalizeText).filter(Boolean);
+    return identities.some(value => stripped === value || stripped.endsWith(`-${value}`) || stripped.includes(value));
+  }) ?? null;
+}
+
+/**
+ * Apply recipe pricing after every stock path has produced its final document.
+ * This deliberately runs for copy/pass-through Items as well as blueprints so
+ * the same Adamantine or Mithral armor has one price in every vendor/source.
+ */
+export function finalizeGlobalRecipePrice(line, pick, catalog, configuration) {
+  if (!line?.documentData) return line;
+  const recipeId = String(line.materialization?.recipeId ?? line.materialization?.family ?? "");
+  const recipe = materializationRecipe(recipeId || line.documentData);
+  if (!recipe || !recipe.pricing || recipe.pricing === "quality") return line;
+
+  const rarity = normalizeRarity(line.rarity ?? foundry.utils.getProperty(line.documentData, "system.rarity"));
+  const baseEntry = recipe.pricing === "base-plus-rarity"
+    ? recipeBaseEntryForLine(line, pick, recipe, catalog)
+    : null;
+  if (recipe.pricing === "base-plus-rarity" && !baseEntry) {
+    throw new Error(`Global recipe pricing could not resolve the mundane base for ${line.name ?? pick?.entry?.name ?? recipe.id}.`);
+  }
+
+  const price = finalizeMaterializedPrice(line.documentData, rarity, configuration, baseEntry, catalog, {
+    ...(line.materialization ?? {}),
+    recipeId: recipe.id,
+    family: recipe.id
+  });
+  line.price = price;
+  line.materialization = {
+    ...(line.materialization ?? {}),
+    recipeId: recipe.id,
+    family: line.materialization?.family ?? recipe.id,
+    globalPriceFinalized: true,
+    priceOrigin: price.origin
+  };
+  return line;
+}
+
 async function createGeneratorPreview(pick, catalog, configuration, targetEntries, level) {
   const kind = pick.entry.generatorKind;
   const candidates = shuffle(generatorResultCandidates(pick.entry, targetEntries, pick.rule));
@@ -1477,6 +1555,7 @@ function fallbackIntent(entry, rule) {
 async function buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, materializationTargets, level, warnings, diagnostics = null) {
   try {
     const line = await buildPreviewLine(pick, catalog, configuration, { profileEntries, materializationTargets, level });
+    finalizeGlobalRecipePrice(line, pick, catalog, configuration);
     line.ruleName = pick.rule?.name ?? "";
     line.ruleType = pick.ruleType ?? "";
     return line;
@@ -1492,7 +1571,9 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
     ));
     for (const alternative of alternatives) {
       try {
-        const replacement = await buildPreviewLine({ ...pick, entry: alternative }, catalog, configuration, { profileEntries, materializationTargets, level });
+        const replacementPick = { ...pick, entry: alternative };
+        const replacement = await buildPreviewLine(replacementPick, catalog, configuration, { profileEntries, materializationTargets, level });
+        finalizeGlobalRecipePrice(replacement, replacementPick, catalog, configuration);
         replacement.ruleName = pick.rule?.name ?? "";
         replacement.ruleType = pick.ruleType ?? "";
         warnings.push(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializerRerolled", {

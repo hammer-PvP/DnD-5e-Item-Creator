@@ -794,7 +794,7 @@ function grantedEffectDefaults() {
     weaponAttackBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
     weaponDamageBonus: progressionValue({ bonus: 1, availability: "equipped" }, { tierable: true }),
     criticalThreshold: progressionValue({ threshold: 19, scope: "all", availability: "equipped" }),
-    savingThrowBonus: progressionValue({ entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" }),
+    savingThrowBonus: progressionValue({ entries: [effectRow({ target: "all", mode: "fixed", bonus: 1 })], availability: "equipped" }),
     savingThrowAdvantage: progressionValue({ entries: [effectRow({ target: "all" })], availability: "equipped" }),
     abilityScoreAdjustment: progressionValue({ entries: [effectRow({ ability: firstAbility, operation: "add", value: 1 })], availability: "equipped" }),
     abilityCheckBonus: progressionValue({ entries: [effectRow({ target: "all", bonus: 1 })], availability: "equipped" }),
@@ -820,7 +820,14 @@ function grantedEffectDefaults() {
 
 function effectEntryOptions(key, row) {
   switch (key) {
-    case "savingThrowBonus":
+    case "savingThrowBonus": {
+      const valueMode = row.mode === "proficiency" ? "proficiency" : "fixed";
+      return {
+        targetOptions: allAbilityOptions(row.target, { allLabel: "All Saving Throws" }),
+        valueModeOptions: fixedOptions([["fixed", "Fixed Modifier"], ["proficiency", "Proficiency Bonus"]], valueMode),
+        fixedValueMode: valueMode === "fixed"
+      };
+    }
     case "savingThrowAdvantage":
       return { targetOptions: allAbilityOptions(row.target, { allLabel: "All Saving Throws" }) };
     case "abilityScoreAdjustment":
@@ -3089,7 +3096,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (this.grantedEffects.criticalThreshold && !([18, 19, 20].includes(Number(values.criticalThreshold?.threshold))
       && ["weapon", "spell", "all"].includes(values.criticalThreshold?.scope)
       && validAvailability("criticalThreshold"))) errors.criticalThreshold = true;
-    if (this.grantedEffects.savingThrowBonus && !(hasRows("savingThrowBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("savingThrowBonus"))) errors.savingThrowBonus = true;
+    if (this.grantedEffects.savingThrowBonus && !(hasRows("savingThrowBonus", row => {
+      const mode = row.mode === "proficiency" ? "proficiency" : "fixed";
+      return Boolean(row.target) && (mode === "proficiency" || finite(row.bonus));
+    }) && validAvailability("savingThrowBonus"))) errors.savingThrowBonus = true;
     if (this.grantedEffects.savingThrowAdvantage && !(hasRows("savingThrowAdvantage", row => Boolean(row.target)) && validAvailability("savingThrowAdvantage"))) errors.savingThrowAdvantage = true;
     if (this.grantedEffects.abilityScoreAdjustment && !(hasRows("abilityScoreAdjustment", row => Boolean(row.ability) && ["add", "minimum", "fixed"].includes(row.operation) && finite(row.value)) && validAvailability("abilityScoreAdjustment"))) errors.abilityScoreAdjustment = true;
     if (this.grantedEffects.abilityCheckBonus && !(hasRows("abilityCheckBonus", row => Boolean(row.target) && finite(row.bonus)) && validAvailability("abilityCheckBonus"))) errors.abilityCheckBonus = true;
@@ -3126,7 +3136,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const firstMovement = Object.keys(CONFIG.DND5E.movementTypes ?? {})[0] ?? "walk";
     const firstSense = Object.keys(CONFIG.DND5E.senses ?? CONFIG.DND5E.senseTypes ?? {})[0] ?? "darkvision";
     switch (key) {
-      case "savingThrowBonus": return effectRow({ target: "all", bonus: 1 });
+      case "savingThrowBonus": return effectRow({ target: "all", mode: "fixed", bonus: 1 });
       case "savingThrowAdvantage": return effectRow({ target: "all" });
       case "abilityScoreAdjustment": return effectRow({ ability: firstAbility, operation: "add", value: 1 });
       case "abilityCheckBonus": return effectRow({ target: "all", bonus: 1 });
@@ -3166,6 +3176,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const row = (this.grantedEffectValues[key]?.entries ?? []).find(entry => entry.id === rowId);
       if (!row) return;
       row[part] = value;
+      if (key === "savingThrowBonus" && part === "mode") {
+        row.mode = value === "proficiency" ? "proficiency" : "fixed";
+        this.#renderPreservingScroll();
+      }
     } else {
       this.grantedEffectValues[key] ??= {};
       this.grantedEffectValues[key][part] = value;

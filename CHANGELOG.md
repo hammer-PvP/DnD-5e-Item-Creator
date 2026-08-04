@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.2 — Beta
+
+### Elven Chain target integrity
+
+- Added a deterministic `Elven Chain` recipe and removed the family from unrestricted automatic armor conversion.
+- Restricted valid targets to `Chain Shirt` and `Chain Mail`; Hide Armor, Plate Armor, Scale Mail, Breastplate, Half Plate, Splint, Shields, and all unrelated equipment are rejected before materialization.
+- Added final recipe validation so an Elven result cannot receive a resolved badge unless its concrete base is one of the two approved chain armors.
+
+### Global recipe price finalization
+
+- Added a final recipe-aware price pass after every Supplier stock path, including copy, pass-through, concrete source variants, blueprint materialization, and rerolls.
+- Made recipe price rules independent of vendor type and source path: the same Item/base under the same `Level, Quality & Price` profile now receives the same price in Blacksmith, Magic Assortment, or any other eligible vendor.
+- Applied the HAMMER Adamantine formula globally as base armor price + 1,500 GP and retained base + rarity pricing for Mithral Armor.
+- Added concrete-family recognition for ready-made Adamantine, Mithral, and Elven armor documents whose source identifiers do not retain the generic template name.
+- Rejects a base-plus-rarity result when its mundane base cannot be resolved instead of silently preserving an inconsistent source price.
+
+### Saving Throw Bonus value mode
+
+- Added `Fixed Modifier` and `Proficiency Bonus` modes to `Granted Effects → Saving Throw Bonus` for Weapon, Equipment, and Tool Items.
+- `Proficiency Bonus` writes the D&D5e `@prof` formula so the bonus follows the current Actor proficiency bonus automatically without level tiers.
+- Supports one selected Saving Throw or the global `All Saving Throws` bonus field.
+- Added import/edit recognition for Item Creator effects that already use `@prof`, preserving the selected mode when reopening a World Item.
+
 ## 0.3.1 — Beta
 
 ### Material pricing and Alchemist reliability

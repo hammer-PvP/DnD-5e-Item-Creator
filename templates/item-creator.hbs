@@ -870,11 +870,20 @@
           </section>
 
           <section class="ic-effect-card ic-span-two {{#if grantedEffects.savingThrowBonus}}enabled{{/if}} {{#if grantedEffectErrors.savingThrowBonus}}invalid{{/if}}">
-            <label class="ic-override-heading"><input type="checkbox" data-effect-toggle="savingThrowBonus" {{#if grantedEffects.savingThrowBonus}}checked{{/if}}><span><strong>Saving Throw Bonus</strong><small>Apply a manual modifier to one Saving Throw or all six Saving Throws at once.</small></span></label>
+            <label class="ic-override-heading"><input type="checkbox" data-effect-toggle="savingThrowBonus" {{#if grantedEffects.savingThrowBonus}}checked{{/if}}><span><strong>Saving Throw Bonus</strong><small>Apply a fixed modifier or the Actor's current Proficiency Bonus to one Saving Throw or all Saving Throws.</small></span></label>
             <fieldset class="ic-effect-body" {{#unless grantedEffects.savingThrowBonus}}disabled{{/unless}}>
               <div class="ic-effect-row-list">
                 {{#each savingThrowBonusRows}}
-                <div class="ic-effect-row three-fields"><label><span>Applies To</span><select data-effect-input="savingThrowBonus" data-effect-part="target" data-effect-row-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Modifier</span><input type="number" step="1" value="{{bonus}}" data-effect-input="savingThrowBonus" data-effect-part="bonus" data-effect-row-id="{{id}}" data-value-type="number"></label><button type="button" class="ic-row-remove" data-action="remove-effect-row" data-effect-key="savingThrowBonus" data-effect-row-id="{{id}}" title="Remove"><i class="fa-solid fa-trash"></i></button></div>
+                <div class="ic-effect-row four-fields">
+                  <label><span>Applies To</span><select data-effect-input="savingThrowBonus" data-effect-part="target" data-effect-row-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Value Mode</span><select data-effect-input="savingThrowBonus" data-effect-part="mode" data-effect-row-id="{{id}}">{{#each valueModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if fixedValueMode}}
+                  <label><span>Modifier</span><input type="number" step="1" value="{{bonus}}" data-effect-input="savingThrowBonus" data-effect-part="bonus" data-effect-row-id="{{id}}" data-value-type="number"></label>
+                  {{else}}
+                  <label><span>Value</span><input type="text" value="Actor Proficiency Bonus" disabled></label>
+                  {{/if}}
+                  <button type="button" class="ic-row-remove" data-action="remove-effect-row" data-effect-key="savingThrowBonus" data-effect-row-id="{{id}}" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                </div>
                 {{/each}}
               </div>
               <button type="button" class="ic-add-effect-row" data-action="add-effect-row" data-effect-key="savingThrowBonus"><i class="fa-solid fa-plus"></i> Add Saving Throw Modifier</button>

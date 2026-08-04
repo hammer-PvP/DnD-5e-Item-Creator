@@ -132,6 +132,9 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
   if (identity.includes("mithral-armor")) {
     return isMediumOrHeavyArmor(base);
   }
+  if (identity.includes("elven-chain")) {
+    return base.type === "equipment" && exactBase(base, ["chain-shirt", "chain-mail", "chainmail"]);
+  }
   if (identity.includes("armor-of-resistance")) {
     return isArmor(base);
   }
