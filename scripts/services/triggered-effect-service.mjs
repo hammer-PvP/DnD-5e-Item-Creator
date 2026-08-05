@@ -2,12 +2,13 @@ import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { safeDeleteActiveEffects } from "./document-operation-service.mjs";
 import {
-  buildTriggeredEffectChanges, normalizeTriggeredEffect, validateTriggeredEffect
+  buildTriggeredEffectChanges, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
+  validateTriggeredEffect
 } from "./triggered-effect-registry.mjs";
 
 const SOCKET_CHANNEL = `module.${MODULE_ID}`;
 const LEDGER_FLAG = "triggeredEffectLedger";
-const LEDGER_VERSION = 1;
+const LEDGER_VERSION = 2;
 const MAX_RECENT_KEYS = 120;
 
 function clone(value) {
@@ -23,6 +24,35 @@ function valuesOf(value) {
   }
   if (value && typeof value === "object") return Object.values(value);
   return [];
+}
+
+function resolveActorDocument(uuid, id = "") {
+  const document = uuid ? fromUuidSync(uuid, { strict: false }) : null;
+  if (document?.documentName === "Actor") return document;
+  if (document?.actor?.documentName === "Actor") return document.actor;
+  return id ? game.actors?.get(id) ?? null : null;
+}
+
+function targetActorUuidsFromMessage(message) {
+  const targets = valuesOf(message?.flags?.dnd5e?.targets ?? message?.system?.targets ?? []);
+  return [...new Set(targets.map(target => String(target?.uuid ?? target ?? "").trim()).filter(Boolean))];
+}
+
+function eventTargetActorUuids(event) {
+  return [...new Set([
+    ...valuesOf(event?.targetActorUuids),
+    event?.targetActorUuid
+  ].map(value => String(value ?? "").trim()).filter(Boolean))];
+}
+
+function actorCandidates(combat = game.combat) {
+  const actors = new Map();
+  for (const actor of game.actors ?? []) if (actor?.uuid) actors.set(actor.uuid, actor);
+  for (const combatant of combat?.combatants ?? []) {
+    const actor = combatant.actor;
+    if (actor?.uuid) actors.set(actor.uuid, actor);
+  }
+  return [...actors.values()];
 }
 
 function actorTotalLevel(actor) {
@@ -126,19 +156,34 @@ function combatMoment(combat) {
   return `${combat?.id ?? "none"}:${Number(combat?.round ?? 0)}:${Number(combat?.turn ?? -1)}`;
 }
 
-function normalizeEntry(value = {}) {
+function normalizeEntry(value = {}, ownerActor = null) {
+  const legacyEffectRefs = value.effectId ? [{ slot: "direct", id: value.effectId }] : [];
+  const effectRefs = Array.isArray(value.effectRefs) ? value.effectRefs.map(ref => ({
+    slot: String(ref?.slot ?? ""), id: String(ref?.id ?? "")
+  })).filter(ref => ref.slot && ref.id) : legacyEffectRefs;
+  const sourceActorUuid = String(value.sourceActorUuid ?? ownerActor?.uuid ?? "");
+  const recipientActorUuid = String(value.recipientActorUuid ?? ownerActor?.uuid ?? sourceActorUuid);
   return {
     key: String(value.key ?? ""),
+    control: Boolean(value.control),
+    sourceActorUuid,
+    sourceActorId: String(value.sourceActorId ?? ownerActor?.id ?? ""),
     sourceItemId: String(value.sourceItemId ?? ""),
     triggerId: String(value.triggerId ?? ""),
     combatId: String(value.combatId ?? ""),
+    recipientActorUuid,
+    recipientActorId: String(value.recipientActorId ?? ownerActor?.id ?? ""),
+    payloadIds: Array.isArray(value.payloadIds) ? value.payloadIds.map(String).filter(Boolean) : [],
+    payloadBindings: Array.isArray(value.payloadBindings) ? value.payloadBindings.map(binding => ({
+      id: String(binding?.id ?? ""), recipient: String(binding?.recipient ?? "")
+    })).filter(binding => binding.id && ["owner", "target"].includes(binding.recipient)) : [],
     stacks: Math.max(0, Number(value.stacks) || 0),
     remaining: Math.max(0, Number(value.remaining) || 0),
     idleTicks: Math.max(0, Number(value.idleTicks) || 0),
     independent: Array.isArray(value.independent) ? value.independent.map(entry => ({
       id: entry.id || foundry.utils.randomID(), remaining: Math.max(0, Number(entry.remaining) || 0)
     })) : [],
-    effectId: value.effectId ?? null,
+    effectRefs,
     lastTriggerMoment: String(value.lastTriggerMoment ?? ""),
     recentActivationKeys: Array.isArray(value.recentActivationKeys) ? value.recentActivationKeys.slice(-MAX_RECENT_KEYS) : [],
     turnActivationKey: String(value.turnActivationKey ?? ""),
@@ -156,9 +201,12 @@ function normalizeEntry(value = {}) {
 function readLedger(actor) {
   const raw = clone(actor.getFlag(MODULE_ID, LEDGER_FLAG) ?? null);
   const entries = new Map();
-  if (raw?.version === LEDGER_VERSION && Array.isArray(raw.entries)) {
+  if ([1, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
     for (const value of raw.entries) {
-      const entry = normalizeEntry(value);
+      const entry = normalizeEntry(value, actor);
+      if (Number(raw.version) === 1 && !entry.control && entry.sourceItemId && entry.triggerId) {
+        entry.key = `${entry.sourceItemId}:${entry.triggerId}:${entry.recipientActorUuid || actor.uuid}`;
+      }
       if (entry.key) entries.set(entry.key, entry);
     }
   }
@@ -166,7 +214,7 @@ function readLedger(actor) {
 }
 
 function ledgerData(entries) {
-  const rows = [...entries.values()].filter(entry => entry.stacks > 0)
+  const rows = [...entries.values()].filter(entry => entry.control || entry.stacks > 0)
     .sort((a, b) => a.key.localeCompare(b.key));
   return rows.length ? { version: LEDGER_VERSION, entries: rows } : null;
 }
@@ -227,31 +275,68 @@ function triggerMatches(setting, event, sourceItem) {
   return sourceFilterMatches(setting, event);
 }
 
-function activationKey(setting, event) {
+function activationKey(setting, event, targetActorUuid = "") {
   const combat = game.combats?.get(event.combatId) ?? game.combat;
   if (setting.counting === "perTurn") return `turn:${combatMoment(combat)}`;
   if (setting.counting === "perRound") return `round:${combat?.id}:${Number(combat?.round ?? 0)}`;
-  if (setting.counting === "perTarget") return `target:${event.activityUseId || event.messageId || event.activityUuid}:${event.targetActorUuid || "none"}`;
+  if (setting.counting === "perTarget") {
+    return `target:${event.activityUseId || event.messageId || event.activityUuid}:${targetActorUuid || event.targetActorUuid || "none"}`;
+  }
   if (setting.counting === "perActivity") return `activity:${event.activityUseId || event.messageId || event.activityUuid || event.id}`;
   return `roll:${event.rollKey || event.id}`;
 }
 
+function activationCycles(setting, event) {
+  const targets = eventTargetActorUuids(event);
+  if (setting.counting === "perTarget" && targets.length) {
+    return targets.map(targetActorUuid => ({
+      activationKey: activationKey(setting, event, targetActorUuid),
+      targetActorUuids: [targetActorUuid]
+    }));
+  }
+  return [{ activationKey: activationKey(setting, event), targetActorUuids: targets }];
+}
+
+function recipientGroups(setting, sourceActor, targetActorUuids) {
+  const groups = new Map();
+  const add = (actor, payload) => {
+    if (actor?.documentName !== "Actor") return;
+    const group = groups.get(actor.uuid) ?? { actor, payloadIds: [], payloadBindings: [] };
+    if (!group.payloadIds.includes(payload.id)) group.payloadIds.push(payload.id);
+    if (!group.payloadBindings.some(binding => binding.id === payload.id)) {
+      group.payloadBindings.push({ id: payload.id, recipient: payload.recipient });
+    }
+    groups.set(actor.uuid, group);
+  };
+  const targets = targetActorUuids.map(uuid => resolveActorDocument(uuid)).filter(Boolean);
+  for (const source of setting.effects ?? []) {
+    const payload = normalizeTriggeredEffectPayload(source);
+    if (payload.recipient === "target") {
+      for (const target of targets) add(target, payload);
+    } else add(sourceActor, payload);
+  }
+  return [...groups.values()];
+}
+
 function singleActivationLifetime(setting) {
   if (setting.application?.mode !== "singleActivation") return null;
-  if (setting.application.expiration === "ownerTurnStartNext") {
-    return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnStart" };
+  const expiration = setting.application.expiration;
+  const recipient = expiration?.startsWith("recipient");
+  if (["ownerTurnStartNext", "recipientTurnStartNext"].includes(expiration)) {
+    return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnStart", anchor: recipient ? "recipient" : "owner" };
   }
-  if (setting.application.expiration === "ownerTurnEndNext") {
-    return { durationAmount: 2, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd" };
+  if (["ownerTurnEndNext", "recipientTurnEndNext"].includes(expiration)) {
+    return { durationAmount: 2, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner" };
   }
-  return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd" };
+  return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner" };
 }
 
 function effectiveLifetime(setting) {
   return singleActivationLifetime(setting) ?? {
     durationAmount: Math.max(1, Number(setting.stacks.durationAmount) || 1),
     durationUnit: setting.stacks.durationUnit,
-    tickTiming: setting.stacks.tickTiming
+    tickTiming: setting.stacks.tickTiming,
+    anchor: setting.stacks.durationUnit === "recipientTurns" ? "recipient" : "owner"
   };
 }
 
@@ -346,10 +431,11 @@ function tickEntry(entry, setting, timing, combat) {
   return true;
 }
 
-function matchingTick(setting, timing, actorId, currentActorId) {
+function matchingTick(setting, timing, actorId, currentActorId, entry = null) {
   const lifetime = effectiveLifetime(setting);
-  if (lifetime.durationUnit === "ownerTurns") {
-    if (actorId !== currentActorId) return false;
+  if (["ownerTurns", "recipientTurns"].includes(lifetime.durationUnit)) {
+    const anchorActorId = lifetime.anchor === "recipient" ? entry?.recipientActorId : actorId;
+    if (!anchorActorId || anchorActorId !== currentActorId) return false;
     return timing === lifetime.tickTiming;
   }
   if (lifetime.durationUnit === "combatTurns") return timing === lifetime.tickTiming;
@@ -365,15 +451,55 @@ function singleAttackResolutionMatches(entry, setting, event) {
   return true;
 }
 
-function effectFlags(entry) {
+function effectFlags(entry, slot) {
   return {
     triggeredRuntime: true,
     ledgerVersion: LEDGER_VERSION,
+    sourceActorUuid: entry.sourceActorUuid,
     sourceItemId: entry.sourceItemId,
     triggerId: entry.triggerId,
+    recipientActorUuid: entry.recipientActorUuid,
+    effectSlot: slot,
     combatId: entry.combatId,
     stacks: entry.stacks
   };
+}
+
+function entryPayloads(setting, entry) {
+  const ids = new Set(entry.payloadIds ?? []);
+  const bindings = new Map((entry.payloadBindings ?? []).map(binding => [binding.id, binding.recipient]));
+  if (!ids.size) {
+    return (setting.effects ?? []).map(normalizeTriggeredEffectPayload)
+      .filter(payload => payload.recipient !== "target");
+  }
+  return (setting.effects ?? []).map(normalizeTriggeredEffectPayload).filter(payload => {
+    if (!ids.has(payload.id)) return false;
+    const boundRecipient = bindings.get(payload.id);
+    return !boundRecipient || boundRecipient === payload.recipient;
+  });
+}
+
+function effectReferenceId(entry, slot) {
+  return entry.effectRefs?.find(ref => ref.slot === slot)?.id ?? null;
+}
+
+function runtimeEffectMatches(effect, entry, slot = null) {
+  if (!effect?.getFlag?.(MODULE_ID, "triggeredRuntime")) return false;
+  const sourceActorUuid = effect.getFlag(MODULE_ID, "sourceActorUuid");
+  const sourceMatches = sourceActorUuid
+    ? sourceActorUuid === entry.sourceActorUuid
+    : effect.parent?.uuid === entry.sourceActorUuid;
+  if (!sourceMatches) return false;
+  if (effect.getFlag(MODULE_ID, "sourceItemId") !== entry.sourceItemId) return false;
+  if (effect.getFlag(MODULE_ID, "triggerId") !== entry.triggerId) return false;
+  const recipientActorUuid = effect.getFlag(MODULE_ID, "recipientActorUuid");
+  if (recipientActorUuid && recipientActorUuid !== entry.recipientActorUuid) return false;
+  if (slot !== null) {
+    const effectSlot = effect.getFlag(MODULE_ID, "effectSlot");
+    if (effectSlot && effectSlot !== slot) return false;
+    if (!effectSlot && slot !== "direct") return false;
+  }
+  return true;
 }
 
 export class ItemCreatorTriggeredEffectService {
@@ -407,7 +533,7 @@ export class ItemCreatorTriggeredEffectService {
       if (options?.itemCreatorRuntime) return;
       void this.#onCombatUpdated(combat, changes);
     });
-    Hooks.on("deleteCombat", combat => void this.clearCombat(combat.id));
+    Hooks.on("deleteCombat", combat => void this.clearCombat(combat.id, combat));
 
     Hooks.on("updateActor", (actor, _changes, options) => {
       if (options?.itemCreatorRuntime) return;
@@ -420,11 +546,18 @@ export class ItemCreatorTriggeredEffectService {
     Hooks.on("deleteItem", item => {
       if (item.parent?.documentName === "Actor") setTimeout(() => void this.syncActor(item.parent), 0);
     });
-    Hooks.on("deleteActiveEffect", (effect, options) => {
+    const reconcileRuntimeEffect = (effect, options) => {
       if (options?.itemCreatorRuntime || !effect.getFlag?.(MODULE_ID, "triggeredRuntime")) return;
-      if (effect.parent?.documentName === "Actor") setTimeout(() => void this.syncActor(effect.parent), 0);
+      const sourceActor = resolveActorDocument(effect.getFlag(MODULE_ID, "sourceActorUuid"))
+        ?? (effect.parent?.documentName === "Actor" ? effect.parent : null);
+      if (sourceActor) setTimeout(() => void this.syncActor(sourceActor), 0);
+    };
+    Hooks.on("updateActiveEffect", reconcileRuntimeEffect);
+    Hooks.on("deleteActiveEffect", reconcileRuntimeEffect);
+    Hooks.on("deleteActor", actor => {
+      this.#queues.delete(actor.uuid);
+      if (isAuthoritativeGM()) void this.#cleanupDeletedSourceActor(actor);
     });
-    Hooks.on("deleteActor", actor => this.#queues.delete(actor.uuid));
   }
 
   static async syncActor(actor) {
@@ -432,54 +565,97 @@ export class ItemCreatorTriggeredEffectService {
     return this.#enqueue(actor.uuid, async () => {
       const ledger = readLedger(actor);
       const combat = currentCombatForActor(actor);
+      const knownRecipients = new Map([[actor.uuid, actor]]);
+      for (const entry of ledger.entries.values()) {
+        if (entry.control) continue;
+        const recipient = resolveActorDocument(entry.recipientActorUuid, entry.recipientActorId);
+        if (recipient?.uuid) knownRecipients.set(recipient.uuid, recipient);
+      }
       let dirty = false;
       for (const [key, entry] of [...ledger.entries]) {
+        entry.sourceActorUuid ||= actor.uuid;
+        entry.sourceActorId ||= actor.id;
         const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
         const valid = Boolean(item && setting && combat && entry.combatId === combat.id
           && itemAvailable(item, setting.availability)
           && (!setting.unlockOnLevel || actorTotalLevel(actor) >= setting.unlockLevel));
         if (!valid) {
-          await this.#removeEntryEffect(actor, entry);
+          if (!entry.control) await this.#removeEntryEffects(entry);
           ledger.entries.delete(key);
           dirty = true;
           continue;
         }
+        if (entry.control) continue;
+        const recipient = resolveActorDocument(entry.recipientActorUuid, entry.recipientActorId);
+        if (!recipient) {
+          await this.#removeEntryEffects(entry);
+          ledger.entries.delete(key);
+          dirty = true;
+          continue;
+        }
+        entry.recipientActorUuid = recipient.uuid;
+        entry.recipientActorId = recipient.id;
+        const resolvedPayloads = entryPayloads(setting, entry);
+        entry.payloadIds = resolvedPayloads.map(payload => payload.id);
+        entry.payloadBindings = resolvedPayloads.map(payload => ({ id: payload.id, recipient: payload.recipient }));
         const maximum = setting.application?.mode === "singleActivation" ? 1 : setting.stacks.maximum;
         entry.stacks = Math.min(entry.stacks, maximum);
-        if (entry.stacks <= 0) {
-          await this.#removeEntryEffect(actor, entry);
+        if (entry.stacks <= 0 || !entry.payloadIds.length) {
+          await this.#removeEntryEffects(entry);
           ledger.entries.delete(key);
           dirty = true;
           continue;
         }
-        if (await this.#syncEntryEffect(actor, item, setting, entry)) dirty = true;
+        if (await this.#syncEntryEffects(actor, item, setting, entry)) dirty = true;
       }
 
-      const ledgerEffectIds = new Set([...ledger.entries.values()].map(entry => entry.effectId).filter(Boolean));
-      const orphanIds = actor.effects.filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
-        && !ledgerEffectIds.has(effect.id)).map(effect => effect.id);
-      if (orphanIds.length) {
-        await safeDeleteActiveEffects(actor, orphanIds, { itemCreatorRuntime: true });
-        dirty = true;
+      const referenced = new Set([...ledger.entries.values()].flatMap(entry =>
+        (entry.effectRefs ?? []).map(ref => `${entry.recipientActorUuid}:${ref.id}`)));
+      for (const recipient of knownRecipients.values()) {
+        const orphanIds = recipient.effects.filter(effect => {
+          if (!effect.getFlag(MODULE_ID, "triggeredRuntime")) return false;
+          const sourceActorUuid = effect.getFlag(MODULE_ID, "sourceActorUuid");
+          const belongsToSource = sourceActorUuid ? sourceActorUuid === actor.uuid : recipient.uuid === actor.uuid;
+          return belongsToSource && !referenced.has(`${recipient.uuid}:${effect.id}`);
+        }).map(effect => effect.id);
+        if (orphanIds.length) {
+          await safeDeleteActiveEffects(recipient, orphanIds, { itemCreatorRuntime: true });
+          dirty = true;
+        }
       }
       if (dirty || !this.#sameLedger(ledger.raw, ledger.entries)) await this.#writeLedger(actor, ledger.entries);
     });
   }
 
-  static async clearCombat(combatId) {
+  static async clearCombat(combatId, combatDocument = null) {
     if (!isAuthoritativeGM() || !combatId) return;
-    for (const actor of game.actors ?? []) {
+    const combat = combatDocument ?? game.combats?.get(combatId) ?? game.combat;
+    const candidates = actorCandidates(combat);
+    for (const actor of candidates) {
       await this.#enqueue(actor.uuid, async () => {
         const ledger = readLedger(actor);
         let changed = false;
         for (const [key, entry] of [...ledger.entries]) {
           if (entry.combatId !== combatId) continue;
-          await this.#removeEntryEffect(actor, entry);
+          if (!entry.control) await this.#removeEntryEffects(entry);
           ledger.entries.delete(key);
           changed = true;
         }
         if (changed) await this.#writeLedger(actor, ledger.entries);
       });
+    }
+    for (const recipient of candidates) {
+      const orphanIds = recipient.effects?.filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
+        && effect.getFlag(MODULE_ID, "combatId") === combatId).map(effect => effect.id) ?? [];
+      if (orphanIds.length) await safeDeleteActiveEffects(recipient, orphanIds, { itemCreatorRuntime: true, render: true });
+    }
+  }
+
+  static async #cleanupDeletedSourceActor(actor) {
+    if (actor?.documentName !== "Actor") return;
+    const ledger = readLedger(actor);
+    for (const entry of ledger.entries.values()) {
+      if (!entry.control) await this.#removeEntryEffects(entry);
     }
   }
 
@@ -493,7 +669,10 @@ export class ItemCreatorTriggeredEffectService {
         item: item.name, itemUuid: item.uuid, ...clone(setting)
       }))),
       ledger: clone(ledgerData(ledger.entries)),
-      effects: actor.effects.filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")).map(effect => effect.toObject())
+      effects: actorCandidates(currentCombatForActor(actor)).flatMap(recipient => recipient.effects
+        .filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
+          && (effect.getFlag(MODULE_ID, "sourceActorUuid") || actor.uuid) === actor.uuid)
+        .map(effect => ({ recipient: recipient.uuid, ...effect.toObject() })))
     };
   }
 
@@ -550,7 +729,9 @@ export class ItemCreatorTriggeredEffectService {
     if (!combat) return;
     const classification = attackClassification(activity);
     for (const [index, roll] of (rolls ?? []).entries()) {
-      const messageId = roll?.parent?.id ?? roll?.options?.messageId ?? "";
+      const message = sourceMessage(roll?.parent) ?? sourceMessage(roll?.options?.messageId);
+      const messageId = message?.id ?? roll?.parent?.id ?? roll?.options?.messageId ?? "";
+      const targetActorUuids = targetActorUuidsFromMessage(message);
       const natural = activeD20Result(roll);
       const critical = Boolean(roll?.isCritical);
       const hit = critical || Boolean(roll?.isSuccess);
@@ -576,6 +757,8 @@ export class ItemCreatorTriggeredEffectService {
         attackType: classification.type,
         weaponAttack: classification.weapon,
         spellAttack: classification.spell,
+        targetActorUuids,
+        targetActorUuid: targetActorUuids.length === 1 ? targetActorUuids[0] : "",
         timestamp: Date.now()
       };
       this.#emit({ ...base, id: eventId("attackRolled", base.rollKey), type: "attackRolled" });
@@ -592,12 +775,14 @@ export class ItemCreatorTriggeredEffectService {
     const combat = currentCombatForActor(actor);
     if (!combat) return;
     const messageId = results?.message?.id ?? "";
+    const targetActorUuids = targetActorUuidsFromMessage(results?.message);
     const activityUseId = messageId || `${activity.uuid}:${Date.now()}`;
     const base = {
       actorUuid: actor.uuid, actorId: actor.id, combatId: combat.id, round: combat.round, turn: combat.turn,
       itemUuid: item.uuid, itemId: item.id, itemName: item.name, itemIdentifier: item.system?.identifier ?? "",
       activityUuid: activity.uuid, activityId: activity.id, activityType: activity.type,
-      activityUseId, messageId, timestamp: Date.now()
+      activityUseId, messageId, targetActorUuids,
+      targetActorUuid: targetActorUuids.length === 1 ? targetActorUuids[0] : "", timestamp: Date.now()
     };
     const isSpell = item.type === "spell" || activity.isSpell;
     const hasAttack = activity.type === "attack" || Boolean(activity.attack);
@@ -691,7 +876,7 @@ export class ItemCreatorTriggeredEffectService {
       : context.item?.type === "spell" ? "spell" : context.item ? "feature" : "any";
     const base = {
       combatId: combat.id, round: combat.round, turn: combat.turn,
-      targetActorUuid: targetActor.uuid, targetActorId: targetActor.id,
+      targetActorUuid: targetActor.uuid, targetActorId: targetActor.id, targetActorUuids: [targetActor.uuid],
       sourceActorUuid: sourceActor?.uuid ?? "", sourceActorId: sourceActor?.id ?? "",
       itemUuid: context.itemUuid, itemId: context.item?.id ?? "", itemName: context.item?.name ?? "",
       itemIdentifier: context.item?.system?.identifier ?? "",
@@ -726,7 +911,7 @@ export class ItemCreatorTriggeredEffectService {
     };
     this.#combatBefore.delete(combat.id);
     if (before.started && !combat.started) {
-      await this.clearCombat(combat.id);
+      await this.clearCombat(combat.id, combat);
       return;
     }
     if (!before.started && combat.started) {
@@ -738,7 +923,10 @@ export class ItemCreatorTriggeredEffectService {
 
     const turnChanged = before.turn !== Number(combat.turn ?? -1) || before.round !== Number(combat.round ?? 0);
     if (!turnChanged || !combat.started) return;
-    const previousActor = before.actorId ? game.actors?.get(before.actorId) : null;
+    const previousActor = before.actorId
+      ? combat.combatants?.find(combatant => combatant.actorId === before.actorId || combatant.actor?.id === before.actorId)?.actor
+        ?? game.actors?.get(before.actorId) ?? null
+      : null;
     const currentActor = combat.combatant?.actor ?? null;
 
     if (previousActor) {
@@ -776,15 +964,16 @@ export class ItemCreatorTriggeredEffectService {
 
   static async #resolveSingleAttackEffects(event) {
     if (!isAuthoritativeGM()) return;
-    const actor = fromUuidSync(event.actorUuid, { strict: false }) ?? game.actors?.get(event.actorId);
+    const actor = resolveActorDocument(event.actorUuid, event.actorId);
     if (actor?.documentName !== "Actor") return;
     await this.#enqueue(actor.uuid, async () => {
       const ledger = readLedger(actor);
       let changed = false;
       for (const [key, entry] of [...ledger.entries]) {
+        if (entry.control) continue;
         const { setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
         if (!singleAttackResolutionMatches(entry, setting, event)) continue;
-        await this.#removeEntryEffect(actor, entry);
+        await this.#removeEntryEffects(entry);
         ledger.entries.delete(key);
         changed = true;
       }
@@ -794,10 +983,10 @@ export class ItemCreatorTriggeredEffectService {
 
   static async #processEvent(event) {
     if (!isAuthoritativeGM()) return;
-    const actor = fromUuidSync(event.actorUuid, { strict: false }) ?? game.actors?.get(event.actorId);
+    const actor = resolveActorDocument(event.actorUuid, event.actorId);
     if (actor?.documentName !== "Actor") return;
     const combat = game.combats?.get(event.combatId) ?? currentCombatForActor(actor);
-    if (!combat?.started || !combat.combatants?.some(combatant => combatant.actorId === actor.id)) return;
+    if (!combat?.started || !combat.combatants?.some(combatant => combatant.actorId === actor.id || combatant.actor?.id === actor.id)) return;
 
     await this.#enqueue(actor.uuid, async () => {
       const ledger = readLedger(actor);
@@ -808,23 +997,84 @@ export class ItemCreatorTriggeredEffectService {
           if (!itemAvailable(item, setting.availability)) continue;
           if (setting.unlockOnLevel && actorTotalLevel(actor) < setting.unlockLevel) continue;
           if (!triggerMatches(setting, event, item)) continue;
-          const key = `${item.id}:${setting.id}`;
-          const entry = ledger.entries.get(key) ?? normalizeEntry({
-            key, sourceItemId: item.id, triggerId: setting.id, combatId: combat.id
-          });
-          if (entry.combatId && entry.combatId !== combat.id) continue;
-          entry.combatId = combat.id;
-          const keyForActivation = activationKey(setting, event);
-          if (entry.recentActivationKeys.includes(keyForActivation)) continue;
-          if (setting.application?.mode === "singleActivation"
-            && setting.application.retrigger === "ignore" && entry.stacks > 0) continue;
-          if (!withinActivationLimits(entry, setting, combat)) continue;
-          entry.recentActivationKeys.push(keyForActivation);
-          entry.recentActivationKeys = entry.recentActivationKeys.slice(-MAX_RECENT_KEYS);
-          applyActivation(entry, setting, combat, event);
-          ledger.entries.set(key, entry);
-          await this.#syncEntryEffect(actor, item, setting, entry);
-          changed = true;
+
+          const controlKey = `${item.id}:${setting.id}:control`;
+          const control = ledger.entries.get(controlKey) ?? normalizeEntry({
+            key: controlKey,
+            control: true,
+            sourceActorUuid: actor.uuid,
+            sourceActorId: actor.id,
+            sourceItemId: item.id,
+            triggerId: setting.id,
+            combatId: combat.id
+          }, actor);
+          if (control.combatId && control.combatId !== combat.id) continue;
+          control.combatId = combat.id;
+
+          for (const cycle of activationCycles(setting, event)) {
+            if (control.recentActivationKeys.includes(cycle.activationKey)) continue;
+            const groups = recipientGroups(setting, actor, cycle.targetActorUuids);
+            if (!groups.length) {
+              if ((setting.effects ?? []).some(payload => normalizeTriggeredEffectPayload(payload).recipient === "target")) {
+                console.warn(`${MODULE_ID} | Triggered Effect "${setting.name}" skipped because the triggering event did not provide a valid target.`);
+              }
+              continue;
+            }
+
+            const eligible = [];
+            for (const group of groups) {
+              const key = `${item.id}:${setting.id}:${group.actor.uuid}`;
+              const existing = ledger.entries.get(key);
+              if (setting.application?.mode === "singleActivation"
+                && setting.application.retrigger === "ignore"
+                && existing?.combatId === combat.id && existing.stacks > 0) continue;
+              eligible.push({ ...group, key, existing });
+            }
+            if (!eligible.length) continue;
+            if (!withinActivationLimits(control, setting, combat)) continue;
+
+            for (const group of eligible) {
+              let entry = group.existing;
+              if (entry?.combatId && entry.combatId !== combat.id) {
+                await this.#removeEntryEffects(entry);
+                ledger.entries.delete(group.key);
+                entry = null;
+              }
+              entry ??= normalizeEntry({
+                key: group.key,
+                sourceActorUuid: actor.uuid,
+                sourceActorId: actor.id,
+                sourceItemId: item.id,
+                triggerId: setting.id,
+                combatId: combat.id,
+                recipientActorUuid: group.actor.uuid,
+                recipientActorId: group.actor.id,
+                payloadIds: group.payloadIds,
+                payloadBindings: group.payloadBindings
+              }, actor);
+              entry.key = group.key;
+              entry.control = false;
+              entry.sourceActorUuid = actor.uuid;
+              entry.sourceActorId = actor.id;
+              entry.sourceItemId = item.id;
+              entry.triggerId = setting.id;
+              entry.combatId = combat.id;
+              entry.recipientActorUuid = group.actor.uuid;
+              entry.recipientActorId = group.actor.id;
+              entry.payloadIds = [...group.payloadIds];
+              entry.payloadBindings = clone(group.payloadBindings);
+              applyActivation(entry, setting, combat, event);
+              ledger.entries.set(group.key, entry);
+              await this.#syncEntryEffects(actor, item, setting, entry);
+            }
+
+            control.recentActivationKeys.push(cycle.activationKey);
+            control.recentActivationKeys = control.recentActivationKeys.slice(-MAX_RECENT_KEYS);
+            control.lastEventId = String(event.id ?? "");
+            control.lastTriggerMoment = combatMoment(combat);
+            ledger.entries.set(controlKey, control);
+            changed = true;
+          }
         }
       }
       if (changed) await this.#writeLedger(actor, ledger.entries);
@@ -833,9 +1083,12 @@ export class ItemCreatorTriggeredEffectService {
 
   static async #tickCombat(combat, timing, currentActorId) {
     if (!isAuthoritativeGM()) return;
+    const sourceActors = new Map();
     for (const combatant of combat.combatants ?? []) {
       const actor = combatant.actor;
-      if (!actor) continue;
+      if (actor?.uuid) sourceActors.set(actor.uuid, actor);
+    }
+    for (const actor of sourceActors.values()) {
       await this.#enqueue(actor.uuid, async () => {
         const ledger = readLedger(actor);
         let changed = false;
@@ -844,17 +1097,18 @@ export class ItemCreatorTriggeredEffectService {
           const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
           if (!item || !setting || !itemAvailable(item, setting.availability)
             || (setting.unlockOnLevel && actorTotalLevel(actor) < setting.unlockLevel)) {
-            await this.#removeEntryEffect(actor, entry);
+            if (!entry.control) await this.#removeEntryEffects(entry);
             ledger.entries.delete(key);
             changed = true;
             continue;
           }
-          if (!matchingTick(setting, timing, actor.id, currentActorId)) continue;
+          if (entry.control) continue;
+          if (!matchingTick(setting, timing, actor.id, currentActorId, entry)) continue;
           if (!tickEntry(entry, setting, timing, combat)) continue;
           if (entry.stacks <= 0) {
-            await this.#removeEntryEffect(actor, entry);
+            await this.#removeEntryEffects(entry);
             ledger.entries.delete(key);
-          } else await this.#syncEntryEffect(actor, item, setting, entry);
+          } else await this.#syncEntryEffects(actor, item, setting, entry);
           changed = true;
         }
         if (changed) await this.#writeLedger(actor, ledger.entries);
@@ -862,50 +1116,165 @@ export class ItemCreatorTriggeredEffectService {
     }
   }
 
-  static async #syncEntryEffect(actor, item, setting, entry) {
-    const changes = buildTriggeredEffectChanges(setting, entry.stacks, actor);
-    const current = entry.effectId ? actor.effects?.get(entry.effectId) : actor.effects?.find(effect =>
-      effect.getFlag(MODULE_ID, "triggeredRuntime")
-      && effect.getFlag(MODULE_ID, "sourceItemId") === item.id
-      && effect.getFlag(MODULE_ID, "triggerId") === setting.id);
-    const flags = effectFlags(entry);
-    const name = `Item Creator — ${setting.name} (${entry.stacks})`;
-    const data = {
-      name,
-      img: item.img || "icons/svg/aura.svg",
-      origin: item.uuid,
-      transfer: false,
-      disabled: false,
-      statuses: [],
-      system: { changes },
-      flags: { [MODULE_ID]: flags }
-    };
-    if (!current) {
-      const [created] = await actor.createEmbeddedDocuments("ActiveEffect", [data], { itemCreatorRuntime: true, render: true });
-      entry.effectId = created?.id ?? null;
-      return true;
+  static async #effectDescriptors(item, setting, entry, recipient) {
+    const payloads = entryPayloads(setting, entry);
+    const descriptors = [];
+    const directPayloads = payloads.filter(payload => payload.type !== "selectedSpellEffects");
+    const directChanges = buildTriggeredEffectChanges(setting, entry.stacks, recipient, { payloads: directPayloads });
+    if (directChanges.length) {
+      descriptors.push({
+        slot: "direct",
+        name: `Item Creator — ${setting.name} (${entry.stacks})`,
+        img: item.img || "icons/svg/aura.svg",
+        changes: directChanges,
+        statuses: [],
+        flags: {}
+      });
     }
-    entry.effectId = current.id;
-    const currentChanges = current.system?.changes ?? current.changes ?? [];
-    const changed = current.name !== name || current.origin !== item.uuid || current.disabled
-      || JSON.stringify(currentChanges) !== JSON.stringify(changes)
-      || JSON.stringify(current.flags?.[MODULE_ID] ?? {}) !== JSON.stringify(flags);
-    if (changed) {
-      await actor.updateEmbeddedDocuments("ActiveEffect", [{
-        _id: current.id, name, img: data.img, origin: item.uuid, disabled: false,
-        "system.changes": changes, [`flags.${MODULE_ID}`]: flags
-      }], { itemCreatorRuntime: true, render: true });
+
+    for (const payload of payloads.filter(row => row.type === "selectedSpellEffects")) {
+      let snapshots = clone(payload.spellEffects ?? []);
+      if (!snapshots.length && payload.spellUuid) {
+        try {
+          const spell = await fromUuid(payload.spellUuid);
+          snapshots = extractSelectedSpellEffects(spell);
+        } catch (error) {
+          console.warn(`${MODULE_ID} | Unable to resolve selected Spell effects for ${payload.spellName || payload.spellUuid}.`, error);
+        }
+      }
+      for (const [index, snapshot] of snapshots.entries()) {
+        const snapshotId = String(snapshot?.id ?? index);
+        descriptors.push({
+          slot: `spell:${payload.id}:${snapshotId}`,
+          name: `Item Creator — ${setting.name}: ${payload.spellName || "Selected Spell"}${snapshot?.name ? ` — ${snapshot.name}` : ""}`,
+          img: snapshot?.img || payload.spellImg || item.img || "icons/svg/aura.svg",
+          changes: clone(snapshot?.changes ?? []),
+          statuses: valuesOf(snapshot?.statuses).map(String).filter(Boolean),
+          flags: clone(snapshot?.flags ?? {})
+        });
+      }
     }
+    return descriptors;
+  }
+
+  static #findRuntimeEffect(recipient, entry, slot) {
+    const referenceId = effectReferenceId(entry, slot);
+    const referenced = referenceId ? recipient.effects?.get(referenceId) : null;
+    if (runtimeEffectMatches(referenced, entry, slot)) return referenced;
+    return recipient.effects?.find(effect => runtimeEffectMatches(effect, entry, slot)) ?? null;
+  }
+
+  static async #syncEntryEffects(sourceActor, item, setting, entry) {
+    const recipient = resolveActorDocument(entry.recipientActorUuid, entry.recipientActorId);
+    if (!recipient) return false;
+    entry.sourceActorUuid = sourceActor.uuid;
+    entry.sourceActorId = sourceActor.id;
+    entry.recipientActorUuid = recipient.uuid;
+    entry.recipientActorId = recipient.id;
+
+    const descriptors = await this.#effectDescriptors(item, setting, entry, recipient);
+    const desiredSlots = new Set(descriptors.map(descriptor => descriptor.slot));
+    let changed = false;
+    const nextRefs = [];
+
+    for (const descriptor of descriptors) {
+      const runtimeFlags = effectFlags(entry, descriptor.slot);
+      const flags = foundry.utils.mergeObject(clone(descriptor.flags ?? {}), {
+        [MODULE_ID]: runtimeFlags
+      }, { inplace: false, recursive: true, overwrite: true });
+      const data = {
+        name: descriptor.name,
+        img: descriptor.img,
+        origin: item.uuid,
+        transfer: false,
+        disabled: false,
+        duration: {},
+        statuses: descriptor.statuses,
+        system: { changes: descriptor.changes },
+        flags
+      };
+      const current = this.#findRuntimeEffect(recipient, entry, descriptor.slot);
+      if (!current) {
+        const [created] = await recipient.createEmbeddedDocuments("ActiveEffect", [data], {
+          itemCreatorRuntime: true, render: true
+        });
+        if (created?.id) nextRefs.push({ slot: descriptor.slot, id: created.id });
+        changed = true;
+        continue;
+      }
+
+      nextRefs.push({ slot: descriptor.slot, id: current.id });
+      const currentChanges = current.system?.changes ?? current.changes ?? [];
+      const currentStatuses = valuesOf(current.statuses).map(String).filter(Boolean);
+      const currentFlags = clone(current.flags ?? {});
+      const needsUpdate = current.name !== descriptor.name
+        || current.img !== descriptor.img
+        || current.origin !== item.uuid
+        || current.disabled
+        || current.transfer
+        || JSON.stringify(currentChanges) !== JSON.stringify(descriptor.changes)
+        || JSON.stringify(currentStatuses) !== JSON.stringify(descriptor.statuses)
+        || JSON.stringify(currentFlags) !== JSON.stringify(flags);
+      if (needsUpdate) {
+        await recipient.updateEmbeddedDocuments("ActiveEffect", [{
+          _id: current.id,
+          name: descriptor.name,
+          img: descriptor.img,
+          origin: item.uuid,
+          transfer: false,
+          disabled: false,
+          duration: {},
+          statuses: descriptor.statuses,
+          "system.changes": descriptor.changes,
+          flags
+        }], { itemCreatorRuntime: true, render: true });
+        changed = true;
+      }
+    }
+
+    const staleIds = [];
+    for (const ref of entry.effectRefs ?? []) {
+      if (desiredSlots.has(ref.slot)) continue;
+      const effect = recipient.effects?.get(ref.id);
+      if (effect) staleIds.push(effect.id);
+    }
+    for (const effect of recipient.effects ?? []) {
+      if (!effect.getFlag(MODULE_ID, "triggeredRuntime")) continue;
+      if (effect.getFlag(MODULE_ID, "sourceActorUuid") !== entry.sourceActorUuid) continue;
+      if (effect.getFlag(MODULE_ID, "sourceItemId") !== entry.sourceItemId) continue;
+      if (effect.getFlag(MODULE_ID, "triggerId") !== entry.triggerId) continue;
+      if (effect.getFlag(MODULE_ID, "recipientActorUuid") !== entry.recipientActorUuid) continue;
+      const slot = effect.getFlag(MODULE_ID, "effectSlot");
+      if (!desiredSlots.has(slot) && !staleIds.includes(effect.id)) staleIds.push(effect.id);
+    }
+    if (staleIds.length) {
+      await safeDeleteActiveEffects(recipient, staleIds, { itemCreatorRuntime: true, render: true });
+      changed = true;
+    }
+
+    entry.effectRefs = nextRefs;
     return changed;
   }
 
-  static async #removeEntryEffect(actor, entry) {
-    const effect = entry.effectId ? actor.effects?.get(entry.effectId) : actor.effects?.find(candidate =>
-      candidate.getFlag(MODULE_ID, "triggeredRuntime")
-      && candidate.getFlag(MODULE_ID, "sourceItemId") === entry.sourceItemId
-      && candidate.getFlag(MODULE_ID, "triggerId") === entry.triggerId);
-    if (effect) await safeDeleteActiveEffects(actor, [effect.id], { itemCreatorRuntime: true, render: true });
-    entry.effectId = null;
+  static async #removeEntryEffects(entry) {
+    const recipient = resolveActorDocument(entry.recipientActorUuid, entry.recipientActorId);
+    if (!recipient) {
+      entry.effectRefs = [];
+      return false;
+    }
+    const ids = new Set();
+    for (const ref of entry.effectRefs ?? []) {
+      const effect = recipient.effects?.get(ref.id);
+      if (runtimeEffectMatches(effect, entry, ref.slot)) ids.add(effect.id);
+    }
+    for (const effect of recipient.effects ?? []) {
+      if (runtimeEffectMatches(effect, entry)) ids.add(effect.id);
+    }
+    if (ids.size) {
+      await safeDeleteActiveEffects(recipient, [...ids], { itemCreatorRuntime: true, render: true });
+    }
+    entry.effectRefs = [];
+    return Boolean(ids.size);
   }
 
   static async #writeLedger(actor, entries) {
@@ -931,5 +1300,10 @@ export const __triggeredEffectTest = Object.freeze({
   matchingTick,
   singleAttackResolutionMatches,
   activationKey,
+  activationCycles,
+  recipientGroups,
+  effectFlags,
+  entryPayloads,
+  runtimeEffectMatches,
   matchesAttackType
 });

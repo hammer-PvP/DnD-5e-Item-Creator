@@ -72,7 +72,7 @@ export const ACTIVATION_COUNTING = Object.freeze([
   ["perActivity", "Once per Activity"],
   ["perAttackRoll", "Once per Attack Roll"],
   ["perSuccessfulAttack", "Once per Successful Attack Roll"],
-  ["perTarget", "Once per Damaged Target"],
+  ["perTarget", "Once per Trigger Target"],
   ["perTurn", "Once per Turn"],
   ["perRound", "Once per Round"]
 ]);
@@ -85,7 +85,15 @@ export const APPLICATION_MODES = Object.freeze([
 export const SINGLE_ACTIVATION_EXPIRATIONS = Object.freeze([
   ["ownerTurnEndCurrent", "End of Owner's Current Turn"],
   ["ownerTurnStartNext", "Start of Owner's Next Turn"],
-  ["ownerTurnEndNext", "End of Owner's Next Turn"]
+  ["ownerTurnEndNext", "End of Owner's Next Turn"],
+  ["recipientTurnEndCurrent", "End of Effect Recipient's Current Turn"],
+  ["recipientTurnStartNext", "Start of Effect Recipient's Next Turn"],
+  ["recipientTurnEndNext", "End of Effect Recipient's Next Turn"]
+]);
+
+export const EFFECT_RECIPIENTS = Object.freeze([
+  ["owner", "Item Owner"],
+  ["target", "Trigger Target(s)"]
 ]);
 
 export const RETRIGGER_BEHAVIORS = Object.freeze([
@@ -104,6 +112,7 @@ export const STACK_BEHAVIORS = Object.freeze([
 
 export const DURATION_UNITS = Object.freeze([
   ["ownerTurns", "Owner Turns"],
+  ["recipientTurns", "Effect Recipient Turns"],
   ["combatTurns", "Combat Turns"],
   ["rounds", "Rounds"]
 ]);
@@ -112,6 +121,10 @@ export const TICK_TIMINGS = Object.freeze({
   ownerTurns: Object.freeze([
     ["ownerTurnStart", "Start of Owner Turn"],
     ["ownerTurnEnd", "End of Owner Turn"]
+  ]),
+  recipientTurns: Object.freeze([
+    ["ownerTurnStart", "Start of Effect Recipient Turn"],
+    ["ownerTurnEnd", "End of Effect Recipient Turn"]
   ]),
   combatTurns: Object.freeze([
     ["combatTurnStart", "Start of Combat Turn"],
@@ -140,7 +153,8 @@ export const TRIGGER_EFFECT_TYPES = Object.freeze([
   ["damageResistance", "Damage Resistance"],
   ["damageImmunity", "Damage Immunity"],
   ["conditionImmunity", "Condition Immunity"],
-  ["actorCriticalThreshold", "Actor Critical Threshold"]
+  ["actorCriticalThreshold", "Actor Critical Threshold"],
+  ["selectedSpellEffects", "Apply Effects from Selected Spell"]
 ]);
 
 export const VALUE_CALCULATIONS = Object.freeze([
@@ -195,7 +209,12 @@ export function defaultTriggeredEffectPayload(type = "spellAttackBonus") {
     damageType: "fire",
     condition: "charmed",
     criticalScope: "all",
-    criticalThreshold: 19
+    criticalThreshold: 19,
+    recipient: "owner",
+    spellUuid: "",
+    spellName: "",
+    spellImg: "",
+    spellEffects: []
   };
 }
 
@@ -274,7 +293,12 @@ export function normalizeTriggeredEffectPayload(value = {}) {
     damageType: value.damageType || "fire",
     condition: value.condition || "charmed",
     criticalScope: ["weapon", "spell", "all"].includes(value.criticalScope) ? value.criticalScope : "all",
-    criticalThreshold: Math.clamp(Number(value.criticalThreshold) || 19, 1, 20)
+    criticalThreshold: Math.clamp(Number(value.criticalThreshold) || 19, 1, 20),
+    recipient: validChoice(EFFECT_RECIPIENTS, value.recipient, fallback.recipient),
+    spellUuid: String(value.spellUuid ?? "").trim(),
+    spellName: String(value.spellName ?? "").trim(),
+    spellImg: String(value.spellImg ?? "").trim(),
+    spellEffects: Array.isArray(value.spellEffects) ? clone(value.spellEffects) : []
   };
 }
 
@@ -361,6 +385,9 @@ export function validateTriggeredEffectPayload(value) {
   if (row.type === "conditionImmunity" && !row.condition) return false;
   if (row.type === "actorCriticalThreshold" && (!(row.criticalThreshold >= 1 && row.criticalThreshold <= 20)
     || !["weapon", "spell", "all"].includes(row.criticalScope))) return false;
+  if (!EFFECT_RECIPIENTS.some(([recipient]) => recipient === row.recipient)) return false;
+  if (row.type === "selectedSpellEffects"
+    && !String(row.spellUuid ?? "").trim() && !row.spellEffects.length) return false;
   return true;
 }
 
@@ -420,7 +447,7 @@ function addChange(changes, key, mode, value, priority = null) {
   changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
-export function buildTriggeredEffectChanges(setting, stacks, actor = null) {
+export function buildTriggeredEffectChanges(setting, stacks, actor = null, { payloads = null } = {}) {
   const add = CONST.ACTIVE_EFFECT_MODES.ADD;
   const downgrade = CONST.ACTIVE_EFFECT_MODES.DOWNGRADE;
   const changes = [];
@@ -433,13 +460,14 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null) {
     if (!Number.isFinite(highestSpellcasting)) highestSpellcasting = Number(actor.system?.abilities?.[actor.system?.attributes?.spellcasting]?.mod ?? 0) || 0;
   }
 
-  for (const source of setting.effects ?? []) {
+  for (const source of payloads ?? setting.effects ?? []) {
     const row = normalizeTriggeredEffectPayload(source);
     let value = formulaForPayload(row, stacks);
     if (row.calculation === "highestSpellcasting") {
       const multiplier = row.scaling === "perStack" ? Math.max(1, Number(stacks) || 1) : 1;
       value = String((Number(highestSpellcasting) || 0) * multiplier);
     }
+    if (row.type === "selectedSpellEffects") continue;
     switch (row.type) {
       case "spellAttackBonus":
         addChange(changes, "system.bonuses.msak.attack", add, value);
@@ -602,33 +630,40 @@ function calculationSummary(row) {
 
 function payloadSummary(source, setting) {
   const row = normalizeTriggeredEffectPayload(source);
+  const recipient = row.recipient === "target" ? "trigger target(s)" : "Item owner";
+  const toRecipient = text => `${recipient}: ${text}`;
+  if (row.type === "selectedSpellEffects") {
+    const spell = row.spellName || "the selected Spell";
+    const count = row.spellEffects.length ? `; ${row.spellEffects.length} embedded effect(s)` : "";
+    return toRecipient(`transferable Active Effects from ${spell}${count} (effect only; no Spell cast, slot/action, saving throw, original duration, or concentration)`);
+  }
   const value = calculationSummary(row);
   const scaling = setting.application.mode === "singleActivation" || row.scaling !== "perStack"
     ? " while active" : " per stack";
   if (row.type === "movementBonus") {
     const movement = localizedConfigLabel(CONFIG.DND5E.movementTypes, row.movementType, row.movementType);
-    return `${movement} speed ${value} ft${scaling}`;
+    return toRecipient(`${movement} speed ${value} ft${scaling}`);
   }
   if (row.type === "savingThrowBonus") {
     const ability = row.ability === "all" ? "all saving throws"
       : `${localizedConfigLabel(CONFIG.DND5E.abilities, row.ability, row.ability)} saving throws`;
-    return `${value} to ${ability}${scaling}`;
+    return toRecipient(`${value} to ${ability}${scaling}`);
   }
   if (row.type === "damageResistance") {
-    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage resistance`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage resistance`);
   }
   if (row.type === "damageImmunity") {
-    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage immunity`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage immunity`);
   }
   if (row.type === "conditionImmunity") {
-    return `${localizedConfigLabel(CONFIG.DND5E.conditionTypes, row.condition, row.condition)} condition immunity`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.conditionTypes, row.condition, row.condition)} condition immunity`);
   }
   if (row.type === "actorCriticalThreshold") {
     const scope = row.criticalScope === "weapon" ? "weapon attacks" : row.criticalScope === "spell" ? "spell attacks" : "all attacks";
-    return `critical hit on ${row.criticalThreshold === 20 ? "20" : `${row.criticalThreshold}–20`} for ${scope}`;
+    return toRecipient(`critical hit on ${row.criticalThreshold === 20 ? "20" : `${row.criticalThreshold}–20`} for ${scope}`);
   }
   const label = optionLabel(TRIGGER_EFFECT_TYPES, row.type, row.type);
-  return `${label} ${value}${scaling}`;
+  return toRecipient(`${label} ${value}${scaling}`);
 }
 
 function frequencySummary(setting) {
@@ -640,7 +675,7 @@ function frequencySummary(setting) {
 }
 
 function durationUnitPhrase(unit, amount = 1) {
-  const singular = { ownerTurns: "Owner Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
+  const singular = { ownerTurns: "Owner Turn", recipientTurns: "Effect Recipient Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
   if (!singular) return optionLabel(DURATION_UNITS, unit, unit);
   return Number(amount) === 1 ? singular : `${singular}s`;
 }
@@ -673,6 +708,53 @@ export function triggeredEffectSummary(value) {
   const trigger = triggerSummary(setting);
   const effects = setting.effects.map(effect => payloadSummary(effect, setting)).join("; ");
   return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.`;
+}
+
+function collectionValues(value) {
+  if (value instanceof Set) return [...value];
+  if (Array.isArray(value)) return [...value];
+  if (value instanceof Map) return [...value.values()];
+  if (value?.values instanceof Function) {
+    try { return [...value.values()]; } catch (_error) { /* fall through */ }
+  }
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
+function sanitizedSpellEffectFlags(value = {}) {
+  const flags = clone(value ?? {});
+  delete flags[MODULE_ID];
+  if (flags.core) {
+    delete flags.core.sourceId;
+    if (!Object.keys(flags.core).length) delete flags.core;
+  }
+  if (flags.dnd5e) {
+    for (const key of ["dependentOn", "dependents", "concentration"]) delete flags.dnd5e[key];
+    if (!Object.keys(flags.dnd5e).length) delete flags.dnd5e;
+  }
+  return flags;
+}
+
+export function extractSelectedSpellEffects(document) {
+  const effects = collectionValues(document?.effects);
+  const snapshots = [];
+  for (const effect of effects) {
+    const data = effect?.toObject instanceof Function ? effect.toObject() : clone(effect ?? {});
+    if (data.disabled) continue;
+    const changes = clone(data.system?.changes ?? data.changes ?? []);
+    const statuses = collectionValues(data.statuses).map(String).filter(Boolean);
+    const flags = sanitizedSpellEffectFlags(data.flags ?? {});
+    if (!changes.length && !statuses.length && !Object.keys(flags).length) continue;
+    snapshots.push({
+      id: String(data._id ?? data.id ?? foundry.utils.randomID()),
+      name: String(data.name ?? document?.name ?? "Spell Effect"),
+      img: String(data.img ?? document?.img ?? ""),
+      changes,
+      statuses,
+      flags
+    });
+  }
+  return snapshots;
 }
 
 export function isNumericTriggeredEffect(type) {

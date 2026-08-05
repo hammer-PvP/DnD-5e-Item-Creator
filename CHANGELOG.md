@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0c — Target Recipients and Selected Spell Effects
+
+### Target-aware Applied Effects
+
+- Added **Effect Recipient** to every Triggered Effect payload without changing the existing creation flow or removing any current effect type.
+- **Item Owner** preserves all prior behavior. **Trigger Target(s)** applies the payload to the Actor targets recorded by the D&D5e Activity or attack.
+- Resource and Feature triggers can therefore deliver effects to their selected targets, while attack-hit triggers can deliver effects to the creature hit. Damage and healing events use the Actor that actually received the change.
+- Target payloads never silently fall back to the Item owner. When an event has no valid target, only the target-bound payload is skipped.
+- Added one ledger entry per recipient and one shared activation-control entry per Trigger, preserving per-Activity, per-target, per-turn, per-round, and duplicate-event limits across multiple recipients.
+
+### Effects from a selected Spell
+
+- Added **Apply Effects from Selected Spell** to Applied Effects, using the native D&D5e Spell browser.
+- The selected Spell's enabled, transferable Active Effects and conditions are snapshotted into the Item so the result remains deterministic and does not depend on a live cast.
+- The runtime copies those effects directly to the chosen recipient. It does not cast the Spell, consume a slot or action, execute the Spell's targeting, damage, healing, saving throw, template, or other Activities, retain its original duration, or create concentration.
+- Spells with no transferable Active Effects are rejected during selection instead of creating an inert configuration.
+- Multiple embedded effects from one Spell are tracked and cleaned independently, while still belonging to one Trigger application.
+
+### Recipient-based lifetimes
+
+- Added Single Activation expiration at the end of the recipient's current turn, the start of the recipient's next turn, or the end of the recipient's next turn.
+- Added **Effect Recipient Turns** to the existing stacked duration units. Owner Turns, Combat Turns, Rounds, Single Attack, and every existing stack behavior remain unchanged.
+- Remote effects are removed when their Trigger expires, the source Item is unequipped or deleted, its Attunement/level requirement is lost, the Active Effect is reconciled, or the Combat ends.
+
+### Description and compatibility
+
+- Generated summaries now identify the recipient of every payload and explain selected-Spell effects as effect copying rather than spellcasting.
+- Renamed per-target activation counting to **Once per Trigger Target** for general attack, Feature, resource, damage, and healing use.
+- Increased the Item Creator document schema to 8 and the Triggered Effect runtime ledger to version 2. Existing payloads default to **Item Owner**, and version-1 ledger entries migrate to owner-recipient entries without changing their behavior.
+
 ## 0.5.0b — Trigger Clarity and Single-Activation Lifetimes
 
 ### Clear Spell trigger intent

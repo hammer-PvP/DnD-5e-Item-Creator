@@ -10,10 +10,10 @@ import {
   normalizeResourceModification, resourceGroups, resourceModificationLabel, validateResourceModification
 } from "../services/resource-modification-registry.mjs";
 import {
-  ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, DURATION_UNITS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
+  ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, DURATION_UNITS, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
-  defaultTriggeredEffect, defaultTriggeredEffectPayload, isDamageTriggeredEffect, isNumericTriggeredEffect,
+  defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
   isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
 } from "../services/triggered-effect-registry.mjs";
@@ -1517,6 +1517,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           ...effect,
           index: effectIndex + 1,
           typeOptions: fixedOptions(TRIGGER_EFFECT_TYPES, effect.type),
+          recipientOptions: fixedOptions(EFFECT_RECIPIENTS, effect.recipient),
           calculationOptions: fixedOptions(VALUE_CALCULATIONS, effect.calculation),
           scalingOptions: fixedOptions(EFFECT_SCALING, effect.scaling),
           dieOptions: [4, 6, 8, 10, 12, 20].map(die => ({ value: die, label: `d${die}`, selected: die === Number(effect.die) })),
@@ -1534,6 +1535,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isDamageTrait: ["damageResistance", "damageImmunity"].includes(effect.type),
           isConditionTrait: effect.type === "conditionImmunity",
           isCriticalThreshold: effect.type === "actorCriticalThreshold",
+          isSelectedSpellEffects: effect.type === "selectedSpellEffects",
+          showScaling: effect.type !== "selectedSpellEffects",
+          selectedSpellEffectCount: Array.isArray(effect.spellEffects) ? effect.spellEffects.length : 0,
           isDamageEffect: isDamageTriggeredEffect(effect.type),
           isTrait: isTraitTriggeredEffect(effect.type)
         };
@@ -1855,6 +1859,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     root.querySelectorAll('[data-action="browse-trigger-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "spell")));
     root.querySelectorAll('[data-action="browse-trigger-feature"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "feature")));
+    root.querySelectorAll('[data-action="browse-trigger-effect-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredEffectSpell(event)));
     root.querySelectorAll('[data-action="add-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#addTriggeredPayload(event)));
     root.querySelectorAll('[data-action="remove-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredPayload(event)));
     root.querySelectorAll('[data-trigger-payload-input]').forEach(input => {
@@ -3797,8 +3802,58 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else value = event.currentTarget.value;
     payload[part] = value;
     if (!commit) return;
+    if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
     if (render) this.#renderPreservingScroll();
+  }
+
+  async #browseTriggeredEffectSpell(event) {
+    event.preventDefault();
+    if (this.triggerBrowserOpen) return;
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    const payload = row?.effects?.find(entry => entry.id === event.currentTarget.dataset.payloadId);
+    if (!row || !payload) return;
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error("The native D&D5e Compendium Browser is unavailable.");
+      return;
+    }
+    this.triggerBrowserOpen = true;
+    this.#setBrowserBlock(true);
+    try {
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: "spells",
+        hint: "Select a Spell whose transferable Active Effects will be applied by this Triggered Effect.",
+        filters: { locked: { documentClass: "Item", types: new Set(["spell"]) } },
+        window: { modal: true }
+      });
+      if (!uuid) return;
+      const document = await fromUuid(uuid);
+      if (!isSpellItemDocument(document)) {
+        ui.notifications.warn("Select a Spell Item.");
+        return;
+      }
+      const snapshots = extractSelectedSpellEffects(document);
+      if (!snapshots.length) {
+        ui.notifications.warn(`${document.name} has no transferable Active Effects. No Spell was assigned.`);
+        return;
+      }
+      payload.type = "selectedSpellEffects";
+      payload.scaling = "fixed";
+      payload.spellUuid = document.uuid;
+      payload.spellName = document.name;
+      payload.spellImg = document.img ?? "";
+      payload.spellEffects = snapshots;
+      Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+      this.#renderPreservingScroll();
+    } catch (error) {
+      console.error(`${MODULE_ID} | Triggered Effect Spell browser failed.`, error);
+      ui.notifications.error("Item Creator could not open the Spell effect browser.");
+    } finally {
+      this.triggerBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
   }
 
   async #browseTriggeredSource(event, kind) {

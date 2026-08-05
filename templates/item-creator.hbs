@@ -888,7 +888,7 @@
         <header>
           <span class="ic-kicker">Event-driven Item Powers</span>
           <h3>Triggered Effects</h3>
-          <p>Create temporary bearer effects that react to attacks, Spells, resource spending, damage, healing, or combat timing. Stacks and all runtime state are removed when the Combat ends.</p>
+          <p>Create temporary effects for the Item owner or the trigger's target(s). They can react to attacks, Spells, resource spending, damage, healing, or combat timing. Stacks and all runtime state are removed when the Combat ends.</p>
         </header>
 
         {{#if triggeredEffectRows.length}}
@@ -993,7 +993,7 @@
                   {{/if}}
                 </div>
                 {{#if isSingleActivation}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>Single Activation applies one non-stacking temporary effect. Choose whether a new trigger refreshes its lifetime or is ignored while the effect is already active. This mode is available for every trigger category. If the owner is not currently taking a turn, the next matching owner-turn boundary is used.</span></aside>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>Single Activation applies one non-stacking temporary effect. Expiration can follow the Item owner's turn or the effect recipient's turn. Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect. If the selected Actor is not currently taking a turn, the next matching turn boundary is used.</span></aside>
                 {{else if isSingleAttack}}
                 <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
                 {{else}}
@@ -1009,9 +1009,13 @@
                     <header><strong>Effect {{index}}</strong><button type="button" class="ic-row-remove" data-action="remove-triggered-payload" data-trigger-id="{{../id}}" data-payload-id="{{id}}" aria-label="Remove effect"><i class="fa-solid fa-trash"></i></button></header>
                     <div class="ic-triggered-grid four-columns">
                       <label class="ic-triggered-span-two"><span>Effect</span><select data-trigger-payload-input="type" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                      <label><span>Scaling</span><select data-trigger-payload-input="scaling" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <label><span>Effect Recipient</span><select data-trigger-payload-input="recipient" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each recipientOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if showScaling}}<label><span>Scaling</span><select data-trigger-payload-input="scaling" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
 
-                      {{#if isNumeric}}
+                      {{#if isSelectedSpellEffects}}
+                      <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect.</span></aside>
+                      {{else if isNumeric}}
                       <label><span>Calculation</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each calculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       {{#if isDice}}
                       <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
@@ -1035,6 +1039,7 @@
                   </article>
                   {{/each}}
                 </div>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-crosshairs"></i><span><strong>Trigger Target(s)</strong> uses the Actor targets recorded by the D&amp;D5e Activity or attack. Damage and healing events use the Actor that actually received the change. When no valid target exists, target effects are skipped; they never fall back to the Item owner. Formulas on normal effects use the recipient Actor's roll data. Recipient-turn expiration requires that recipient to have a Combat turn; otherwise Combat cleanup remains the final boundary.</span></aside>
                 <button type="button" class="ic-add-triggered-payload" data-action="add-triggered-payload" data-trigger-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Applied Effect</button>
               </section>
             </div>
