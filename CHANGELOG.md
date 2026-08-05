@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0d — Recipient Turn Duration Clarity
+
+### Duration reference
+
+- Renamed the stacked duration selector to **Duration Follows** and made its choices explicit: **Source Actor Turns (Item Owner)**, **Effect Recipient Turns**, **Every Combat Turn**, and **Combat Rounds**.
+- Target-bound effects now default to **Effect Recipient Turns** when no duration reference was explicitly chosen. Existing owner-only Triggered Effects keep their prior owner-turn behavior.
+- Duration references chosen in v0.5.0d are marked as explicit and are never overwritten by later normalization or recipient changes.
+- Single Activation target effects likewise default to the matching recipient-turn expiration unless the GM explicitly chooses a source-Actor boundary.
+- Added a contextual warning whenever target effects are intentionally timed by the source Actor, plus dynamic duration guidance that states exactly whose turns advance the effect.
+
+### Runtime and compatibility
+
+- Each target continues to use its own ledger entry and therefore loses copied Spell effects or other payloads according to that target's individual Combat turns.
+- Increased the Item Creator document schema to 9. v0.5.0c target rows still carrying the owner-turn default migrate to recipient turns. Other duration units are preserved, and choices made from v0.5.0d onward are recorded explicitly.
+
 ## 0.5.0c — Target Recipients and Selected Spell Effects
 
 ### Target-aware Applied Effects

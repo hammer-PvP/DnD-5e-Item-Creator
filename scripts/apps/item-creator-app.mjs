@@ -1542,6 +1542,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isTrait: isTraitTriggeredEffect(effect.type)
         };
       });
+      const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
+      const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration)
+        .find(option => option.selected)?.label ?? application.expiration;
+      const timingLabel = fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming)
+        .find(option => option.selected)?.label ?? stack.tickTiming;
+      const durationReference = stack.durationUnit === "recipientTurns"
+        ? "Each effect follows the turns of the Actor that received it. Every target has an independent duration."
+        : stack.durationUnit === "ownerTurns"
+          ? "The duration follows the source Actor who owns the Item, even when the effect is applied to a target."
+          : stack.durationUnit === "combatTurns"
+            ? "The duration advances on every Combat turn."
+            : "The duration advances once per Combat round.";
+      const durationGuidance = application.mode === "singleActivation"
+        ? `This application expires at ${expirationLabel}. Each recipient is tracked independently.`
+        : `${stack.durationAmount} ${stack.durationUnit === "recipientTurns" ? "Effect Recipient Turn(s)" : stack.durationUnit === "ownerTurns" ? "Source Actor Turn(s)" : stack.durationUnit === "combatTurns" ? "Combat Turn(s)" : "Combat Round(s)"}; ${timingLabel}. ${durationReference}`;
+      const targetClockWarning = hasTargetRecipients && (application.mode === "singleActivation"
+        ? application.expiration.startsWith("owner")
+        : stack.durationUnit === "ownerTurns");
       return {
         ...row,
         index: index + 1,
@@ -1589,6 +1607,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         showDurationFields: application.mode === "stacking" && ["refresh", "shared", "independent"].includes(stack.behavior),
         showDecayFields: application.mode === "stacking" && ["continuousDecay", "delayedDecay"].includes(stack.behavior),
         showInactivityGrace: application.mode === "stacking" && stack.behavior === "delayedDecay",
+        hasTargetRecipients,
+        targetClockWarning,
+        durationReference,
+        durationGuidance,
         effects: effectRows
       };
     });
@@ -3746,6 +3768,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.application.expiration ||= "ownerTurnEndCurrent";
       row.application.retrigger ||= "refresh";
     }
+    if (scope === "application" && part === "expiration") row.application.expirationExplicit = true;
 
     const singleAttackEligible = row.trigger.category === "attack"
       && ["attackHit", "criticalHit", "natural20"].includes(row.trigger.event);
@@ -3754,6 +3777,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     if (scope === "stacks" && part === "durationUnit") {
+      row.stacks.durationUnitExplicit = true;
       row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
     }
     if (scope === "stacks" && part === "behavior") {
@@ -3804,6 +3828,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!commit) return;
     if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+    if (part === "recipient") {
+      const normalized = normalizeTriggeredEffect(row);
+      Object.assign(row, normalized);
+    }
     if (render) this.#renderPreservingScroll();
   }
 

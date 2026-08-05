@@ -49,8 +49,8 @@ export const TRIGGER_EVENTS = Object.freeze({
     ["healingReceived", "Healing Received by the Wielder"]
   ]),
   combat: Object.freeze([
-    ["ownerTurnStart", "Start of Owner Turn"],
-    ["ownerTurnEnd", "End of Owner Turn"],
+    ["ownerTurnStart", "Start of Source Actor Turn"],
+    ["ownerTurnEnd", "End of Source Actor Turn"],
     ["roundStart", "Start of Round"],
     ["roundEnd", "End of Round"],
     ["combatStart", "Combat Started"]
@@ -83,9 +83,9 @@ export const APPLICATION_MODES = Object.freeze([
 ]);
 
 export const SINGLE_ACTIVATION_EXPIRATIONS = Object.freeze([
-  ["ownerTurnEndCurrent", "End of Owner's Current Turn"],
-  ["ownerTurnStartNext", "Start of Owner's Next Turn"],
-  ["ownerTurnEndNext", "End of Owner's Next Turn"],
+  ["ownerTurnEndCurrent", "End of Source Actor's Current Turn"],
+  ["ownerTurnStartNext", "Start of Source Actor's Next Turn"],
+  ["ownerTurnEndNext", "End of Source Actor's Next Turn"],
   ["recipientTurnEndCurrent", "End of Effect Recipient's Current Turn"],
   ["recipientTurnStartNext", "Start of Effect Recipient's Next Turn"],
   ["recipientTurnEndNext", "End of Effect Recipient's Next Turn"]
@@ -111,10 +111,10 @@ export const STACK_BEHAVIORS = Object.freeze([
 ]);
 
 export const DURATION_UNITS = Object.freeze([
-  ["ownerTurns", "Owner Turns"],
+  ["ownerTurns", "Source Actor Turns (Item Owner)"],
   ["recipientTurns", "Effect Recipient Turns"],
-  ["combatTurns", "Combat Turns"],
-  ["rounds", "Rounds"]
+  ["combatTurns", "Every Combat Turn"],
+  ["rounds", "Combat Rounds"]
 ]);
 
 export const TICK_TIMINGS = Object.freeze({
@@ -249,6 +249,7 @@ export function defaultTriggeredEffect() {
     application: {
       mode: "stacking",
       expiration: "ownerTurnEndCurrent",
+      expirationExplicit: false,
       retrigger: "refresh"
     },
     stacks: {
@@ -257,6 +258,7 @@ export function defaultTriggeredEffect() {
       behavior: "delayedDecay",
       durationAmount: 2,
       durationUnit: "ownerTurns",
+      durationUnitExplicit: false,
       tickTiming: "ownerTurnEnd",
       inactivityGrace: 2,
       decayAmount: 1
@@ -314,12 +316,38 @@ export function normalizeTriggeredEffect(value = {}) {
   // filters by migrating only that legacy shape to Any Spell Cast. New Specific Spell drafts carry
   // spellSelectionMode="specific" while the user is choosing the Spell and remain editable.
   if (category === "spell" && event === "specificSpellCast" && !selectedSpell && !explicitSpellSelection) event = "spellCast";
-  const durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
+
+  const effects = (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
+    .map(normalizeTriggeredEffectPayload);
+  const hasTargetRecipient = effects.some(effect => effect.recipient === "target");
+
+  const durationUnitExplicit = Boolean(value.stacks?.durationUnitExplicit);
+  let durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
+  // v0.5.0c introduced target recipients but left the default clock on the Item owner. When a row
+  // has target-bound payloads and no explicit clock choice, migrate it to each effect recipient's
+  // turns. A manual selection is recorded and always preserved.
+  if (!durationUnitExplicit) {
+    if (hasTargetRecipient && durationUnit === "ownerTurns") durationUnit = "recipientTurns";
+    else if (!hasTargetRecipient && durationUnit === "recipientTurns") durationUnit = "ownerTurns";
+  }
   const tickTiming = validChoice(TICK_TIMINGS[durationUnit] ?? [], value.stacks?.tickTiming,
     TICK_TIMINGS[durationUnit]?.[1]?.[0] ?? TICK_TIMINGS[durationUnit]?.[0]?.[0]);
+
   const applicationMode = validChoice(APPLICATION_MODES, value.application?.mode, fallback.application.mode);
-  const expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
+  const expirationExplicit = Boolean(value.application?.expirationExplicit);
+  let expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
+  if (!expirationExplicit) {
+    const ownerToRecipient = {
+      ownerTurnEndCurrent: "recipientTurnEndCurrent",
+      ownerTurnStartNext: "recipientTurnStartNext",
+      ownerTurnEndNext: "recipientTurnEndNext"
+    };
+    const recipientToOwner = Object.fromEntries(Object.entries(ownerToRecipient).map(([owner, recipient]) => [recipient, owner]));
+    if (hasTargetRecipient && ownerToRecipient[expiration]) expiration = ownerToRecipient[expiration];
+    else if (!hasTargetRecipient && recipientToOwner[expiration]) expiration = recipientToOwner[expiration];
+  }
   const retrigger = validChoice(RETRIGGER_BEHAVIORS, value.application?.retrigger, fallback.application.retrigger);
+
   return {
     ...fallback,
     ...clone(value),
@@ -347,6 +375,7 @@ export function normalizeTriggeredEffect(value = {}) {
       ...(clone(value.application ?? {})),
       mode: applicationMode,
       expiration,
+      expirationExplicit,
       retrigger
     },
     stacks: (() => {
@@ -360,13 +389,13 @@ export function normalizeTriggeredEffect(value = {}) {
         behavior,
         durationAmount: singleAttack ? 1 : Math.max(1, Number(value.stacks?.durationAmount) || 1),
         durationUnit: singleAttack ? "ownerTurns" : durationUnit,
+        durationUnitExplicit,
         tickTiming: singleAttack ? "ownerTurnEnd" : tickTiming,
         inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
         decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
       };
     })(),
-    effects: (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
-      .map(normalizeTriggeredEffectPayload)
+    effects
   };
 }
 

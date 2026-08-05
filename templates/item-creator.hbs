@@ -987,17 +987,20 @@
                   <label><span>Stacks Lost per Tick</span><input type="number" min="1" max="999" step="1" value="{{stacks.decayAmount}}" data-trigger-input="decayAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   {{/if}}
                   {{#if showTrackingFields}}
-                  <label><span>Tracking Unit</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Duration Follows</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{/if}}
                   {{/if}}
                 </div>
                 {{#if isSingleActivation}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>Single Activation applies one non-stacking temporary effect. Expiration can follow the Item owner's turn or the effect recipient's turn. Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect. If the selected Actor is not currently taking a turn, the next matching turn boundary is used.</span></aside>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect. If the selected Actor is not currently taking a turn, the next matching turn boundary is used.</span></aside>
                 {{else if isSingleAttack}}
                 <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
                 {{else}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>A duration of 1 Owner Turn set to End of Owner Turn expires when the owner's current turn ends. Ending or deleting the Combat removes all stacks and effects.</span></aside>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Ending or deleting the Combat removes all stacks and effects.</span></aside>
+                {{#if targetClockWarning}}
+                <aside class="ic-triggered-note ic-triggered-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>This Trigger applies one or more effects to target Actors, but the duration currently follows the <strong>source Actor</strong>. {{#if isSingleActivation}}Choose a recipient-based option under <strong>Expires At</strong> to count each target's own turn.{{else}}Choose <strong>Effect Recipient Turns</strong> under <strong>Duration Follows</strong> to count each target's own turns.{{/if}}</span></aside>
+                {{/if}}
                 {{/if}}
               </section>
 
@@ -1014,7 +1017,7 @@
 
                       {{#if isSelectedSpellEffects}}
                       <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
-                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect.</span></aside>
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. For target effects, choose <strong>Effect Recipient Turns</strong> in Application &amp; Duration to count the affected Actor's own turns.</span></aside>
                       {{else if isNumeric}}
                       <label><span>Calculation</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each calculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       {{#if isDice}}
