@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0b — Trigger Clarity and Single-Activation Lifetimes
+
+### Clear Spell trigger intent
+
+- Renamed the broad Spell event to **Any Spell Matching Filters** and added inline guidance explaining that no specific Spell is required; every Spell matching the selected level and school can trigger it.
+- **Specific Spell Cast** now remains visibly editable while a Spell is being chosen and validates only after a Spell is selected. Level and school remain optional additional filters.
+- Legacy v0.5.0a rows saved as Specific Spell Cast without a selected Spell automatically normalize to Any Spell Matching Filters, preserving their level/school filters and repairing a configuration that previously matched nothing.
+
+### General Single Activation mode
+
+- Added **Application Mode** above the existing stack controls without removing or changing any prior Stack Behavior.
+- Added **Single Activation** for every trigger category. It creates one non-stacking effect and can expire at the end of the owner's current turn, the start of the owner's next turn, or the end of the owner's next turn.
+- Added retrigger control: **Refresh Duration** or **Ignore While Active**.
+- Kept **Single Attack — Remove After Damage Roll** and all prior refresh, shared, independent, continuous-decay, and delayed-decay behavior intact.
+
+### Generated description refinement
+
+- Triggered Effect summaries now describe the actual trigger and filters, every applied effect, activation counting and per-turn/per-round limits, application mode, stack behavior, duration, expiration boundary, and retrigger rule.
+- Movement effects now identify the movement type and exact bonus, so rules such as casting any Enchantment Spell to gain +15 ft Walking speed are understandable directly from the generated Item description.
+
+### Compatibility
+
+- Increased the Item Creator document schema to 7. Existing Triggered Effects default to the original **Stacks & Duration** application mode and retain their previous runtime behavior.
+
 ## 0.5.0a — Triggered Effects Interface and Cleanup Hotfix
 
 ### Stable editing controls

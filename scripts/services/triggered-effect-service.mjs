@@ -236,6 +236,25 @@ function activationKey(setting, event) {
   return `roll:${event.rollKey || event.id}`;
 }
 
+function singleActivationLifetime(setting) {
+  if (setting.application?.mode !== "singleActivation") return null;
+  if (setting.application.expiration === "ownerTurnStartNext") {
+    return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnStart" };
+  }
+  if (setting.application.expiration === "ownerTurnEndNext") {
+    return { durationAmount: 2, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd" };
+  }
+  return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd" };
+}
+
+function effectiveLifetime(setting) {
+  return singleActivationLifetime(setting) ?? {
+    durationAmount: Math.max(1, Number(setting.stacks.durationAmount) || 1),
+    durationUnit: setting.stacks.durationUnit,
+    tickTiming: setting.stacks.tickTiming
+  };
+}
+
 function withinActivationLimits(entry, setting, combat) {
   const turnKey = `${combat.id}:${combat.round}:${combat.turn}`;
   const roundKey = `${combat.id}:${combat.round}`;
@@ -258,7 +277,12 @@ function applyActivation(entry, setting, combat, event) {
   const stacks = setting.stacks;
   const grant = Math.max(1, Number(stacks.granted) || 1);
   const maximum = Math.max(1, Number(stacks.maximum) || 1);
-  if (stacks.behavior === "singleAttack") {
+  if (setting.application?.mode === "singleActivation") {
+    const lifetime = effectiveLifetime(setting);
+    entry.stacks = 1;
+    entry.remaining = lifetime.durationAmount;
+    entry.independent = [];
+  } else if (stacks.behavior === "singleAttack") {
     entry.stacks = 1;
     entry.remaining = 1;
     entry.independent = [];
@@ -287,7 +311,7 @@ function applyActivation(entry, setting, combat, event) {
     entry.remaining = 0;
     entry.independent = [];
   }
-  if (stacks.behavior !== "singleAttack") {
+  if (setting.application?.mode === "singleActivation" || stacks.behavior !== "singleAttack") {
     entry.resolutionActivityUuid = "";
     entry.resolutionItemUuid = "";
     entry.resolutionRollKey = "";
@@ -299,10 +323,12 @@ function applyActivation(entry, setting, combat, event) {
 }
 
 function tickEntry(entry, setting, timing, combat) {
-  if (setting.stacks.tickTiming !== timing) return false;
+  const lifetime = effectiveLifetime(setting);
+  if (lifetime.tickTiming !== timing) return false;
   if (entry.lastTriggerMoment === combatMoment(combat)) return false;
   const behavior = setting.stacks.behavior;
-  if (behavior === "singleAttack" || behavior === "refresh" || behavior === "shared") {
+  if (setting.application?.mode === "singleActivation"
+    || behavior === "singleAttack" || behavior === "refresh" || behavior === "shared") {
     entry.remaining = Math.max(0, entry.remaining - 1);
     if (entry.remaining <= 0) entry.stacks = 0;
   } else if (behavior === "independent") {
@@ -321,17 +347,18 @@ function tickEntry(entry, setting, timing, combat) {
 }
 
 function matchingTick(setting, timing, actorId, currentActorId) {
-  if (setting.stacks.durationUnit === "ownerTurns") {
+  const lifetime = effectiveLifetime(setting);
+  if (lifetime.durationUnit === "ownerTurns") {
     if (actorId !== currentActorId) return false;
-    return timing === setting.stacks.tickTiming;
+    return timing === lifetime.tickTiming;
   }
-  if (setting.stacks.durationUnit === "combatTurns") return timing === setting.stacks.tickTiming;
-  if (setting.stacks.durationUnit === "rounds") return timing === setting.stacks.tickTiming;
+  if (lifetime.durationUnit === "combatTurns") return timing === lifetime.tickTiming;
+  if (lifetime.durationUnit === "rounds") return timing === lifetime.tickTiming;
   return false;
 }
 
 function singleAttackResolutionMatches(entry, setting, event) {
-  if (setting?.stacks?.behavior !== "singleAttack") return false;
+  if (setting?.application?.mode === "singleActivation" || setting?.stacks?.behavior !== "singleAttack") return false;
   if (entry.combatId !== event.combatId) return false;
   if (!entry.resolutionActivityUuid || entry.resolutionActivityUuid !== event.activityUuid) return false;
   if (entry.resolutionItemUuid && event.itemUuid && entry.resolutionItemUuid !== event.itemUuid) return false;
@@ -417,7 +444,8 @@ export class ItemCreatorTriggeredEffectService {
           dirty = true;
           continue;
         }
-        entry.stacks = Math.min(entry.stacks, setting.stacks.maximum);
+        const maximum = setting.application?.mode === "singleActivation" ? 1 : setting.stacks.maximum;
+        entry.stacks = Math.min(entry.stacks, maximum);
         if (entry.stacks <= 0) {
           await this.#removeEntryEffect(actor, entry);
           ledger.entries.delete(key);
@@ -788,6 +816,8 @@ export class ItemCreatorTriggeredEffectService {
           entry.combatId = combat.id;
           const keyForActivation = activationKey(setting, event);
           if (entry.recentActivationKeys.includes(keyForActivation)) continue;
+          if (setting.application?.mode === "singleActivation"
+            && setting.application.retrigger === "ignore" && entry.stacks > 0) continue;
           if (!withinActivationLimits(entry, setting, combat)) continue;
           entry.recentActivationKeys.push(keyForActivation);
           entry.recentActivationKeys = entry.recentActivationKeys.slice(-MAX_RECENT_KEYS);
@@ -896,6 +926,7 @@ export const __triggeredEffectTest = Object.freeze({
   activeD20Result,
   normalizeEntry,
   applyActivation,
+  effectiveLifetime,
   tickEntry,
   matchingTick,
   singleAttackResolutionMatches,

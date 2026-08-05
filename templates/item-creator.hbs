@@ -925,6 +925,7 @@
                   {{#if showSpellFilters}}
                   <label><span>Spell Level</span><select data-trigger-input="spellLevel" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each spellLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Spell School</span><select data-trigger-input="spellSchool" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each spellSchoolOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>{{spellFilterExplanation}}</span></aside>
                   {{/if}}
 
                   {{#if showSpecificSpell}}
@@ -961,8 +962,14 @@
               </section>
 
               <section class="ic-triggered-subsection">
-                <header><i class="fa-solid fa-layer-group"></i><strong>Stacks &amp; Duration</strong></header>
+                <header><i class="fa-solid fa-layer-group"></i><strong>Application &amp; Duration</strong></header>
                 <div class="ic-triggered-grid four-columns">
+                  <label class="ic-triggered-span-two"><span>Application Mode</span><select data-trigger-input="mode" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each applicationModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+
+                  {{#if isSingleActivation}}
+                  <label><span>Expires At</span><select data-trigger-input="expiration" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each singleActivationExpirationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>When Triggered Again</span><select data-trigger-input="retrigger" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each retriggerBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{else}}
                   {{#if showStackQuantityFields}}
                   <label><span>Stacks per Activation</span><input type="number" min="1" max="99" step="1" value="{{stacks.granted}}" data-trigger-input="granted" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   <label><span>Maximum Stacks</span><input type="number" min="1" max="999" step="1" value="{{stacks.maximum}}" data-trigger-input="maximum" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
@@ -983,8 +990,11 @@
                   <label><span>Tracking Unit</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{/if}}
+                  {{/if}}
                 </div>
-                {{#if isSingleAttack}}
+                {{#if isSingleActivation}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>Single Activation applies one non-stacking temporary effect. Choose whether a new trigger refreshes its lifetime or is ignored while the effect is already active. This mode is available for every trigger category. If the owner is not currently taking a turn, the next matching owner-turn boundary is used.</span></aside>
+                {{else if isSingleAttack}}
                 <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
                 {{else}}
                 <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>A duration of 1 Owner Turn set to End of Owner Turn expires when the owner's current turn ends. Ending or deleting the Combat removes all stacks and effects.</span></aside>

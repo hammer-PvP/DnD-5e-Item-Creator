@@ -10,8 +10,9 @@ import {
   normalizeResourceModification, resourceGroups, resourceModificationLabel, validateResourceModification
 } from "../services/resource-modification-registry.mjs";
 import {
-  ACTIVATION_COUNTING, ATTACK_TYPES, DURATION_UNITS, EFFECT_SCALING, STACK_BEHAVIORS,
-  TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES, TRIGGER_EVENTS, VALUE_CALCULATIONS,
+  ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, DURATION_UNITS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
+  SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
+  TRIGGER_EVENTS, VALUE_CALCULATIONS,
   defaultTriggeredEffect, defaultTriggeredEffectPayload, isDamageTriggeredEffect, isNumericTriggeredEffect,
   isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
@@ -1508,6 +1509,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const triggeredEffectRows = this.triggeredEffects.map((source, index) => {
       const row = normalizeTriggeredEffect(source);
       const trigger = row.trigger;
+      const application = row.application;
       const stack = row.stacks;
       const effectRows = row.effects.map((effectSource, effectIndex) => {
         const effect = normalizeTriggeredEffectPayload(effectSource);
@@ -1546,6 +1548,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         eventOptions: fixedOptions(TRIGGER_EVENTS[trigger.category] ?? [], trigger.event),
         attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
         countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
+        applicationModeOptions: fixedOptions(APPLICATION_MODES, application.mode),
+        singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
+        retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
           || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
         durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
@@ -1566,16 +1571,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         showAttackFilters: trigger.category === "attack",
         showSpellFilters: trigger.category === "spell",
         showSpecificSpell: trigger.event === "specificSpellCast",
+        spellFilterExplanation: trigger.event === "specificSpellCast"
+          ? "Choose one Spell below. The selected level and school remain additional filters for that Spell."
+          : "No specific Spell is required. Any Spell matching the selected level and school can trigger this effect.",
         showResourceFilter: trigger.event === "specificResourceSpent",
         showSlotLevel: ["spellSlotSpent", "pactSlotSpent"].includes(trigger.event),
         showSpecificFeature: trigger.event === "specificFeatureUsed",
         showDamageFilters: trigger.category === "damage" || trigger.event === "attackDamageApplied",
-        isSingleAttack: stack.behavior === "singleAttack",
-        showStackQuantityFields: stack.behavior !== "singleAttack",
-        showTrackingFields: stack.behavior !== "singleAttack",
-        showDurationFields: ["refresh", "shared", "independent"].includes(stack.behavior),
-        showDecayFields: ["continuousDecay", "delayedDecay"].includes(stack.behavior),
-        showInactivityGrace: stack.behavior === "delayedDecay",
+        isSingleActivation: application.mode === "singleActivation",
+        isSingleAttack: application.mode === "stacking" && stack.behavior === "singleAttack",
+        showStackQuantityFields: application.mode === "stacking" && stack.behavior !== "singleAttack",
+        showTrackingFields: application.mode === "stacking" && stack.behavior !== "singleAttack",
+        showDurationFields: application.mode === "stacking" && ["refresh", "shared", "independent"].includes(stack.behavior),
+        showDecayFields: application.mode === "stacking" && ["continuousDecay", "delayedDecay"].includes(stack.behavior),
+        showInactivityGrace: application.mode === "stacking" && stack.behavior === "delayedDecay",
         effects: effectRows
       };
     });
@@ -3711,6 +3720,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else value = event.currentTarget.value;
 
     if (scope === "trigger") row.trigger[part] = value;
+    else if (scope === "application") row.application[part] = value;
     else if (scope === "stacks") row.stacks[part] = value;
     else row[part] = value;
 
@@ -3722,13 +3732,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.counting = value === "attack" ? "perAttackRoll" : value === "combat" ? "perTurn" : "perActivity";
     }
     if (scope === "trigger" && part === "event") {
+      row.trigger.spellSelectionMode = value === "specificSpellCast" ? "specific" : "filters";
       if (["attackHit", "criticalHit", "natural20"].includes(value)) row.counting = "perSuccessfulAttack";
       else if (value === "attackRolled") row.counting = "perAttackRoll";
       else if (["spellCast", "spellAttackCast", "spellSaveCast", "specificSpellCast", "spellCastUsingSlot", "spellCastWithoutSlot"].includes(value)) row.counting = "perActivity";
     }
+    if (scope === "application" && part === "mode" && value === "singleActivation") {
+      row.application.expiration ||= "ownerTurnEndCurrent";
+      row.application.retrigger ||= "refresh";
+    }
+
     const singleAttackEligible = row.trigger.category === "attack"
       && ["attackHit", "criticalHit", "natural20"].includes(row.trigger.event);
-    if (row.stacks.behavior === "singleAttack" && !singleAttackEligible) row.stacks.behavior = "refresh";
+    if (row.application.mode === "stacking" && row.stacks.behavior === "singleAttack" && !singleAttackEligible) {
+      row.stacks.behavior = "refresh";
+    }
 
     if (scope === "stacks" && part === "durationUnit") {
       row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
@@ -3811,6 +3829,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return;
       }
       if (spell) {
+        row.trigger.spellSelectionMode = "specific";
         row.trigger.spellUuid = document.uuid;
         row.trigger.spellName = document.name;
       } else {

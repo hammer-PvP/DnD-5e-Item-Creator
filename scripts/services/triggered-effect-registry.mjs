@@ -19,7 +19,7 @@ export const TRIGGER_EVENTS = Object.freeze({
     ["attackDamageApplied", "Damage from an Attack Applied"]
   ]),
   spell: Object.freeze([
-    ["spellCast", "Any Spell Cast"],
+    ["spellCast", "Any Spell Matching Filters"],
     ["spellAttackCast", "Spell with Attack Roll Cast"],
     ["spellSaveCast", "Spell with Saving Throw Cast"],
     ["specificSpellCast", "Specific Spell Cast"],
@@ -75,6 +75,22 @@ export const ACTIVATION_COUNTING = Object.freeze([
   ["perTarget", "Once per Damaged Target"],
   ["perTurn", "Once per Turn"],
   ["perRound", "Once per Round"]
+]);
+
+export const APPLICATION_MODES = Object.freeze([
+  ["stacking", "Stacks & Duration"],
+  ["singleActivation", "Single Activation"]
+]);
+
+export const SINGLE_ACTIVATION_EXPIRATIONS = Object.freeze([
+  ["ownerTurnEndCurrent", "End of Owner's Current Turn"],
+  ["ownerTurnStartNext", "Start of Owner's Next Turn"],
+  ["ownerTurnEndNext", "End of Owner's Next Turn"]
+]);
+
+export const RETRIGGER_BEHAVIORS = Object.freeze([
+  ["refresh", "Refresh Duration"],
+  ["ignore", "Ignore While Active"]
 ]);
 
 export const STACK_BEHAVIORS = Object.freeze([
@@ -196,6 +212,7 @@ export function defaultTriggeredEffect() {
       attackType: "any",
       spellLevel: "any",
       spellSchool: "any",
+      spellSelectionMode: "filters",
       spellUuid: "",
       spellName: "",
       featureUuid: "",
@@ -210,6 +227,11 @@ export function defaultTriggeredEffect() {
     counting: "perSuccessfulAttack",
     maxPerTurn: 0,
     maxPerRound: 0,
+    application: {
+      mode: "stacking",
+      expiration: "ownerTurnEndCurrent",
+      retrigger: "refresh"
+    },
     stacks: {
       granted: 1,
       maximum: 10,
@@ -260,10 +282,20 @@ export function normalizeTriggeredEffect(value = {}) {
   const fallback = defaultTriggeredEffect();
   const category = Object.hasOwn(TRIGGER_CATEGORIES, value.trigger?.category) ? value.trigger.category : fallback.trigger.category;
   const events = TRIGGER_EVENTS[category] ?? TRIGGER_EVENTS.attack;
-  const event = validChoice(events, value.trigger?.event, events[0][0]);
+  let event = validChoice(events, value.trigger?.event, events[0][0]);
+  const selectedSpell = Boolean(String(value.trigger?.spellUuid ?? "").trim() || String(value.trigger?.spellName ?? "").trim());
+  const explicitSpellSelection = value.trigger?.spellSelectionMode === "specific";
+  // v0.5.0a allowed Specific Spell Cast to be saved without a selected Spell or an explicit
+  // selection mode. That configuration never matched at runtime. Preserve the visible level/school
+  // filters by migrating only that legacy shape to Any Spell Cast. New Specific Spell drafts carry
+  // spellSelectionMode="specific" while the user is choosing the Spell and remain editable.
+  if (category === "spell" && event === "specificSpellCast" && !selectedSpell && !explicitSpellSelection) event = "spellCast";
   const durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
   const tickTiming = validChoice(TICK_TIMINGS[durationUnit] ?? [], value.stacks?.tickTiming,
     TICK_TIMINGS[durationUnit]?.[1]?.[0] ?? TICK_TIMINGS[durationUnit]?.[0]?.[0]);
+  const applicationMode = validChoice(APPLICATION_MODES, value.application?.mode, fallback.application.mode);
+  const expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
+  const retrigger = validChoice(RETRIGGER_BEHAVIORS, value.application?.retrigger, fallback.application.retrigger);
   return {
     ...fallback,
     ...clone(value),
@@ -277,6 +309,7 @@ export function normalizeTriggeredEffect(value = {}) {
       ...(clone(value.trigger ?? {})),
       category,
       event,
+      spellSelectionMode: event === "specificSpellCast" ? "specific" : "filters",
       attackType: validChoice(ATTACK_TYPES, value.trigger?.attackType, "any"),
       spellLevel: value.trigger?.spellLevel === "any" ? "any" : Math.clamp(Number(value.trigger?.spellLevel) || 0, 0, 9),
       spellSlotLevel: value.trigger?.spellSlotLevel === "any" ? "any" : Math.clamp(Number(value.trigger?.spellSlotLevel) || 1, 1, 9),
@@ -285,6 +318,13 @@ export function normalizeTriggeredEffect(value = {}) {
     counting: validChoice(ACTIVATION_COUNTING, value.counting, fallback.counting),
     maxPerTurn: Math.max(0, Number(value.maxPerTurn) || 0),
     maxPerRound: Math.max(0, Number(value.maxPerRound) || 0),
+    application: {
+      ...fallback.application,
+      ...(clone(value.application ?? {})),
+      mode: applicationMode,
+      expiration,
+      retrigger
+    },
     stacks: (() => {
       const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
       const singleAttack = behavior === "singleAttack";
@@ -329,11 +369,18 @@ export function validateTriggeredEffect(value) {
   if (!setting.id || !setting.name) return false;
   if (!Object.hasOwn(TRIGGER_CATEGORIES, setting.trigger.category)) return false;
   if (!(TRIGGER_EVENTS[setting.trigger.category] ?? []).some(([event]) => event === setting.trigger.event)) return false;
+  if (setting.trigger.event === "specificSpellCast"
+    && !String(setting.trigger.spellUuid || setting.trigger.spellName || "").trim()) return false;
+  if (setting.trigger.event === "specificFeatureUsed"
+    && !String(setting.trigger.featureUuid || setting.trigger.featureName || setting.trigger.featureIdentifier || "").trim()) return false;
   if (!["owned", "equipped", "equippedAttuned"].includes(setting.availability)) return false;
   if (setting.unlockOnLevel && !(setting.unlockLevel >= 1 && setting.unlockLevel <= 20)) return false;
   if (!(setting.stacks.granted > 0 && setting.stacks.maximum > 0)) return false;
+  if (!APPLICATION_MODES.some(([entry]) => entry === setting.application.mode)) return false;
+  if (!SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
+  if (!RETRIGGER_BEHAVIORS.some(([entry]) => entry === setting.application.retrigger)) return false;
   if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
-  if (setting.stacks.behavior === "singleAttack"
+  if (setting.application.mode === "stacking" && setting.stacks.behavior === "singleAttack"
     && !(setting.trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(setting.trigger.event))) return false;
   if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.durationUnit)) return false;
   if (!(TICK_TIMINGS[setting.stacks.durationUnit] ?? []).some(([entry]) => entry === setting.stacks.tickTiming)) return false;
@@ -477,35 +524,155 @@ function attackEventSummary(setting, eventLabel) {
   return `${eventLabel} — ${attackType}`;
 }
 
+function localizedConfigLabel(config, key, fallback = key) {
+  const entry = config?.[key];
+  const label = typeof entry === "string" ? entry : entry?.label;
+  return label ? game.i18n.localize(label) : fallback;
+}
+
+function signed(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value ?? "");
+  return numeric > 0 ? `+${numeric}` : String(numeric);
+}
+
+function spellFilterSummary(setting) {
+  const trigger = setting.trigger;
+  const school = trigger.spellSchool && trigger.spellSchool !== "any"
+    ? localizedConfigLabel(CONFIG.DND5E.spellSchools, trigger.spellSchool, trigger.spellSchool)
+    : "";
+  const level = trigger.spellLevel === "any" ? ""
+    : Number(trigger.spellLevel) === 0 ? "cantrip"
+      : `level ${Number(trigger.spellLevel)}`;
+  return [school, level].filter(Boolean).join(" ");
+}
+
 function triggerSummary(setting) {
   const eventLabel = optionLabel(TRIGGER_EVENTS[setting.trigger.category] ?? [], setting.trigger.event, setting.trigger.event);
   if (setting.trigger.category === "attack") return attackEventSummary(setting, eventLabel);
+  if (setting.trigger.category === "spell") {
+    const filters = spellFilterSummary(setting);
+    if (setting.trigger.event === "specificSpellCast") {
+      const selected = setting.trigger.spellName || "the selected Spell";
+      return filters ? `Cast ${selected} (${filters})` : `Cast ${selected}`;
+    }
+    const target = filters ? `any ${filters} Spell` : "any Spell";
+    if (setting.trigger.event === "spellCast") return `Cast ${target}`;
+    if (setting.trigger.event === "spellAttackCast") return `Cast ${target} with an attack roll`;
+    if (setting.trigger.event === "spellSaveCast") return `Cast ${target} with a saving throw`;
+    if (setting.trigger.event === "spellCastUsingSlot") return `Cast ${target} using a spell slot`;
+    if (setting.trigger.event === "spellCastWithoutSlot") return `Cast ${target} without using a spell slot`;
+  }
   if (setting.trigger.event === "specificResourceSpent") {
     const resource = getResourceDefinition(setting.trigger.resourceId);
-    return `${resource?.label ?? setting.trigger.resourceId ?? "Selected Resource"} Spent`;
-  }
-  if (setting.trigger.event === "specificSpellCast") {
-    return `${setting.trigger.spellName || "Selected Spell"} Cast`;
+    return `Spend ${resource?.label ?? setting.trigger.resourceId ?? "the selected resource"}`;
   }
   if (setting.trigger.event === "specificFeatureUsed") {
-    return `${setting.trigger.featureName || "Selected Feature"} Used`;
+    return `Use ${setting.trigger.featureName || "the selected Feature"}`;
   }
   if (["spellSlotSpent", "pactSlotSpent"].includes(setting.trigger.event)
     && setting.trigger.spellSlotLevel !== "any") {
     const prefix = setting.trigger.event === "pactSlotSpent" ? "Pact Magic" : "Spell";
-    return `${prefix} Slot Level ${setting.trigger.spellSlotLevel} Spent`;
+    return `Spend a level ${setting.trigger.spellSlotLevel} ${prefix} slot`;
+  }
+  if (["damageDealt", "damageReceived", "healingDealt", "healingReceived", "attackDamageApplied"].includes(setting.trigger.event)) {
+    const filters = [];
+    if (setting.trigger.damageSource && setting.trigger.damageSource !== "any") filters.push(`${setting.trigger.damageSource} source`);
+    if (setting.trigger.damageType && setting.trigger.damageType !== "any") {
+      filters.push(`${localizedConfigLabel(CONFIG.DND5E.damageTypes, setting.trigger.damageType, setting.trigger.damageType)} damage`);
+    }
+    if (Number(setting.trigger.minimumAmount) > 0) filters.push(`minimum ${Number(setting.trigger.minimumAmount)}`);
+    return filters.length ? `${eventLabel} (${filters.join(", ")})` : eventLabel;
   }
   return eventLabel;
 }
 
-export function triggeredEffectSummary(value) {
-  const setting = normalizeTriggeredEffect(value);
-  const event = triggerSummary(setting);
+function calculationSummary(row) {
+  if (row.calculation === "flat") return signed(row.amount);
+  if (row.calculation === "proficiency") return "Proficiency Bonus";
+  if (row.calculation === "spellcasting") return "default spellcasting ability modifier";
+  if (row.calculation === "highestSpellcasting") return "highest spellcasting ability modifier";
+  if (["str", "dex", "con", "int", "wis", "cha"].includes(row.calculation)) {
+    return `${localizedConfigLabel(CONFIG.DND5E.abilities, row.calculation, row.calculation.toUpperCase())} modifier`;
+  }
+  if (row.calculation === "dice") return `${Math.max(1, Number(row.diceNumber) || 1)}d${Number(row.die) || 6}`;
+  if (row.calculation === "custom") return String(row.formula ?? "custom formula").trim() || "custom formula";
+  return optionLabel(VALUE_CALCULATIONS, row.calculation, row.calculation);
+}
+
+function payloadSummary(source, setting) {
+  const row = normalizeTriggeredEffectPayload(source);
+  const value = calculationSummary(row);
+  const scaling = setting.application.mode === "singleActivation" || row.scaling !== "perStack"
+    ? " while active" : " per stack";
+  if (row.type === "movementBonus") {
+    const movement = localizedConfigLabel(CONFIG.DND5E.movementTypes, row.movementType, row.movementType);
+    return `${movement} speed ${value} ft${scaling}`;
+  }
+  if (row.type === "savingThrowBonus") {
+    const ability = row.ability === "all" ? "all saving throws"
+      : `${localizedConfigLabel(CONFIG.DND5E.abilities, row.ability, row.ability)} saving throws`;
+    return `${value} to ${ability}${scaling}`;
+  }
+  if (row.type === "damageResistance") {
+    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage resistance`;
+  }
+  if (row.type === "damageImmunity") {
+    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage immunity`;
+  }
+  if (row.type === "conditionImmunity") {
+    return `${localizedConfigLabel(CONFIG.DND5E.conditionTypes, row.condition, row.condition)} condition immunity`;
+  }
+  if (row.type === "actorCriticalThreshold") {
+    const scope = row.criticalScope === "weapon" ? "weapon attacks" : row.criticalScope === "spell" ? "spell attacks" : "all attacks";
+    return `critical hit on ${row.criticalThreshold === 20 ? "20" : `${row.criticalThreshold}–20`} for ${scope}`;
+  }
+  const label = optionLabel(TRIGGER_EFFECT_TYPES, row.type, row.type);
+  return `${label} ${value}${scaling}`;
+}
+
+function frequencySummary(setting) {
+  const count = optionLabel(ACTIVATION_COUNTING, setting.counting, setting.counting);
+  const limits = [];
+  if (setting.maxPerTurn > 0) limits.push(`maximum ${setting.maxPerTurn} per turn`);
+  if (setting.maxPerRound > 0) limits.push(`maximum ${setting.maxPerRound} per round`);
+  return [count, ...limits].join(", ");
+}
+
+function durationUnitPhrase(unit, amount = 1) {
+  const singular = { ownerTurns: "Owner Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
+  if (!singular) return optionLabel(DURATION_UNITS, unit, unit);
+  return Number(amount) === 1 ? singular : `${singular}s`;
+}
+
+function stackDurationSummary(setting) {
   if (setting.stacks.behavior === "singleAttack") {
-    return `${event}; applies once through the triggered attack's damage roll`;
+    return "Single Attack; remains through that attack's next damage roll, with end-of-current-turn cleanup if no damage is rolled";
   }
   const behavior = optionLabel(STACK_BEHAVIORS, setting.stacks.behavior, setting.stacks.behavior);
-  return `${event}; +${setting.stacks.granted} stack(s), max ${setting.stacks.maximum}; ${behavior}`;
+  if (["refresh", "shared", "independent"].includes(setting.stacks.behavior)) {
+    const unit = durationUnitPhrase(setting.stacks.durationUnit, setting.stacks.durationAmount);
+    const timing = optionLabel(TICK_TIMINGS[setting.stacks.durationUnit] ?? [], setting.stacks.tickTiming, setting.stacks.tickTiming);
+    return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; duration ${setting.stacks.durationAmount} ${unit}, expires at ${timing}`;
+  }
+  const unit = durationUnitPhrase(setting.stacks.durationUnit, 1);
+  const timing = optionLabel(TICK_TIMINGS[setting.stacks.durationUnit] ?? [], setting.stacks.tickTiming, setting.stacks.tickTiming);
+  const grace = setting.stacks.behavior === "delayedDecay" ? ` after ${setting.stacks.inactivityGrace} inactive tick(s)` : "";
+  return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; loses ${setting.stacks.decayAmount} stack(s) per ${unit} at ${timing}${grace}`;
+}
+
+function applicationSummary(setting) {
+  if (setting.application.mode !== "singleActivation") return stackDurationSummary(setting);
+  const expiration = optionLabel(SINGLE_ACTIVATION_EXPIRATIONS, setting.application.expiration, setting.application.expiration);
+  const retrigger = setting.application.retrigger === "ignore" ? "new triggers are ignored while active" : "new triggers refresh the duration";
+  return `Single Activation; expires at ${expiration}; ${retrigger}`;
+}
+
+export function triggeredEffectSummary(value) {
+  const setting = normalizeTriggeredEffect(value);
+  const trigger = triggerSummary(setting);
+  const effects = setting.effects.map(effect => payloadSummary(effect, setting)).join("; ");
+  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.`;
 }
 
 export function isNumericTriggeredEffect(type) {
