@@ -135,13 +135,60 @@ function resourceDieValue(path, faces) {
   return String(path).endsWith(".faces") ? String(faces) : `d${faces}`;
 }
 
-function sameValue(left, right) {
-  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+function normalizeResourceFormula(value) {
+  if (value === null || value === undefined || value === "") return { type: "empty", value: "" };
+  if (typeof value === "number" && Number.isFinite(value)) return { type: "number", value };
+  const text = String(value).trim();
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return { type: "number", value: Number(text) };
+  return {
+    type: "formula",
+    value: text
+      .replace(/\s+/g, " ")
+      .replace(/\s*([+\-*/])\s*/g, " $1 ")
+      .replace(/\(\s+/g, "(")
+      .replace(/\s+\)/g, ")")
+      .trim()
+  };
+}
+
+function sameResourceValue(left, right) {
+  const a = normalizeResourceFormula(left);
+  const b = normalizeResourceFormula(right);
+  return a.type === b.type && a.value === b.value;
+}
+
+function additiveDistance(base, candidate, maximum = 99) {
+  if (base === undefined || candidate === undefined) return null;
+  for (let amount = 0; amount <= maximum; amount += 1) {
+    if (sameResourceValue(candidate, formulaWithBonus(base, amount))) return amount;
+  }
+  return null;
+}
+
+const RESOURCE_SOURCE_DOCUMENTS = new Map();
+
+function resourceSourceUuid(feature) {
+  return feature?._stats?.compendiumSource
+    ?? feature?.flags?.core?.sourceId
+    ?? feature?.flags?.dnd5e?.sourceId
+    ?? "";
+}
+
+async function originalResourceValue(feature, path) {
+  const uuid = resourceSourceUuid(feature);
+  if (!uuid || typeof fromUuid !== "function") return undefined;
+  let source = RESOURCE_SOURCE_DOCUMENTS.get(uuid);
+  if (source === undefined) {
+    try { source = await fromUuid(uuid); } catch (_error) { source = null; }
+    RESOURCE_SOURCE_DOCUMENTS.set(uuid, source ?? null);
+  }
+  return source ? sourceValue(source, path) : undefined;
 }
 
 export class ItemCreatorRuntimeEffectService {
   static #syncingItems = new Set();
   static #syncingActors = new Set();
+  static #pendingResourceBases = new Map();
 
   static registerHooks() {
     Hooks.on("createItem", (item, options) => {
@@ -149,10 +196,12 @@ export class ItemCreatorRuntimeEffectService {
       if (item.parent?.documentName === "Actor") void this.syncActor(item.parent);
       else void this.syncItem(item);
     });
-    Hooks.on("updateItem", (item, _changes, options) => {
+    Hooks.on("updateItem", (item, changes, options) => {
       if (options?.itemCreatorRuntime) return;
-      if (item.parent?.documentName === "Actor") void this.syncActor(item.parent);
-      else void this.syncItem(item);
+      if (item.parent?.documentName === "Actor") {
+        this.#recordExternalResourceBases(item, changes);
+        void this.syncActor(item.parent);
+      } else void this.syncItem(item);
     });
     Hooks.on("deleteItem", item => {
       const actor = item.parent?.documentName === "Actor" ? item.parent : null;
@@ -503,6 +552,30 @@ export class ItemCreatorRuntimeEffectService {
     if (create.length) await actor.createEmbeddedDocuments("ActiveEffect", create, { itemCreatorRuntime: true });
   }
 
+  static #recordExternalResourceBases(item, changes) {
+    const actor = item?.parent?.documentName === "Actor" ? item.parent : null;
+    if (!actor || !changes || typeof changes !== "object") return;
+    const flattened = foundry.utils.flattenObject?.(changes) ?? changes;
+    const pending = this.#pendingResourceBases.get(actor.uuid) ?? new Map();
+    for (const [path, value] of Object.entries(flattened)) {
+      if (path === "system.uses.max" || /^system\.activities\.[^.]+\.uses\.max$/.test(path)) {
+        pending.set(`${item.id}:${path}`, foundry.utils.deepClone(value));
+      }
+    }
+    if (pending.size) this.#pendingResourceBases.set(actor.uuid, pending);
+  }
+
+  static #consumeExternalResourceBase(actor, feature, path) {
+    const pending = this.#pendingResourceBases.get(actor?.uuid);
+    if (!pending) return { found: false, value: undefined };
+    const key = `${feature.id}:${path}`;
+    if (!pending.has(key)) return { found: false, value: undefined };
+    const value = pending.get(key);
+    pending.delete(key);
+    if (!pending.size) this.#pendingResourceBases.delete(actor.uuid);
+    return { found: true, value };
+  }
+
   static #activeResourceRows(actor) {
     const actorLevel = actorTotalLevel(actor);
     const rows = [];
@@ -561,19 +634,57 @@ export class ItemCreatorRuntimeEffectService {
       for (const path of paths) {
         const previous = oldState[path] ?? null;
         const currentSource = sourceValue(feature, path);
-        let base = previous?.base;
-        if (!previous) base = currentSource ?? "";
-        else if (!sameValue(currentSource, previous.applied)) base = currentSource ?? "";
-
         const target = desiredByPath.get(path);
-        if (!target) {
-          if (previous && sameValue(currentSource, previous.applied) && !sameValue(currentSource, base)) updates[path] = base;
-          continue;
+        const external = this.#consumeExternalResourceBase(actor, feature, path);
+        let base = previous?.base ?? currentSource ?? "";
+
+        if (external.found) base = external.value ?? "";
+        else if (previous) {
+          const previousApplied = previous.applied ?? formulaWithBonus(previous.base, previous.bonus);
+          if (!sameResourceValue(currentSource, previousApplied)
+            && !sameResourceValue(currentSource, previous.base)) {
+            // A non-runtime edit becomes the new baseline. This preserves manual
+            // feature edits and level-up changes without stacking the Item bonus.
+            base = currentSource ?? "";
+          }
         }
 
-        const applied = formulaWithBonus(base, target.bonus);
-        if (!sameValue(currentSource, applied)) updates[path] = applied;
-        nextState[path] = { base, applied, bonus: target.bonus, sources: target.sources };
+        // v0.4.0 could lose its baseline because D&D5e normalized numeric
+        // formulas from strings to numbers. Recover source-backed features once
+        // before writing the v2 state, including Actors already affected by the
+        // cumulative equip/unequip bug.
+        if (!external.found && Number(previous?.version ?? 0) < 2) {
+          const sourceBase = await originalResourceValue(feature, path);
+          const sourceHasValue = sourceBase !== undefined && sourceBase !== null
+            && String(sourceBase).trim() !== "";
+          if (sourceHasValue) {
+            const currentDistance = additiveDistance(sourceBase, currentSource);
+            const storedDistance = additiveDistance(sourceBase, base);
+            const knownBonus = Math.abs(Number(target?.bonus ?? previous?.bonus ?? 0));
+            const isManagedDistance = distance => distance === 0
+              || (Number.isInteger(distance) && distance > 0
+                && (!knownBonus || distance % knownBonus === 0));
+            if (isManagedDistance(currentDistance) || isManagedDistance(storedDistance)) base = sourceBase;
+          }
+        }
+
+        if (target) {
+          const applied = formulaWithBonus(base, target.bonus);
+          if (!sameResourceValue(currentSource, applied)) updates[path] = applied;
+          nextState[path] = {
+            version: 2,
+            base,
+            applied,
+            bonus: target.bonus,
+            sources: target.sources
+          };
+        } else {
+          // Keep the baseline ledger even while inactive. Removing it was what
+          // allowed subsequent equips to treat the previously modified maximum
+          // as a fresh base and accumulate the bonus permanently.
+          if (!sameResourceValue(currentSource, base)) updates[path] = base;
+          nextState[path] = { version: 2, base, applied: base, bonus: 0, sources: [] };
+        }
       }
 
       if (Object.keys(nextState).length) updates[`flags.${MODULE_ID}.resourceRuntimeBases`] = nextState;
@@ -606,11 +717,16 @@ export class ItemCreatorRuntimeEffectService {
     for (const key of keys) {
       const previous = oldState[key] ?? null;
       const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
-      let baseOverride = previous && Object.hasOwn(previous, "baseOverride") ? previous.baseOverride : currentOverride;
-      if (previous && !sameValue(currentOverride, previous.appliedOverride)) baseOverride = currentOverride;
+      let baseOverride = previous && Object.hasOwn(previous, "baseOverride")
+        ? previous.baseOverride : currentOverride;
+      if (previous
+        && !sameResourceValue(currentOverride, previous.appliedOverride)
+        && !sameResourceValue(currentOverride, previous.baseOverride)) {
+        baseOverride = currentOverride;
+      }
       working[key] = { baseOverride };
-      if (previous && sameValue(currentOverride, previous.appliedOverride)
-        && !sameValue(currentOverride, baseOverride)) {
+      if (previous && sameResourceValue(currentOverride, previous.appliedOverride)
+        && !sameResourceValue(currentOverride, baseOverride)) {
         restoreUpdates[`system.spells.${key}.override`] = baseOverride;
       }
     }
@@ -629,21 +745,33 @@ export class ItemCreatorRuntimeEffectService {
     for (const key of keys) {
       const bonus = desired.get(key) ?? 0;
       const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
-      const currentValue = Number(sourceValue(actor, `system.spells.${key}.value`) ?? actor.system?.spells?.[key]?.value ?? 0) || 0;
+      const currentValue = Number(sourceValue(actor, `system.spells.${key}.value`)
+        ?? actor.system?.spells?.[key]?.value ?? 0) || 0;
+      const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max
+        ?? working[key]?.baseOverride ?? 0) || 0);
+
       if (bonus > 0) {
-        const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max ?? working[key]?.baseOverride ?? 0) || 0);
         const appliedOverride = naturalMax + bonus;
-        if (!sameValue(currentOverride, appliedOverride)) finalUpdates[`system.spells.${key}.override`] = appliedOverride;
+        if (!sameResourceValue(currentOverride, appliedOverride)) {
+          finalUpdates[`system.spells.${key}.override`] = appliedOverride;
+        }
         if (currentValue > appliedOverride) finalUpdates[`system.spells.${key}.value`] = appliedOverride;
         nextState[key] = {
+          version: 2,
           baseOverride: working[key]?.baseOverride ?? null,
           appliedOverride,
           bonus,
           naturalMax
         };
       } else {
-        const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max ?? working[key]?.baseOverride ?? 0) || 0);
         if (currentValue > naturalMax) finalUpdates[`system.spells.${key}.value`] = naturalMax;
+        nextState[key] = {
+          version: 2,
+          baseOverride: working[key]?.baseOverride ?? null,
+          appliedOverride: working[key]?.baseOverride ?? null,
+          bonus: 0,
+          naturalMax
+        };
       }
     }
 

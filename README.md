@@ -130,6 +130,8 @@ Class and subclass resources are never created on an Actor who does not own the 
 
 The runtime changes only maximum capacity. It preserves spent uses and does not refill a feature or Spell Slot when an Item is equipped, unequipped, attuned, or removed. Spending and recovery remain controlled by the original D&D5e feature.
 
+Resource reconciliation is idempotent. Item Creator records the unmodified baseline, aggregates the currently active rows once, restores that baseline when bonuses become inactive, and preserves it across reloads. Repeated equip/unequip cycles therefore never turn a previous Item bonus into the new permanent maximum.
+
 ## Rarity and pricing
 
 The selected Rarity is written to the native `system.rarity` field and appears in the final D&D5e Item header and Review.

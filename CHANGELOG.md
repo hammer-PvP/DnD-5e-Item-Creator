@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0a — Resource Runtime Hotfix
+
+### Idempotent resource reconciliation
+
+- Fixed class and subclass resource maxima accumulating permanently when a managed Item was equipped, unequipped, re-equipped, or synchronized repeatedly.
+- Replaced strict JSON type comparison with formula-aware comparison so D&D5e normalization between numeric strings and numbers cannot turn an already-applied bonus into a new baseline.
+- Resource feature baselines now remain recorded while a modifier is inactive, allowing the runtime to restore exactly the original maximum and reapply only the currently desired total.
+- Added one-time recovery for source-backed features already affected by v0.4.0 cumulative drift, using the official compendium value when the stored/current value matches repeated managed additions.
+- Aggregated bonuses from multiple Items remain additive, while removal of one Item removes only its own contribution.
+- External edits and level-up writes to a managed resource maximum are captured as a new baseline before the Item bonus is reconciled.
+
+### Spell-slot hardening
+
+- Applied the same formula-aware, persistent-baseline reconciliation to normal and Pact Magic slot overrides.
+- Equipping, unequipping, reloading, or repeatedly synchronizing a slot-granting Item no longer increases the override cumulatively or refills spent slots.
+
+### Validation
+
+- Added deterministic regression coverage for repeated Bardic Inspiration equip/unequip cycles, v0.4.0 legacy drift repair, multiple stacking Items, Lay on Hands' +5 multiplier, formula-backed feature pools, blank-source safety, and 9th-level Spell Slot reconciliation.
+
 ## 0.4.0 — Beta Candidate
 
 ### Spells & Resources workflow
