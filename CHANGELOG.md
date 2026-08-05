@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.4.0b — Resource Baseline Ledger Repair
+
+### Global original-value snapshots
+
+- Replaced the feature-resource runtime flag with a versioned array ledger whose entries store an explicit `path`, original `base`, last `applied` value, active bonus, and contributing Item rows.
+- Every directly modified resource maximum is now reconciled as `original base + active modifications`; the runtime never adopts its own applied value as a new baseline.
+- Removing one source recalculates from the preserved original and remaining sources. Removing all sources restores the exact original formula or numeric value.
+- Current/spent uses remain separate from maximum values and are never used as baseline snapshots or refilled by equip/unequip.
+- Legitimate external edits and level-up writes can replace the stored base only when they differ from both the recorded original and the last runtime-applied value.
+
+### v0.4.0/v0.4.0a migration
+
+- Fixed Foundry expanding dotted flag keys such as `system.uses.max` into nested objects, which prevented inactive Items from restoring the original resource maximum.
+- Added automatic extraction of valid legacy leaf paths while ignoring malformed whole-system snapshots.
+- Migrates feature pools to `resourceRuntimeLedger`, deletes the malformed `resourceRuntimeBases` flag, and repairs affected Actors during `ready` synchronization or `game.itemCreator.syncResources(actor)`.
+- The migration restores affected Bardic Inspiration formulas without overwriting unrelated feature data such as Font of Inspiration recovery changes.
+
+### Spell Slots, Pact Magic, and resource dice
+
+- Migrated normal and Pact Magic slot tracking to an explicit-path `resourceSlotLedger` with original override, natural maximum, last applied override, bonus, and sources.
+- Slot reconciliation temporarily restores the original override before reading the native class-derived maximum, allowing level progression underneath an equipped Item without cumulative drift or slot refills.
+- Resource Die changes remain non-destructive Active Effects; their untouched source-scale values are now recorded as explicit base snapshots for audit and migration.
+
+### Validation
+
+- Added deterministic regression coverage for the exact nested v0.4.0a Bardic Inspiration state exported from Eryka, repeated equip/unequip, F5-style repeated syncs, multiple Items, formula and numeric pools, Lay on Hands, legacy Spell Slot migration, original override restoration, and preservation of spent slots.
+
 ## 0.4.0a — Resource Runtime Hotfix
 
 ### Idempotent resource reconciliation

@@ -185,6 +185,117 @@ async function originalResourceValue(feature, path) {
   return source ? sourceValue(source, path) : undefined;
 }
 
+function isFeatureResourcePath(path) {
+  return path === "system.uses.max" || /^system\.activities\.[^.]+\.uses\.max$/.test(String(path ?? ""));
+}
+
+function isResourceState(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value)
+    && (Object.hasOwn(value, "base") || Object.hasOwn(value, "applied") || Object.hasOwn(value, "bonus")));
+}
+
+function normalizeFeatureLedgerEntry(entry) {
+  if (!entry || typeof entry !== "object" || !isFeatureResourcePath(entry.path)) return null;
+  return {
+    version: 3,
+    path: String(entry.path),
+    base: foundry.utils.deepClone(entry.base ?? ""),
+    applied: foundry.utils.deepClone(entry.applied ?? entry.base ?? ""),
+    bonus: Number(entry.bonus) || 0,
+    sources: Array.isArray(entry.sources) ? foundry.utils.deepClone(entry.sources) : []
+  };
+}
+
+function collectLegacyFeatureLedger(value) {
+  const entries = new Map();
+  const ignoredStateKeys = new Set(["version", "base", "applied", "bonus", "sources"]);
+  const visit = (node, prefix = "") => {
+    if (!node || typeof node !== "object" || Array.isArray(node)) return;
+    if (prefix && isFeatureResourcePath(prefix) && isResourceState(node)) {
+      entries.set(prefix, {
+        version: Number(node.version) || 1,
+        path: prefix,
+        base: foundry.utils.deepClone(node.base ?? ""),
+        applied: foundry.utils.deepClone(node.applied ?? node.base ?? ""),
+        bonus: Number(node.bonus) || 0,
+        sources: Array.isArray(node.sources) ? foundry.utils.deepClone(node.sources) : []
+      });
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) {
+      if (ignoredStateKeys.has(key)) continue;
+      const path = prefix ? `${prefix}.${key}` : key;
+      visit(child, path);
+    }
+  };
+  visit(value);
+  return entries;
+}
+
+function readFeatureResourceLedger(feature) {
+  const raw = foundry.utils.deepClone(feature.getFlag(MODULE_ID, "resourceRuntimeLedger") ?? null);
+  const entries = new Map();
+  if (raw?.version === 3 && Array.isArray(raw.entries)) {
+    for (const value of raw.entries) {
+      const entry = normalizeFeatureLedgerEntry(value);
+      if (entry) entries.set(entry.path, entry);
+    }
+  }
+
+  const legacy = foundry.utils.deepClone(feature.getFlag(MODULE_ID, "resourceRuntimeBases") ?? null);
+  for (const [path, entry] of collectLegacyFeatureLedger(legacy)) {
+    if (!entries.has(path)) entries.set(path, entry);
+  }
+  return {
+    raw,
+    entries,
+    legacyPresent: Boolean(legacy && typeof legacy === "object" && Object.keys(legacy).length)
+  };
+}
+
+function isSpellSlotKey(key) {
+  return key === "pact" || /^spell[1-9]$/.test(String(key ?? ""));
+}
+
+function normalizeSlotLedgerEntry(entry) {
+  if (!entry || typeof entry !== "object" || !isSpellSlotKey(entry.key)) return null;
+  return {
+    version: 3,
+    key: String(entry.key),
+    path: `system.spells.${entry.key}.override`,
+    baseOverride: Object.hasOwn(entry, "baseOverride") ? foundry.utils.deepClone(entry.baseOverride) : null,
+    appliedOverride: Object.hasOwn(entry, "appliedOverride") ? foundry.utils.deepClone(entry.appliedOverride) : null,
+    bonus: Number(entry.bonus) || 0,
+    naturalMax: Math.max(0, Number(entry.naturalMax) || 0),
+    sources: Array.isArray(entry.sources) ? foundry.utils.deepClone(entry.sources) : []
+  };
+}
+
+function readSpellSlotLedger(actor) {
+  const raw = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotLedger") ?? null);
+  const entries = new Map();
+  if (raw?.version === 3 && Array.isArray(raw.entries)) {
+    for (const value of raw.entries) {
+      const entry = normalizeSlotLedgerEntry(value);
+      if (entry) entries.set(entry.key, entry);
+    }
+  }
+
+  const legacy = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? null);
+  if (legacy && typeof legacy === "object") {
+    for (const [key, value] of Object.entries(legacy)) {
+      if (entries.has(key) || !isSpellSlotKey(key) || !value || typeof value !== "object") continue;
+      const entry = normalizeSlotLedgerEntry({ key, ...value });
+      if (entry) entries.set(key, entry);
+    }
+  }
+  return {
+    raw,
+    entries,
+    legacyPresent: Boolean(legacy && typeof legacy === "object" && Object.keys(legacy).length)
+  };
+}
+
 export class ItemCreatorRuntimeEffectService {
   static #syncingItems = new Set();
   static #syncingActors = new Set();
@@ -618,42 +729,44 @@ export class ItemCreatorRuntimeEffectService {
 
     const tracked = new Map();
     for (const feature of actor.items ?? []) {
-      const state = feature.getFlag(MODULE_ID, "resourceRuntimeBases");
-      if (state && Object.keys(state).length) tracked.set(feature.id, feature);
+      const ledger = readFeatureResourceLedger(feature);
+      if (ledger.entries.size || ledger.legacyPresent) tracked.set(feature.id, feature);
     }
     for (const entry of desired.values()) tracked.set(entry.feature.id, entry.feature);
 
     for (const feature of tracked.values()) {
-      const oldState = foundry.utils.deepClone(feature.getFlag(MODULE_ID, "resourceRuntimeBases") ?? {});
-      const nextState = {};
+      const ledger = readFeatureResourceLedger(feature);
+      const nextEntries = [];
       const updates = {};
       const relevant = [...desired.values()].filter(entry => entry.feature.id === feature.id);
       const desiredByPath = new Map(relevant.map(entry => [entry.path, entry]));
-      const paths = new Set([...Object.keys(oldState), ...desiredByPath.keys()]);
+      const paths = new Set([...ledger.entries.keys(), ...desiredByPath.keys()]);
 
       for (const path of paths) {
-        const previous = oldState[path] ?? null;
+        if (!isFeatureResourcePath(path)) continue;
+        const previous = ledger.entries.get(path) ?? null;
         const currentSource = sourceValue(feature, path);
         const target = desiredByPath.get(path);
         const external = this.#consumeExternalResourceBase(actor, feature, path);
         let base = previous?.base ?? currentSource ?? "";
 
-        if (external.found) base = external.value ?? "";
+        if (external.found) base = foundry.utils.deepClone(external.value ?? "");
         else if (previous) {
           const previousApplied = previous.applied ?? formulaWithBonus(previous.base, previous.bonus);
           if (!sameResourceValue(currentSource, previousApplied)
             && !sameResourceValue(currentSource, previous.base)) {
-            // A non-runtime edit becomes the new baseline. This preserves manual
-            // feature edits and level-up changes without stacking the Item bonus.
-            base = currentSource ?? "";
+            // Only a value which differs from both the recorded base and the
+            // last runtime result may replace the snapshot. This makes the
+            // ledger idempotent while still accepting level-up/manual edits.
+            base = foundry.utils.deepClone(currentSource ?? "");
           }
         }
 
-        // v0.4.0 could lose its baseline because D&D5e normalized numeric
-        // formulas from strings to numbers. Recover source-backed features once
-        // before writing the v2 state, including Actors already affected by the
-        // cumulative equip/unequip bug.
-        if (!external.found && Number(previous?.version ?? 0) < 2) {
+        // Repair v0.4.0/v0.4.0a states. The old dotted-key flag could be
+        // expanded by Foundry into nested objects. Source-backed features can
+        // safely recover their official baseline when the observed values are
+        // exact additive distances from it.
+        if (!external.found && Number(previous?.version ?? 0) < 3) {
           const sourceBase = await originalResourceValue(feature, path);
           const sourceHasValue = sourceBase !== undefined && sourceBase !== null
             && String(sourceBase).trim() !== "";
@@ -664,31 +777,33 @@ export class ItemCreatorRuntimeEffectService {
             const isManagedDistance = distance => distance === 0
               || (Number.isInteger(distance) && distance > 0
                 && (!knownBonus || distance % knownBonus === 0));
-            if (isManagedDistance(currentDistance) || isManagedDistance(storedDistance)) base = sourceBase;
+            if (isManagedDistance(currentDistance) || isManagedDistance(storedDistance)) {
+              base = foundry.utils.deepClone(sourceBase);
+            }
           }
         }
 
-        if (target) {
-          const applied = formulaWithBonus(base, target.bonus);
-          if (!sameResourceValue(currentSource, applied)) updates[path] = applied;
-          nextState[path] = {
-            version: 2,
-            base,
-            applied,
-            bonus: target.bonus,
-            sources: target.sources
-          };
-        } else {
-          // Keep the baseline ledger even while inactive. Removing it was what
-          // allowed subsequent equips to treat the previously modified maximum
-          // as a fresh base and accumulate the bonus permanently.
-          if (!sameResourceValue(currentSource, base)) updates[path] = base;
-          nextState[path] = { version: 2, base, applied: base, bonus: 0, sources: [] };
-        }
+        const bonus = Number(target?.bonus) || 0;
+        const applied = target ? formulaWithBonus(base, bonus) : foundry.utils.deepClone(base);
+        if (!sameResourceValue(currentSource, applied)) updates[path] = foundry.utils.deepClone(applied);
+        nextEntries.push({
+          version: 3,
+          path,
+          base: foundry.utils.deepClone(base),
+          applied: foundry.utils.deepClone(applied),
+          bonus,
+          sources: target ? foundry.utils.deepClone(target.sources) : []
+        });
       }
 
-      if (Object.keys(nextState).length) updates[`flags.${MODULE_ID}.resourceRuntimeBases`] = nextState;
-      else if (Object.keys(oldState).length) updates[`flags.${MODULE_ID}.-=resourceRuntimeBases`] = null;
+      nextEntries.sort((left, right) => left.path.localeCompare(right.path));
+      const nextLedger = nextEntries.length ? { version: 3, entries: nextEntries } : null;
+      if (nextLedger && !equalData(ledger.raw, nextLedger)) {
+        updates[`flags.${MODULE_ID}.resourceRuntimeLedger`] = nextLedger;
+      } else if (!nextLedger && ledger.raw) {
+        updates[`flags.${MODULE_ID}.-=resourceRuntimeLedger`] = null;
+      }
+      if (ledger.legacyPresent) updates[`flags.${MODULE_ID}.-=resourceRuntimeBases`] = null;
       if (!Object.keys(updates).length) continue;
       await feature.update(updates, {
         itemCreatorRuntime: true,
@@ -701,33 +816,44 @@ export class ItemCreatorRuntimeEffectService {
 
   static async #syncSpellSlotResources(actor, rows) {
     const desired = new Map();
-    for (const { setting } of rows) {
+    const sources = new Map();
+    for (const { item, setting } of rows) {
       const key = setting.category === "spellSlot" ? `spell${setting.spellLevel}`
         : setting.category === "pactSlot" ? "pact" : null;
       if (!key) continue;
       desired.set(key, (desired.get(key) ?? 0) + (Number(setting.amount) || 0));
+      const list = sources.get(key) ?? [];
+      list.push({ itemId: item.id, modificationId: setting.id });
+      sources.set(key, list);
     }
 
-    const oldState = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? {});
-    const keys = new Set([...Object.keys(oldState), ...desired.keys()]);
-    if (!keys.size) return;
+    const ledger = readSpellSlotLedger(actor);
+    const keys = new Set([...ledger.entries.keys(), ...desired.keys()]);
+    if (!keys.size && !ledger.legacyPresent) return;
 
-    const working = {};
+    const working = new Map();
     const restoreUpdates = {};
     for (const key of keys) {
-      const previous = oldState[key] ?? null;
+      if (!isSpellSlotKey(key)) continue;
+      const previous = ledger.entries.get(key) ?? null;
       const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
       let baseOverride = previous && Object.hasOwn(previous, "baseOverride")
-        ? previous.baseOverride : currentOverride;
+        ? foundry.utils.deepClone(previous.baseOverride) : foundry.utils.deepClone(currentOverride);
+
       if (previous
         && !sameResourceValue(currentOverride, previous.appliedOverride)
         && !sameResourceValue(currentOverride, previous.baseOverride)) {
-        baseOverride = currentOverride;
+        // A direct override edit becomes the new base snapshot.
+        baseOverride = foundry.utils.deepClone(currentOverride);
       }
-      working[key] = { baseOverride };
+      working.set(key, { previous, baseOverride });
+
+      // Temporarily restore the original override before reading the derived
+      // natural maximum. This allows class progression to update underneath an
+      // equipped Item without ever treating the managed override as the base.
       if (previous && sameResourceValue(currentOverride, previous.appliedOverride)
         && !sameResourceValue(currentOverride, baseOverride)) {
-        restoreUpdates[`system.spells.${key}.override`] = baseOverride;
+        restoreUpdates[`system.spells.${key}.override`] = foundry.utils.deepClone(baseOverride);
       }
     }
 
@@ -741,42 +867,49 @@ export class ItemCreatorRuntimeEffectService {
     }
 
     const finalUpdates = {};
-    const nextState = {};
+    const nextEntries = [];
     for (const key of keys) {
-      const bonus = desired.get(key) ?? 0;
+      if (!isSpellSlotKey(key)) continue;
+      const previous = working.get(key)?.previous ?? null;
+      const baseOverride = working.get(key)?.baseOverride ?? null;
+      const bonus = Number(desired.get(key)) || 0;
       const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
       const currentValue = Number(sourceValue(actor, `system.spells.${key}.value`)
         ?? actor.system?.spells?.[key]?.value ?? 0) || 0;
-      const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max
-        ?? working[key]?.baseOverride ?? 0) || 0);
+      const derivedMax = Number(actor.system?.spells?.[key]?.max);
+      const baseNumeric = Number(baseOverride);
+      const previousNatural = Number(previous?.naturalMax);
+      const naturalMax = Math.max(0,
+        Number.isFinite(derivedMax) ? derivedMax
+          : Number.isFinite(baseNumeric) ? baseNumeric
+            : Number.isFinite(previousNatural) ? previousNatural : 0);
+      const appliedOverride = bonus ? Math.max(0, naturalMax + bonus) : foundry.utils.deepClone(baseOverride);
+      const effectiveMax = bonus ? Number(appliedOverride) : naturalMax;
 
-      if (bonus > 0) {
-        const appliedOverride = naturalMax + bonus;
-        if (!sameResourceValue(currentOverride, appliedOverride)) {
-          finalUpdates[`system.spells.${key}.override`] = appliedOverride;
-        }
-        if (currentValue > appliedOverride) finalUpdates[`system.spells.${key}.value`] = appliedOverride;
-        nextState[key] = {
-          version: 2,
-          baseOverride: working[key]?.baseOverride ?? null,
-          appliedOverride,
-          bonus,
-          naturalMax
-        };
-      } else {
-        if (currentValue > naturalMax) finalUpdates[`system.spells.${key}.value`] = naturalMax;
-        nextState[key] = {
-          version: 2,
-          baseOverride: working[key]?.baseOverride ?? null,
-          appliedOverride: working[key]?.baseOverride ?? null,
-          bonus: 0,
-          naturalMax
-        };
+      if (!sameResourceValue(currentOverride, appliedOverride)) {
+        finalUpdates[`system.spells.${key}.override`] = foundry.utils.deepClone(appliedOverride);
       }
+      if (currentValue > effectiveMax) finalUpdates[`system.spells.${key}.value`] = effectiveMax;
+      nextEntries.push({
+        version: 3,
+        key,
+        path: `system.spells.${key}.override`,
+        baseOverride: foundry.utils.deepClone(baseOverride),
+        appliedOverride: foundry.utils.deepClone(appliedOverride),
+        bonus,
+        naturalMax,
+        sources: foundry.utils.deepClone(sources.get(key) ?? [])
+      });
     }
 
-    if (Object.keys(nextState).length) finalUpdates[`flags.${MODULE_ID}.resourceSlotRuntime`] = nextState;
-    else if (Object.keys(oldState).length) finalUpdates[`flags.${MODULE_ID}.-=resourceSlotRuntime`] = null;
+    nextEntries.sort((left, right) => left.key.localeCompare(right.key));
+    const nextLedger = nextEntries.length ? { version: 3, entries: nextEntries } : null;
+    if (nextLedger && !equalData(ledger.raw, nextLedger)) {
+      finalUpdates[`flags.${MODULE_ID}.resourceSlotLedger`] = nextLedger;
+    } else if (!nextLedger && ledger.raw) {
+      finalUpdates[`flags.${MODULE_ID}.-=resourceSlotLedger`] = null;
+    }
+    if (ledger.legacyPresent) finalUpdates[`flags.${MODULE_ID}.-=resourceSlotRuntime`] = null;
     if (!Object.keys(finalUpdates).length) return;
     await actor.update(finalUpdates, {
       itemCreatorRuntime: true,
@@ -845,6 +978,13 @@ export class ItemCreatorRuntimeEffectService {
       return;
     }
 
+    // Resource dice use a non-destructive Active Effect. The Actor's source
+    // scale remains untouched, and the original faces are recorded explicitly
+    // for audit/migration rather than encoded as dotted object keys.
+    const baseSnapshots = [...grouped.values()]
+      .filter(group => group.baseFaces)
+      .map(group => ({ path: group.path, baseFaces: group.baseFaces }))
+      .sort((left, right) => left.path.localeCompare(right.path));
     const data = {
       type: "base",
       name: "Item Creator — Resource Dice",
@@ -854,7 +994,7 @@ export class ItemCreatorRuntimeEffectService {
       disabled: false,
       statuses: [],
       changes,
-      flags: { [MODULE_ID]: { resourceDieRuntime: true } }
+      flags: { [MODULE_ID]: { resourceDieRuntime: true, ledgerVersion: 3, baseSnapshots } }
     };
     if (runtimeEffect) {
       await actor.updateEmbeddedDocuments("ActiveEffect", [{
@@ -882,7 +1022,20 @@ export class ItemCreatorRuntimeEffectService {
       })),
       registry: auditResourceDefinitions(actor),
       spellSlots: foundry.utils.deepClone(actor.system?.spells ?? {}),
-      managedSlotState: foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? {})
+      managedFeatureState: (actor.items ?? [])
+        .filter(item => item.getFlag(MODULE_ID, "resourceRuntimeLedger") || item.getFlag(MODULE_ID, "resourceRuntimeBases"))
+        .map(item => ({
+          item: item.name,
+          itemUuid: item.uuid,
+          ledger: foundry.utils.deepClone(item.getFlag(MODULE_ID, "resourceRuntimeLedger") ?? null),
+          legacy: foundry.utils.deepClone(item.getFlag(MODULE_ID, "resourceRuntimeBases") ?? null)
+        })),
+      managedSlotState: foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotLedger")
+        ?? actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? {}),
+      managedDieState: foundry.utils.deepClone(actor.effects
+        .find(effect => effect.getFlag(MODULE_ID, "resourceDieRuntime"))?.getFlag(MODULE_ID, "resourceDieRuntime")
+        ? actor.effects.find(effect => effect.getFlag(MODULE_ID, "resourceDieRuntime"))?.flags?.[MODULE_ID] ?? null
+        : null)
     };
   }
 
