@@ -1546,7 +1546,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         eventOptions: fixedOptions(TRIGGER_EVENTS[trigger.category] ?? [], trigger.event),
         attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
         countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
-        stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS, stack.behavior),
+        stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
+          || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
         durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
         tickTimingOptions: fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming),
         spellLevelOptions: [{ value: "any", label: "Any Spell Level", selected: trigger.spellLevel === "any" },
@@ -1569,6 +1570,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         showSlotLevel: ["spellSlotSpent", "pactSlotSpent"].includes(trigger.event),
         showSpecificFeature: trigger.event === "specificFeatureUsed",
         showDamageFilters: trigger.category === "damage" || trigger.event === "attackDamageApplied",
+        isSingleAttack: stack.behavior === "singleAttack",
+        showStackQuantityFields: stack.behavior !== "singleAttack",
+        showTrackingFields: stack.behavior !== "singleAttack",
         showDurationFields: ["refresh", "shared", "independent"].includes(stack.behavior),
         showDecayFields: ["continuousDecay", "delayedDecay"].includes(stack.behavior),
         showInactivityGrace: stack.behavior === "delayedDecay",
@@ -1833,16 +1837,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="add-triggered-effect"]')?.addEventListener("click", event => this.#addTriggeredEffect(event));
     root.querySelectorAll('[data-action="remove-triggered-effect"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredEffect(event)));
     root.querySelectorAll('[data-trigger-input]').forEach(input => {
-      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
-      input.addEventListener(eventName, event => this.#updateTriggeredEffect(event));
+      if (input.matches("select, input[type=checkbox]")) {
+        input.addEventListener("change", event => this.#updateTriggeredEffect(event, { commit: true, render: true }));
+      } else {
+        input.addEventListener("input", event => this.#updateTriggeredEffect(event, { commit: false, render: false }));
+        input.addEventListener("change", event => this.#updateTriggeredEffect(event, { commit: true, render: true }));
+      }
     });
     root.querySelectorAll('[data-action="browse-trigger-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "spell")));
     root.querySelectorAll('[data-action="browse-trigger-feature"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "feature")));
     root.querySelectorAll('[data-action="add-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#addTriggeredPayload(event)));
     root.querySelectorAll('[data-action="remove-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredPayload(event)));
     root.querySelectorAll('[data-trigger-payload-input]').forEach(input => {
-      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
-      input.addEventListener(eventName, event => this.#updateTriggeredPayload(event));
+      if (input.matches("select, input[type=checkbox]")) {
+        input.addEventListener("change", event => this.#updateTriggeredPayload(event, { commit: true, render: true }));
+      } else {
+        input.addEventListener("input", event => this.#updateTriggeredPayload(event, { commit: false, render: false }));
+        input.addEventListener("change", event => this.#updateTriggeredPayload(event, { commit: true, render: true }));
+      }
     });
     root.querySelector('[data-description-toggle]')?.addEventListener("change", event => this.#toggleDescriptionCustomization(event));
     const descriptionEditor = this.#mountDescriptionEditor(root);
@@ -3685,7 +3697,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
-  #updateTriggeredEffect(event) {
+  #updateTriggeredEffect(event, { commit = true, render = true } = {}) {
     const id = event.currentTarget.dataset.triggerId;
     const part = event.currentTarget.dataset.triggerInput;
     const scope = event.currentTarget.dataset.triggerScope || "root";
@@ -3693,12 +3705,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!row || !part) return;
     let value;
     if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
-    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
-    else value = event.currentTarget.value;
+    else if (event.currentTarget.dataset.valueType === "number") {
+      value = event.currentTarget.value === "" ? (commit ? 0 : "")
+        : (commit ? Number(event.currentTarget.value) : event.currentTarget.value);
+    } else value = event.currentTarget.value;
 
     if (scope === "trigger") row.trigger[part] = value;
     else if (scope === "stacks") row.stacks[part] = value;
     else row[part] = value;
+
+    if (!commit) return;
 
     if (scope === "trigger" && part === "category") {
       const events = TRIGGER_EVENTS[value] ?? TRIGGER_EVENTS.attack;
@@ -3710,13 +3726,25 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       else if (value === "attackRolled") row.counting = "perAttackRoll";
       else if (["spellCast", "spellAttackCast", "spellSaveCast", "specificSpellCast", "spellCastUsingSlot", "spellCastWithoutSlot"].includes(value)) row.counting = "perActivity";
     }
+    const singleAttackEligible = row.trigger.category === "attack"
+      && ["attackHit", "criticalHit", "natural20"].includes(row.trigger.event);
+    if (row.stacks.behavior === "singleAttack" && !singleAttackEligible) row.stacks.behavior = "refresh";
+
     if (scope === "stacks" && part === "durationUnit") {
       row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
     }
-    if (scope === "stacks" && part === "behavior" && value === "refresh") row.stacks.maximum = 1;
+    if (scope === "stacks" && part === "behavior") {
+      if (value === "refresh" || value === "singleAttack") row.stacks.maximum = 1;
+      if (value === "singleAttack") {
+        row.stacks.granted = 1;
+        row.stacks.durationAmount = 1;
+        row.stacks.durationUnit = "ownerTurns";
+        row.stacks.tickTiming = "ownerTurnEnd";
+      }
+    }
 
     Object.assign(row, normalizeTriggeredEffect(row));
-    this.#renderPreservingScroll();
+    if (render) this.#renderPreservingScroll();
   }
 
   #addTriggeredPayload(event) {
@@ -3738,18 +3766,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
-  #updateTriggeredPayload(event) {
+  #updateTriggeredPayload(event, { commit = true, render = true } = {}) {
     const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
     const payload = row?.effects?.find(entry => entry.id === event.currentTarget.dataset.payloadId);
     const part = event.currentTarget.dataset.triggerPayloadInput;
     if (!row || !payload || !part) return;
     let value;
     if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
-    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
-    else value = event.currentTarget.value;
+    else if (event.currentTarget.dataset.valueType === "number") {
+      value = event.currentTarget.value === "" ? (commit ? 0 : "")
+        : (commit ? Number(event.currentTarget.value) : event.currentTarget.value);
+    } else value = event.currentTarget.value;
     payload[part] = value;
+    if (!commit) return;
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
-    this.#renderPreservingScroll();
+    if (render) this.#renderPreservingScroll();
   }
 
   async #browseTriggeredSource(event, kind) {

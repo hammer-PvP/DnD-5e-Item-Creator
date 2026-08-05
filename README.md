@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0 Beta Candidate
+**Version:** 0.5.0a Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -88,9 +88,9 @@ Granted Effects also contains a repeatable **Triggered Effects** builder for tem
 3. stacks and a duration/decay model;
 4. one or more generic effects applied to the Item wielder.
 
-`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. Multi-roll Spell Attacks can grant one activation per successful roll; save-based spell events default to once per spell Activity rather than once per target.
+`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. The generated Item summary keeps those labels concise and also prints the selected attack type or specific consumed resource, such as `Critical Hit — Any Spell Attack` or `Bardic Inspiration Spent`. Multi-roll Spell Attacks can grant one activation per successful roll; save-based spell events default to once per spell Activity rather than once per target.
 
-Stack behavior may refresh a single effect, share one duration across stacks, track independent stack durations, decay continuously, or begin decaying only after a configured number of inactive turns. Tracking supports Owner Turns, Combat Turns, and Rounds. Ending or deleting the Combat immediately removes every temporary Item Creator effect and its ledger state.
+Stack behavior may refresh a single effect, share one duration across stacks, track independent stack durations, decay continuously, begin decaying only after a configured number of inactive turns, or use **Single Attack — Remove After Damage Roll**. The single-attack mode is available for Attack Hit, Critical Hit, and Natural 20; it keeps the effect through the next damage roll from the same Activity and then removes it, with end-of-current-turn cleanup as a fallback. Tracking supports Owner Turns, Combat Turns, and Rounds. A 1 Owner Turn effect set to End of Owner Turn expires when the owner's current turn ends. Ending or deleting the Combat immediately removes every temporary Item Creator effect and its ledger state.
 
 Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, and Actor critical threshold. Values may be flat, based on Proficiency Bonus or an ability modifier, use the Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each effect can be fixed while active or multiplied per stack.
 

@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
+import { safeDeleteActiveEffects } from "./document-operation-service.mjs";
 import {
   buildTriggeredEffectChanges, normalizeTriggeredEffect, validateTriggeredEffect
 } from "./triggered-effect-registry.mjs";
@@ -144,7 +145,11 @@ function normalizeEntry(value = {}) {
     turnActivations: Math.max(0, Number(value.turnActivations) || 0),
     roundActivationKey: String(value.roundActivationKey ?? ""),
     roundActivations: Math.max(0, Number(value.roundActivations) || 0),
-    lastEventId: String(value.lastEventId ?? "")
+    lastEventId: String(value.lastEventId ?? ""),
+    resolutionActivityUuid: String(value.resolutionActivityUuid ?? ""),
+    resolutionItemUuid: String(value.resolutionItemUuid ?? ""),
+    resolutionRollKey: String(value.resolutionRollKey ?? ""),
+    resolutionMessageId: String(value.resolutionMessageId ?? "")
   };
 }
 
@@ -253,7 +258,15 @@ function applyActivation(entry, setting, combat, event) {
   const stacks = setting.stacks;
   const grant = Math.max(1, Number(stacks.granted) || 1);
   const maximum = Math.max(1, Number(stacks.maximum) || 1);
-  if (stacks.behavior === "refresh") {
+  if (stacks.behavior === "singleAttack") {
+    entry.stacks = 1;
+    entry.remaining = 1;
+    entry.independent = [];
+    entry.resolutionActivityUuid = String(event.activityUuid ?? "");
+    entry.resolutionItemUuid = String(event.itemUuid ?? "");
+    entry.resolutionRollKey = String(event.rollKey ?? "");
+    entry.resolutionMessageId = String(event.messageId ?? "");
+  } else if (stacks.behavior === "refresh") {
     entry.stacks = 1;
     entry.remaining = Math.max(1, Number(stacks.durationAmount) || 1);
     entry.independent = [];
@@ -274,6 +287,12 @@ function applyActivation(entry, setting, combat, event) {
     entry.remaining = 0;
     entry.independent = [];
   }
+  if (stacks.behavior !== "singleAttack") {
+    entry.resolutionActivityUuid = "";
+    entry.resolutionItemUuid = "";
+    entry.resolutionRollKey = "";
+    entry.resolutionMessageId = "";
+  }
   entry.idleTicks = 0;
   entry.lastTriggerMoment = combatMoment(combat);
   entry.lastEventId = event.id;
@@ -283,7 +302,7 @@ function tickEntry(entry, setting, timing, combat) {
   if (setting.stacks.tickTiming !== timing) return false;
   if (entry.lastTriggerMoment === combatMoment(combat)) return false;
   const behavior = setting.stacks.behavior;
-  if (behavior === "refresh" || behavior === "shared") {
+  if (behavior === "singleAttack" || behavior === "refresh" || behavior === "shared") {
     entry.remaining = Math.max(0, entry.remaining - 1);
     if (entry.remaining <= 0) entry.stacks = 0;
   } else if (behavior === "independent") {
@@ -311,6 +330,14 @@ function matchingTick(setting, timing, actorId, currentActorId) {
   return false;
 }
 
+function singleAttackResolutionMatches(entry, setting, event) {
+  if (setting?.stacks?.behavior !== "singleAttack") return false;
+  if (entry.combatId !== event.combatId) return false;
+  if (!entry.resolutionActivityUuid || entry.resolutionActivityUuid !== event.activityUuid) return false;
+  if (entry.resolutionItemUuid && event.itemUuid && entry.resolutionItemUuid !== event.itemUuid) return false;
+  return true;
+}
+
 function effectFlags(entry) {
   return {
     triggeredRuntime: true,
@@ -329,8 +356,9 @@ export class ItemCreatorTriggeredEffectService {
   static registerHooks() {
     Hooks.once("ready", () => {
       game.socket?.on(SOCKET_CHANNEL, payload => {
-        if (!isAuthoritativeGM() || payload?.type !== "triggerEvent") return;
-        void this.#processEvent(payload.event);
+        if (!isAuthoritativeGM()) return;
+        if (payload?.type === "triggerEvent") void this.#processEvent(payload.event);
+        else if (payload?.type === "attackDamageResolved") void this.#resolveSingleAttackEffects(payload.event);
       });
       if (isAuthoritativeGM()) {
         for (const actor of game.actors ?? []) void this.syncActor(actor);
@@ -338,6 +366,7 @@ export class ItemCreatorTriggeredEffectService {
     });
 
     Hooks.on("dnd5e.postRollAttack", (rolls, { subject } = {}) => this.#onAttackRolls(rolls, subject));
+    Hooks.on("dnd5e.rollDamage", (rolls, { subject } = {}) => this.#onDamageRolled(rolls, subject));
     Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => this.#onActivityUsed(activity, usageConfig, results));
     Hooks.on("dnd5e.applyDamage", (actor, amount, options) => this.#onDamageApplied(actor, amount, options));
 
@@ -402,7 +431,7 @@ export class ItemCreatorTriggeredEffectService {
       const orphanIds = actor.effects.filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
         && !ledgerEffectIds.has(effect.id)).map(effect => effect.id);
       if (orphanIds.length) {
-        await actor.deleteEmbeddedDocuments("ActiveEffect", orphanIds, { itemCreatorRuntime: true });
+        await safeDeleteActiveEffects(actor, orphanIds, { itemCreatorRuntime: true });
         dirty = true;
       }
       if (dirty || !this.#sameLedger(ledger.raw, ledger.entries)) await this.#writeLedger(actor, ledger.entries);
@@ -453,6 +482,36 @@ export class ItemCreatorTriggeredEffectService {
     if (!event?.actorUuid) return;
     if (isAuthoritativeGM()) void this.#processEvent(event);
     else game.socket?.emit(SOCKET_CHANNEL, { type: "triggerEvent", event });
+  }
+
+  static #emitAttackDamageResolved(event) {
+    if (!event?.actorUuid) return;
+    if (isAuthoritativeGM()) void this.#resolveSingleAttackEffects(event);
+    else game.socket?.emit(SOCKET_CHANNEL, { type: "attackDamageResolved", event });
+  }
+
+  static #onDamageRolled(rolls, activity) {
+    const actor = activity?.actor;
+    const item = activity?.item;
+    if (!actor || !item || !(activity?.type === "attack" || activity?.attack)) return;
+    const combat = currentCombatForActor(actor);
+    if (!combat) return;
+    const firstRoll = (rolls ?? [])[0];
+    const messageId = firstRoll?.parent?.id ?? firstRoll?.options?.messageId ?? "";
+    this.#emitAttackDamageResolved({
+      id: eventId("attackDamageResolved", activity.uuid, messageId, combat.round, combat.turn),
+      actorUuid: actor.uuid,
+      actorId: actor.id,
+      combatId: combat.id,
+      round: combat.round,
+      turn: combat.turn,
+      itemUuid: item.uuid,
+      itemId: item.id,
+      activityUuid: activity.uuid,
+      activityId: activity.id,
+      messageId,
+      timestamp: Date.now()
+    });
   }
 
   static #onAttackRolls(rolls, activity) {
@@ -687,6 +746,24 @@ export class ItemCreatorTriggeredEffectService {
     });
   }
 
+  static async #resolveSingleAttackEffects(event) {
+    if (!isAuthoritativeGM()) return;
+    const actor = fromUuidSync(event.actorUuid, { strict: false }) ?? game.actors?.get(event.actorId);
+    if (actor?.documentName !== "Actor") return;
+    await this.#enqueue(actor.uuid, async () => {
+      const ledger = readLedger(actor);
+      let changed = false;
+      for (const [key, entry] of [...ledger.entries]) {
+        const { setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
+        if (!singleAttackResolutionMatches(entry, setting, event)) continue;
+        await this.#removeEntryEffect(actor, entry);
+        ledger.entries.delete(key);
+        changed = true;
+      }
+      if (changed) await this.#writeLedger(actor, ledger.entries);
+    });
+  }
+
   static async #processEvent(event) {
     if (!isAuthoritativeGM()) return;
     const actor = fromUuidSync(event.actorUuid, { strict: false }) ?? game.actors?.get(event.actorId);
@@ -797,7 +874,7 @@ export class ItemCreatorTriggeredEffectService {
       candidate.getFlag(MODULE_ID, "triggeredRuntime")
       && candidate.getFlag(MODULE_ID, "sourceItemId") === entry.sourceItemId
       && candidate.getFlag(MODULE_ID, "triggerId") === entry.triggerId);
-    if (effect) await actor.deleteEmbeddedDocuments("ActiveEffect", [effect.id], { itemCreatorRuntime: true, render: true });
+    if (effect) await safeDeleteActiveEffects(actor, [effect.id], { itemCreatorRuntime: true, render: true });
     entry.effectId = null;
   }
 
@@ -821,6 +898,7 @@ export const __triggeredEffectTest = Object.freeze({
   applyActivation,
   tickEntry,
   matchingTick,
+  singleAttackResolutionMatches,
   activationKey,
   matchesAttackType
 });

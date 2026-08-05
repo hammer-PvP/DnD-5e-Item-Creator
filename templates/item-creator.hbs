@@ -963,8 +963,10 @@
               <section class="ic-triggered-subsection">
                 <header><i class="fa-solid fa-layer-group"></i><strong>Stacks &amp; Duration</strong></header>
                 <div class="ic-triggered-grid four-columns">
+                  {{#if showStackQuantityFields}}
                   <label><span>Stacks per Activation</span><input type="number" min="1" max="99" step="1" value="{{stacks.granted}}" data-trigger-input="granted" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   <label><span>Maximum Stacks</span><input type="number" min="1" max="999" step="1" value="{{stacks.maximum}}" data-trigger-input="maximum" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{/if}}
                   <label class="ic-triggered-span-two"><span>Stack Behavior</span><select data-trigger-input="behavior" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each stackBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
 
                   {{#if showDurationFields}}
@@ -977,10 +979,16 @@
                   {{#if showDecayFields}}
                   <label><span>Stacks Lost per Tick</span><input type="number" min="1" max="999" step="1" value="{{stacks.decayAmount}}" data-trigger-input="decayAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   {{/if}}
+                  {{#if showTrackingFields}}
                   <label><span>Tracking Unit</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/if}}
                 </div>
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>The partial turn in which the trigger occurs is not consumed immediately. Ending or deleting the Combat removes all stacks and effects.</span></aside>
+                {{#if isSingleAttack}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
+                {{else}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>A duration of 1 Owner Turn set to End of Owner Turn expires when the owner's current turn ends. Ending or deleting the Combat removes all stacks and effects.</span></aside>
+                {{/if}}
               </section>
 
               <section class="ic-triggered-subsection">

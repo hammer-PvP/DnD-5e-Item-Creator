@@ -1,4 +1,5 @@
 import { MODULE_ID } from "../constants.mjs";
+import { getResourceDefinition } from "./resource-modification-registry.mjs";
 
 export const TRIGGER_CATEGORIES = Object.freeze({
   attack: "Attack",
@@ -13,8 +14,8 @@ export const TRIGGER_EVENTS = Object.freeze({
   attack: Object.freeze([
     ["attackRolled", "Attack Rolled"],
     ["attackHit", "Attack Hit"],
-    ["criticalHit", "Critical Hit (uses the attack's critical threshold)"],
-    ["natural20", "Natural 20 on an Attack"],
+    ["criticalHit", "Critical Hit"],
+    ["natural20", "Natural 20"],
     ["attackDamageApplied", "Damage from an Attack Applied"]
   ]),
   spell: Object.freeze([
@@ -77,6 +78,7 @@ export const ACTIVATION_COUNTING = Object.freeze([
 ]);
 
 export const STACK_BEHAVIORS = Object.freeze([
+  ["singleAttack", "Single Attack — Remove After Damage Roll"],
   ["refresh", "No Stacking — Refresh Duration"],
   ["shared", "Shared Duration"],
   ["independent", "Independent Duration per Stack"],
@@ -283,18 +285,22 @@ export function normalizeTriggeredEffect(value = {}) {
     counting: validChoice(ACTIVATION_COUNTING, value.counting, fallback.counting),
     maxPerTurn: Math.max(0, Number(value.maxPerTurn) || 0),
     maxPerRound: Math.max(0, Number(value.maxPerRound) || 0),
-    stacks: {
-      ...fallback.stacks,
-      ...(clone(value.stacks ?? {})),
-      granted: Math.max(1, Number(value.stacks?.granted) || 1),
-      maximum: Math.max(1, Number(value.stacks?.maximum) || 1),
-      behavior: validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior),
-      durationAmount: Math.max(1, Number(value.stacks?.durationAmount) || 1),
-      durationUnit,
-      tickTiming,
-      inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
-      decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
-    },
+    stacks: (() => {
+      const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
+      const singleAttack = behavior === "singleAttack";
+      return {
+        ...fallback.stacks,
+        ...(clone(value.stacks ?? {})),
+        granted: singleAttack ? 1 : Math.max(1, Number(value.stacks?.granted) || 1),
+        maximum: singleAttack ? 1 : Math.max(1, Number(value.stacks?.maximum) || 1),
+        behavior,
+        durationAmount: singleAttack ? 1 : Math.max(1, Number(value.stacks?.durationAmount) || 1),
+        durationUnit: singleAttack ? "ownerTurns" : durationUnit,
+        tickTiming: singleAttack ? "ownerTurnEnd" : tickTiming,
+        inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
+        decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
+      };
+    })(),
     effects: (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
       .map(normalizeTriggeredEffectPayload)
   };
@@ -327,6 +333,8 @@ export function validateTriggeredEffect(value) {
   if (setting.unlockOnLevel && !(setting.unlockLevel >= 1 && setting.unlockLevel <= 20)) return false;
   if (!(setting.stacks.granted > 0 && setting.stacks.maximum > 0)) return false;
   if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
+  if (setting.stacks.behavior === "singleAttack"
+    && !(setting.trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(setting.trigger.event))) return false;
   if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.durationUnit)) return false;
   if (!(TICK_TIMINGS[setting.stacks.durationUnit] ?? []).some(([entry]) => entry === setting.stacks.tickTiming)) return false;
   if (!setting.effects.length || setting.effects.some(effect => !validateTriggeredEffectPayload(effect))) return false;
@@ -454,10 +462,49 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null) {
   return changes;
 }
 
+function optionLabel(options, value, fallback = value) {
+  return options.find(([id]) => id === value)?.[1] ?? fallback;
+}
+
+function attackEventSummary(setting, eventLabel) {
+  const attackType = optionLabel(ATTACK_TYPES, setting.trigger.attackType, "Any Attack");
+  if (!setting.trigger.attackType || setting.trigger.attackType === "any") return eventLabel;
+  if (setting.trigger.event === "criticalHit") return `Critical Hit — ${attackType}`;
+  if (setting.trigger.event === "natural20") return `Natural 20 — ${attackType}`;
+  if (setting.trigger.event === "attackHit") return `Attack Hit — ${attackType}`;
+  if (setting.trigger.event === "attackRolled") return `Attack Rolled — ${attackType}`;
+  if (setting.trigger.event === "attackDamageApplied") return `Damage Applied from ${attackType}`;
+  return `${eventLabel} — ${attackType}`;
+}
+
+function triggerSummary(setting) {
+  const eventLabel = optionLabel(TRIGGER_EVENTS[setting.trigger.category] ?? [], setting.trigger.event, setting.trigger.event);
+  if (setting.trigger.category === "attack") return attackEventSummary(setting, eventLabel);
+  if (setting.trigger.event === "specificResourceSpent") {
+    const resource = getResourceDefinition(setting.trigger.resourceId);
+    return `${resource?.label ?? setting.trigger.resourceId ?? "Selected Resource"} Spent`;
+  }
+  if (setting.trigger.event === "specificSpellCast") {
+    return `${setting.trigger.spellName || "Selected Spell"} Cast`;
+  }
+  if (setting.trigger.event === "specificFeatureUsed") {
+    return `${setting.trigger.featureName || "Selected Feature"} Used`;
+  }
+  if (["spellSlotSpent", "pactSlotSpent"].includes(setting.trigger.event)
+    && setting.trigger.spellSlotLevel !== "any") {
+    const prefix = setting.trigger.event === "pactSlotSpent" ? "Pact Magic" : "Spell";
+    return `${prefix} Slot Level ${setting.trigger.spellSlotLevel} Spent`;
+  }
+  return eventLabel;
+}
+
 export function triggeredEffectSummary(value) {
   const setting = normalizeTriggeredEffect(value);
-  const event = (TRIGGER_EVENTS[setting.trigger.category] ?? []).find(([id]) => id === setting.trigger.event)?.[1] ?? setting.trigger.event;
-  const behavior = STACK_BEHAVIORS.find(([id]) => id === setting.stacks.behavior)?.[1] ?? setting.stacks.behavior;
+  const event = triggerSummary(setting);
+  if (setting.stacks.behavior === "singleAttack") {
+    return `${event}; applies once through the triggered attack's damage roll`;
+  }
+  const behavior = optionLabel(STACK_BEHAVIORS, setting.stacks.behavior, setting.stacks.behavior);
   return `${event}; +${setting.stacks.granted} stack(s), max ${setting.stacks.maximum}; ${behavior}`;
 }
 

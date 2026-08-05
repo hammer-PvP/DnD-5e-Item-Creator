@@ -4,6 +4,7 @@ import {
   RESOURCE_DICE, auditResourceDefinitions, featureUseTarget, findResourceFeature, findResourceScale,
   getResourceDefinition, normalizeResourceModification, validateResourceModification
 } from "./resource-modification-registry.mjs";
+import { safeDeleteActiveEffects } from "./document-operation-service.mjs";
 
 function valuesOf(value) {
   if (value instanceof Map) return [...value.values()];
@@ -658,7 +659,7 @@ export class ItemCreatorRuntimeEffectService {
     const remove = existing
       .filter(effect => !desired.has(effect.getFlag(MODULE_ID, "blueprintId")))
       .map(effect => effect.id);
-    if (remove.length) await actor.deleteEmbeddedDocuments("ActiveEffect", remove, { itemCreatorRuntime: true });
+    if (remove.length) await safeDeleteActiveEffects(actor, remove, { itemCreatorRuntime: true });
     if (update.length) await actor.updateEmbeddedDocuments("ActiveEffect", update, { itemCreatorRuntime: true });
     if (create.length) await actor.createEmbeddedDocuments("ActiveEffect", create, { itemCreatorRuntime: true });
   }
@@ -974,7 +975,7 @@ export class ItemCreatorRuntimeEffectService {
     }
 
     if (!changes.length) {
-      if (runtimeEffect) await actor.deleteEmbeddedDocuments("ActiveEffect", [runtimeEffect.id], { itemCreatorRuntime: true });
+      if (runtimeEffect) await safeDeleteActiveEffects(actor, [runtimeEffect.id], { itemCreatorRuntime: true });
       return;
     }
 
@@ -1042,7 +1043,7 @@ export class ItemCreatorRuntimeEffectService {
   static async removeItemEffects(item) {
     if (!game.user.isGM || item.parent?.documentName !== "Actor") return;
     const ids = item.parent.effects.filter(effect => effect.getFlag(MODULE_ID, "sourceItemId") === item.id).map(effect => effect.id);
-    if (ids.length) await item.parent.deleteEmbeddedDocuments("ActiveEffect", ids, { itemCreatorRuntime: true });
+    if (ids.length) await safeDeleteActiveEffects(item.parent, ids, { itemCreatorRuntime: true });
   }
 
   static #managedItemFromMessage(message) {

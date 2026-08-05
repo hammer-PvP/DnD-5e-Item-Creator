@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0a — Triggered Effects Interface and Cleanup Hotfix
+
+### Stable editing controls
+
+- Fixed Triggered Effect text, numeric, and formula inputs rerendering after every keystroke. Names such as `Poder da Melodia`, stack limits, durations, formulas, and payload values now retain focus and cursor position while typing.
+- Text and numeric controls update the draft live without rebuilding the screen, then normalize on change/blur. Temporarily empty numeric fields are no longer forced to zero mid-entry.
+
+### Idempotent Active Effect cleanup
+
+- Added one shared safe Active Effect deletion service for both passive runtime effects and Triggered Effects.
+- Concurrent expiration, unequip, Attunement loss, combat cleanup, and reconciliation now share the same deletion operation.
+- A server response that an Active Effect no longer exists is treated as an already-completed cleanup instead of producing an unhandled promise rejection.
+
+### Clear generated descriptions
+
+- Generated Triggered Effect summaries now print the selected resource, Spell, feature, slot level, and attack filter where applicable.
+- `Specific Resource Spent` now resolves to labels such as `Bardic Inspiration Spent`.
+- Simplified the visible event labels to `Critical Hit` and `Natural 20`, while preserving their separate runtime meanings.
+
+### Single-attack lifetime
+
+- Added **Single Attack — Remove After Damage Roll** for Attack Hit, Critical Hit, and Natural 20 triggers.
+- This mode creates one temporary effect after the successful attack roll, keeps it through the next damage roll from that same Activity, and removes it immediately afterward.
+- If no damage roll is made, the effect is removed at the end of the wielder's current turn. This is intended for same-attack damage additions such as adding the spellcasting modifier to a critical Spell Attack's damage.
+- Attack bonuses cannot retroactively modify the attack roll that already triggered the effect.
+
+### Duration clarification
+
+- Confirmed and documented that `1 Owner Turn` with `End of Owner Turn` expires when the owner's current turn ends, including the turn in which the trigger occurred.
+
 ## 0.5.0 — Triggered Effects Beta Candidate
 
 ### Generic event-driven Item effects
@@ -20,7 +50,7 @@
 ### Stacks, duration, and cleanup
 
 - Added No Stacking/Refresh, Shared Duration, Independent Duration, Continuous Decay, and Delayed Decay after Inactivity.
-- Duration tracking supports Owner Turns, Combat Turns, and Rounds, with start/end tick selection. The partial turn in which an effect is gained is not consumed immediately.
+- Duration tracking supports Owner Turns, Combat Turns, and Rounds, with start/end tick selection. A 1 Owner Turn effect set to End of Owner Turn expires when the owner's current turn ends.
 - Triggered state is stored in a versioned Actor ledger and reconciled idempotently after reloads, Item state changes, Actor updates, manual effect deletion, and level changes.
 - Ending or deleting a Combat immediately removes all Item Creator temporary effects, stacks, durations, counters, deduplication state, and ledger entries. Effects are never preserved between combats.
 - The runtime is GM-authoritative through the module socket and deduplicates events by combat, Activity, message, roll, and target identity.
