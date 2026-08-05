@@ -86,6 +86,8 @@ Hooks.once("init", () => {
       if (!profile) throw new Error("No Supplier profile is configured.");
       return auditMaterializationRecipes({ profile, level, families });
     },
+    auditResources: actor => ItemCreatorRuntimeEffectService.auditResources(actor),
+    syncResources: actor => ItemCreatorRuntimeEffectService.syncActor(actor),
     closeSupplier: () => closeSupplierWindows(),
     configureSources: () => openSourceSettings(),
     configure: () => openModuleSettings(),

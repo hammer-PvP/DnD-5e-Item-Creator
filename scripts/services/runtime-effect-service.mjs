@@ -1,5 +1,9 @@
 import { MODULE_ID } from "../constants.mjs";
 import { actorTotalLevel, selectProgressionTier, variantEligible } from "./level-progression.mjs";
+import {
+  RESOURCE_DICE, auditResourceDefinitions, featureUseTarget, findResourceFeature, findResourceScale,
+  getResourceDefinition, normalizeResourceModification, validateResourceModification
+} from "./resource-modification-registry.mjs";
 
 function valuesOf(value) {
   if (value instanceof Map) return [...value.values()];
@@ -84,23 +88,76 @@ function intendedSpellbookState(item, activity, config) {
   return Boolean(activity.spell?.spellbook);
 }
 
+function resourceConfigurations(item) {
+  return (item?.getFlag?.(MODULE_ID, "runtime")?.resourceModifications ?? [])
+    .map(normalizeResourceModification)
+    .filter(validateResourceModification);
+}
+
+function resourceAvailable(item, setting, actorLevel) {
+  if (!isAvailable(item, setting.availability ?? "equipped")) return false;
+  return !setting.unlockOnLevel || actorLevel >= (Number(setting.unlockLevel) || 1);
+}
+
+function sourceValue(document, path) {
+  return foundry.utils.getProperty(document?._source ?? {}, path);
+}
+
+function formulaWithBonus(base, bonus) {
+  const amount = Number(bonus) || 0;
+  const value = String(base ?? "").trim();
+  if (!value) return String(amount);
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return String(Number(value) + amount);
+  if (!amount) return value;
+  return `(${value}) ${amount < 0 ? "-" : "+"} ${Math.abs(amount)}`;
+}
+
+function parseDieFaces(value) {
+  if (Number.isFinite(Number(value))) return Number(value);
+  if (value && typeof value === "object") {
+    if (Number.isFinite(Number(value.faces))) return Number(value.faces);
+    if (Number.isFinite(Number(value.denomination))) return Number(value.denomination);
+    if (value.die) return parseDieFaces(value.die);
+    if (value.value) return parseDieFaces(value.value);
+  }
+  const match = String(value ?? "").match(/d(\d+)/i);
+  return match ? Number(match[1]) : 0;
+}
+
+function steppedDie(start, steps) {
+  const faces = parseDieFaces(start);
+  let index = RESOURCE_DICE.findIndex(die => die >= faces);
+  if (index < 0) index = RESOURCE_DICE.length - 1;
+  return RESOURCE_DICE[Math.min(RESOURCE_DICE.length - 1, index + Math.max(0, Number(steps) || 0))];
+}
+
+function resourceDieValue(path, faces) {
+  return String(path).endsWith(".faces") ? String(faces) : `d${faces}`;
+}
+
+function sameValue(left, right) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
 export class ItemCreatorRuntimeEffectService {
   static #syncingItems = new Set();
+  static #syncingActors = new Set();
 
   static registerHooks() {
     Hooks.on("createItem", (item, options) => {
       if (options?.itemCreatorRuntime) return;
-      if (item.parent?.documentName === "Actor" && item.type === "class") void this.syncActor(item.parent);
+      if (item.parent?.documentName === "Actor") void this.syncActor(item.parent);
       else void this.syncItem(item);
     });
     Hooks.on("updateItem", (item, _changes, options) => {
       if (options?.itemCreatorRuntime) return;
-      if (item.parent?.documentName === "Actor" && item.type === "class") void this.syncActor(item.parent);
+      if (item.parent?.documentName === "Actor") void this.syncActor(item.parent);
       else void this.syncItem(item);
     });
     Hooks.on("deleteItem", item => {
+      const actor = item.parent?.documentName === "Actor" ? item.parent : null;
       void this.removeItemEffects(item);
-      if (item.parent?.documentName === "Actor" && item.type === "class") void this.syncActor(item.parent);
+      if (actor) setTimeout(() => void this.syncActor(actor), 0);
     });
     Hooks.on("updateActor", (actor, _changes, options) => {
       if (options?.itemCreatorRuntime) return;
@@ -127,11 +184,7 @@ export class ItemCreatorRuntimeEffectService {
       for (const item of game.items) {
         if (isManagedItem(item)) await this.syncItem(item);
       }
-      for (const actor of game.actors) {
-        for (const item of actor.items) {
-          if (isManagedItem(item)) await this.syncItem(item);
-        }
-      }
+      for (const actor of game.actors) await this.syncActor(actor);
     });
 
     Hooks.on("dnd5e.preUseLinkedSpell", (activity, usage) => this.#validateGrantedSpell(activity, usage));
@@ -141,8 +194,15 @@ export class ItemCreatorRuntimeEffectService {
 
   static async syncActor(actor) {
     if (!game.user.isGM || actor?.documentName !== "Actor") return;
-    for (const item of actor.items ?? []) {
-      if (isManagedItem(item)) await this.syncItem(item);
+    if (this.#syncingActors.has(actor.uuid)) return;
+    this.#syncingActors.add(actor.uuid);
+    try {
+      for (const item of actor.items ?? []) {
+        if (isManagedItem(item)) await this.syncItem(item);
+      }
+      await this.#syncResourceModifications(actor);
+    } finally {
+      this.#syncingActors.delete(actor.uuid);
     }
   }
 
@@ -441,6 +501,261 @@ export class ItemCreatorRuntimeEffectService {
     if (remove.length) await actor.deleteEmbeddedDocuments("ActiveEffect", remove, { itemCreatorRuntime: true });
     if (update.length) await actor.updateEmbeddedDocuments("ActiveEffect", update, { itemCreatorRuntime: true });
     if (create.length) await actor.createEmbeddedDocuments("ActiveEffect", create, { itemCreatorRuntime: true });
+  }
+
+  static #activeResourceRows(actor) {
+    const actorLevel = actorTotalLevel(actor);
+    const rows = [];
+    for (const item of actor.items ?? []) {
+      if (!isManagedItem(item)) continue;
+      for (const setting of resourceConfigurations(item)) {
+        if (!resourceAvailable(item, setting, actorLevel)) continue;
+        rows.push({ item, setting });
+      }
+    }
+    return rows;
+  }
+
+  static async #syncResourceModifications(actor) {
+    const rows = this.#activeResourceRows(actor);
+    await this.#syncFeatureResourcePools(actor, rows);
+    await this.#syncSpellSlotResources(actor, rows);
+    await this.#syncResourceDice(actor, rows);
+  }
+
+  static async #syncFeatureResourcePools(actor, rows) {
+    const desired = new Map();
+    for (const { item, setting } of rows) {
+      if (setting.category !== "feature") continue;
+      const definition = getResourceDefinition(setting.resourceId);
+      const feature = findResourceFeature(actor, definition);
+      const target = featureUseTarget(feature);
+      if (!feature || !target) {
+        console.debug(`${MODULE_ID} | Resource target not found.`, {
+          actor: actor.name, item: item.name, resource: definition?.label ?? setting.resourceId
+        });
+        continue;
+      }
+      const key = `${feature.id}:${target.path}`;
+      const current = desired.get(key) ?? { feature, path: target.path, bonus: 0, sources: [] };
+      current.bonus += (Number(setting.amount) || 0) * (Number(definition?.amountMultiplier) || 1);
+      current.sources.push({ itemId: item.id, modificationId: setting.id });
+      desired.set(key, current);
+    }
+
+    const tracked = new Map();
+    for (const feature of actor.items ?? []) {
+      const state = feature.getFlag(MODULE_ID, "resourceRuntimeBases");
+      if (state && Object.keys(state).length) tracked.set(feature.id, feature);
+    }
+    for (const entry of desired.values()) tracked.set(entry.feature.id, entry.feature);
+
+    for (const feature of tracked.values()) {
+      const oldState = foundry.utils.deepClone(feature.getFlag(MODULE_ID, "resourceRuntimeBases") ?? {});
+      const nextState = {};
+      const updates = {};
+      const relevant = [...desired.values()].filter(entry => entry.feature.id === feature.id);
+      const desiredByPath = new Map(relevant.map(entry => [entry.path, entry]));
+      const paths = new Set([...Object.keys(oldState), ...desiredByPath.keys()]);
+
+      for (const path of paths) {
+        const previous = oldState[path] ?? null;
+        const currentSource = sourceValue(feature, path);
+        let base = previous?.base;
+        if (!previous) base = currentSource ?? "";
+        else if (!sameValue(currentSource, previous.applied)) base = currentSource ?? "";
+
+        const target = desiredByPath.get(path);
+        if (!target) {
+          if (previous && sameValue(currentSource, previous.applied) && !sameValue(currentSource, base)) updates[path] = base;
+          continue;
+        }
+
+        const applied = formulaWithBonus(base, target.bonus);
+        if (!sameValue(currentSource, applied)) updates[path] = applied;
+        nextState[path] = { base, applied, bonus: target.bonus, sources: target.sources };
+      }
+
+      if (Object.keys(nextState).length) updates[`flags.${MODULE_ID}.resourceRuntimeBases`] = nextState;
+      else if (Object.keys(oldState).length) updates[`flags.${MODULE_ID}.-=resourceRuntimeBases`] = null;
+      if (!Object.keys(updates).length) continue;
+      await feature.update(updates, {
+        itemCreatorRuntime: true,
+        diff: true,
+        recursive: true,
+        render: true
+      });
+    }
+  }
+
+  static async #syncSpellSlotResources(actor, rows) {
+    const desired = new Map();
+    for (const { setting } of rows) {
+      const key = setting.category === "spellSlot" ? `spell${setting.spellLevel}`
+        : setting.category === "pactSlot" ? "pact" : null;
+      if (!key) continue;
+      desired.set(key, (desired.get(key) ?? 0) + (Number(setting.amount) || 0));
+    }
+
+    const oldState = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? {});
+    const keys = new Set([...Object.keys(oldState), ...desired.keys()]);
+    if (!keys.size) return;
+
+    const working = {};
+    const restoreUpdates = {};
+    for (const key of keys) {
+      const previous = oldState[key] ?? null;
+      const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
+      let baseOverride = previous && Object.hasOwn(previous, "baseOverride") ? previous.baseOverride : currentOverride;
+      if (previous && !sameValue(currentOverride, previous.appliedOverride)) baseOverride = currentOverride;
+      working[key] = { baseOverride };
+      if (previous && sameValue(currentOverride, previous.appliedOverride)
+        && !sameValue(currentOverride, baseOverride)) {
+        restoreUpdates[`system.spells.${key}.override`] = baseOverride;
+      }
+    }
+
+    if (Object.keys(restoreUpdates).length) {
+      await actor.update(restoreUpdates, {
+        itemCreatorRuntime: true,
+        diff: true,
+        recursive: true,
+        render: false
+      });
+    }
+
+    const finalUpdates = {};
+    const nextState = {};
+    for (const key of keys) {
+      const bonus = desired.get(key) ?? 0;
+      const currentOverride = sourceValue(actor, `system.spells.${key}.override`) ?? null;
+      const currentValue = Number(sourceValue(actor, `system.spells.${key}.value`) ?? actor.system?.spells?.[key]?.value ?? 0) || 0;
+      if (bonus > 0) {
+        const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max ?? working[key]?.baseOverride ?? 0) || 0);
+        const appliedOverride = naturalMax + bonus;
+        if (!sameValue(currentOverride, appliedOverride)) finalUpdates[`system.spells.${key}.override`] = appliedOverride;
+        if (currentValue > appliedOverride) finalUpdates[`system.spells.${key}.value`] = appliedOverride;
+        nextState[key] = {
+          baseOverride: working[key]?.baseOverride ?? null,
+          appliedOverride,
+          bonus,
+          naturalMax
+        };
+      } else {
+        const naturalMax = Math.max(0, Number(actor.system?.spells?.[key]?.max ?? working[key]?.baseOverride ?? 0) || 0);
+        if (currentValue > naturalMax) finalUpdates[`system.spells.${key}.value`] = naturalMax;
+      }
+    }
+
+    if (Object.keys(nextState).length) finalUpdates[`flags.${MODULE_ID}.resourceSlotRuntime`] = nextState;
+    else if (Object.keys(oldState).length) finalUpdates[`flags.${MODULE_ID}.-=resourceSlotRuntime`] = null;
+    if (!Object.keys(finalUpdates).length) return;
+    await actor.update(finalUpdates, {
+      itemCreatorRuntime: true,
+      diff: true,
+      recursive: true,
+      render: true
+    });
+  }
+
+  static async #syncResourceDice(actor, rows) {
+    let runtimeEffect = actor.effects.find(effect => effect.getFlag(MODULE_ID, "resourceDieRuntime"));
+    if (runtimeEffect && !runtimeEffect.disabled) {
+      await actor.updateEmbeddedDocuments("ActiveEffect", [{ _id: runtimeEffect.id, disabled: true }], {
+        itemCreatorRuntime: true,
+        render: false
+      });
+      runtimeEffect = actor.effects.get?.(runtimeEffect.id) ?? actor.effects.find(effect => effect.id === runtimeEffect.id) ?? runtimeEffect;
+    }
+
+    const grouped = new Map();
+    for (const { item, setting } of rows) {
+      if (setting.category !== "resourceDie") continue;
+      const definition = getResourceDefinition(setting.resourceId);
+      const scale = findResourceScale(actor, definition);
+      if (!scale) {
+        console.debug(`${MODULE_ID} | Resource die scale not found.`, {
+          actor: actor.name, item: item.name, resource: definition?.label ?? setting.resourceId
+        });
+        continue;
+      }
+      const group = grouped.get(scale.path) ?? {
+        path: scale.path,
+        baseFaces: parseDieFaces(scale.value),
+        increaseSteps: 0,
+        minimumDice: [],
+        exactDice: [],
+        sources: []
+      };
+      if (setting.operation === "increaseSteps") group.increaseSteps += Number(setting.amount) || 0;
+      else if (setting.operation === "setExactDie") group.exactDice.push(Number(setting.die) || 0);
+      else group.minimumDice.push(Number(setting.die) || 0);
+      group.sources.push({ itemId: item.id, modificationId: setting.id });
+      grouped.set(scale.path, group);
+    }
+
+    const changes = [];
+    for (const group of grouped.values()) {
+      if (!group.baseFaces) continue;
+      let faces;
+      if (group.exactDice.length) faces = Math.max(...group.exactDice);
+      else {
+        faces = steppedDie(group.baseFaces, group.increaseSteps);
+        if (group.minimumDice.length) faces = Math.max(faces, ...group.minimumDice);
+      }
+      if (!faces || faces === group.baseFaces) continue;
+      changes.push({
+        key: group.path,
+        mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
+        value: resourceDieValue(group.path, faces),
+        priority: 90
+      });
+    }
+
+    if (!changes.length) {
+      if (runtimeEffect) await actor.deleteEmbeddedDocuments("ActiveEffect", [runtimeEffect.id], { itemCreatorRuntime: true });
+      return;
+    }
+
+    const data = {
+      type: "base",
+      name: "Item Creator — Resource Dice",
+      img: "icons/svg/dice-target.svg",
+      origin: actor.uuid,
+      transfer: false,
+      disabled: false,
+      statuses: [],
+      changes,
+      flags: { [MODULE_ID]: { resourceDieRuntime: true } }
+    };
+    if (runtimeEffect) {
+      await actor.updateEmbeddedDocuments("ActiveEffect", [{
+        _id: runtimeEffect.id,
+        name: data.name,
+        img: data.img,
+        origin: data.origin,
+        disabled: false,
+        "system.changes": changes,
+        [`flags.${MODULE_ID}`]: data.flags[MODULE_ID]
+      }], { itemCreatorRuntime: true, render: true });
+    } else {
+      await actor.createEmbeddedDocuments("ActiveEffect", [data], { itemCreatorRuntime: true, render: true });
+    }
+  }
+
+  static auditResources(actor) {
+    if (actor?.documentName !== "Actor") throw new Error("Provide an Actor document to audit Item Creator resources.");
+    return {
+      actor: { id: actor.id, uuid: actor.uuid, name: actor.name, level: actorTotalLevel(actor) },
+      active: this.#activeResourceRows(actor).map(({ item, setting }) => ({
+        item: item.name,
+        itemUuid: item.uuid,
+        ...setting
+      })),
+      registry: auditResourceDefinitions(actor),
+      spellSlots: foundry.utils.deepClone(actor.system?.spells ?? {}),
+      managedSlotState: foundry.utils.deepClone(actor.getFlag(MODULE_ID, "resourceSlotRuntime") ?? {})
+    };
   }
 
   static async removeItemEffects(item) {

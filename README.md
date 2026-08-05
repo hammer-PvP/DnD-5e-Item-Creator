@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.3.2 Beta
+**Version:** 0.4.0 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -26,8 +26,9 @@ The assisted Item workflow is:
 2. Base Item;
 3. Enhancements;
 4. Granted Effects;
-5. Description;
-6. Review.
+5. Spells & Resources;
+6. Description;
+7. Review.
 
 Base Items may come from enabled compendiums, existing World Items, or custom data. The final document is created directly in the World Items Directory. Existing supported World Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy.
 
@@ -74,8 +75,9 @@ Weapons, Equipment, and Tools may grant Actor-facing bonuses including:
 - Initiative, Proficiency Bonus, and Maximum Hit Points;
 - resistances, immunities, vulnerabilities, and condition immunities;
 - movement, senses, passive scores, and critical thresholds;
-- Conditional Advantage and Ignore Resistance;
-- Granted Spellcasting.
+- Conditional Advantage and Ignore Resistance.
+
+Granted Spellcasting and structural resource changes are configured in the separate **Spells & Resources** step.
 
 Availability can be configured as:
 
@@ -103,11 +105,30 @@ The runtime reconciles progression when levels, Items, equipment state, Attuneme
 
 The GM's flavor text remains at the top of the Item description. Item Creator maintains generated **Item Properties** and **Level Progression** sections below it without duplicating them during later edits.
 
-## Granted Spellcasting
+## Spells & Resources
+
+The dedicated **Spells & Resources** step contains two independent systems.
+
+### Granted Spellcasting
 
 Items can grant existing Spells with independent uses, recovery, slot consumption, cast level, spellcasting calculation, Spellbook visibility, availability, and level requirements.
 
 Adding the first granted Spell marks the Item as magical. It does not automatically add a `+1`, `+2`, or `+3` enchantment and does not require Attunement unless the GM chooses those options separately.
+
+### Resource Modifications
+
+An Item can contain any number of resource rows. Each row has its own availability and optional **Unlock on Character Level**, which always reads the Actor's total level. The GM controls balance; Item Creator focuses on applying and removing the configuration safely.
+
+Supported categories include:
+
+- existing class and subclass feature pools such as Rage, Bardic Inspiration, Channel Divinity, Wild Shape, Second Wind, Action Surge, Indomitable, Focus Points, Lay on Hands, Sorcery Points, Superiority Dice, and Psionic Energy Dice;
+- resource-die size changes through die steps, minimum dice, or exact dice;
+- additional normal Spell Slots selected from a closed 1st–9th-level list;
+- additional Pact Magic slots.
+
+Class and subclass resources are never created on an Actor who does not own the matching feature. Global Spell Slot rows can add a slot maximum directly but do not grant known or prepared Spells. Lay on Hands treats each configured +1 as +5 points. Multiple rows and multiple active Items stack.
+
+The runtime changes only maximum capacity. It preserves spent uses and does not refill a feature or Spell Slot when an Item is equipped, unequipped, attuned, or removed. Spending and recovery remain controlled by the original D&D5e feature.
 
 ## Rarity and pricing
 
@@ -212,7 +233,7 @@ It distinguishes:
 - concrete variant families;
 - mechanical documents that should not normally enter merchant stock.
 
-The v0.3.2 Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
+The v0.4.0 Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
 
 Current focused recipes cover Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Elven Chain, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, enchanted ammunition, and Oil of Sharpness. Adamantine and Mithral preserve the mundane armor price and add the active magical price component through a global recipe price finalizer that runs across every vendor and source path; the HAMMER Homebrew Adamantine recipe uses a fixed +1,500 GP magical surcharge. Elven Chain is restricted to Chain Shirt or Chain Mail targets. Oil of Sharpness is treated as a complete consumable and keeps its native use activity without requiring a concrete target during stock generation. Equivalent SRD and PHB 2024 documents converge on the same canonical family. The vendor's mundane catalog remains the preferred target source; recipe-backed Magic Assortment curiosities may use compatible mundane targets from that profile's source snapshot when the visible vendor catalog intentionally does not sell those bases. Unknown incomplete templates are rejected and rerolled rather than guessed.
 
@@ -239,6 +260,6 @@ Every GitHub Release publishes exactly:
 - `module.json`;
 - `item-creator.zip`.
 
-The v0.3.2 package URL is:
+The v0.4.0 package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.3.2/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.4.0/item-creator.zip`

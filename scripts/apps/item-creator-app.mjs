@@ -5,6 +5,10 @@ import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
 import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
 import { clampCharacterLevel, settingHasProgression, validUnlockSetting } from "../services/level-progression.mjs";
+import {
+  RESOURCE_CATEGORIES, RESOURCE_DICE, defaultResourceModification, getResourceDefinition,
+  normalizeResourceModification, resourceGroups, resourceModificationLabel, validateResourceModification
+} from "../services/resource-modification-registry.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
@@ -906,6 +910,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.magicalAutoFromGrantedSpellcasting = false;
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
+    this.resourceModifications = [];
     this.templateDescription = "";
     this.templateDescriptionRaw = "";
     this.customDescription = "";
@@ -1093,6 +1098,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.magicalAutoFromGrantedSpellcasting = Boolean(savedDraft.magicAutomation?.magicalFromGrantedSpellcasting);
         this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
+        this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
         this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
         this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
         this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -1160,6 +1166,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.magicalAutoFromGrantedSpellcasting = Boolean(savedDraft.magicAutomation?.magicalFromGrantedSpellcasting);
       this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
       this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
+      this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
       this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
       this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
       this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -1270,7 +1277,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
     const grantedEffectValidation = this.#validateGrantedEffects();
     const grantedEffectsComplete = enhancementsComplete && grantedEffectValidation.valid;
-    const descriptionComplete = grantedEffectsComplete;
+    const spellsResourcesValidation = this.#validateSpellsResources();
+    const spellsResourcesComplete = grantedEffectsComplete && spellsResourcesValidation.valid;
+    const descriptionComplete = spellsResourcesComplete;
 
     let reviewData = null;
     let reviewChatCard = "";
@@ -1294,13 +1303,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         : step.id === "baseItem" ? baseComplete
           : step.id === "enhancements" ? enhancementsComplete
             : step.id === "grantedEffects" ? grantedEffectsComplete
-              : step.id === "description" ? descriptionComplete
-                : step.id === "review" ? reviewComplete : false,
+              : step.id === "spellsResources" ? spellsResourcesComplete
+                : step.id === "description" ? descriptionComplete
+                  : step.id === "review" ? reviewComplete : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
         || (step.id === "grantedEffects" && !enhancementsComplete)
-        || (step.id === "description" && !grantedEffectsComplete)
+        || (step.id === "spellsResources" && !grantedEffectsComplete)
+        || (step.id === "description" && !spellsResourcesComplete)
         || (step.id === "review" && !descriptionComplete)
     }));
 
@@ -1428,6 +1439,53 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       };
     });
 
+    const resourceModificationRows = this.resourceModifications.map((entry, index) => {
+      const row = normalizeResourceModification(entry);
+      const definition = getResourceDefinition(row.resourceId);
+      const dieOnly = row.category === "resourceDie";
+      const groups = resourceGroups({ dieOnly }).map(group => ({
+        label: group.label,
+        items: group.items.map(resource => ({
+          value: resource.id,
+          label: resource.label,
+          selected: resource.id === row.resourceId
+        }))
+      }));
+      return {
+        ...row,
+        index: index + 1,
+        summary: resourceModificationLabel(row),
+        definition,
+        invalid: !validateResourceModification(row),
+        categoryOptions: RESOURCE_CATEGORIES.map(category => ({
+          value: category.id,
+          label: category.label,
+          selected: category.id === row.category
+        })),
+        resourceGroups: groups,
+        spellLevelOptions: Array.from({ length: 9 }, (_unused, i) => ({
+          value: i + 1,
+          label: spellLevelLabel(i + 1),
+          selected: row.spellLevel === i + 1
+        })),
+        dieOptions: RESOURCE_DICE.map(die => ({ value: die, label: `d${die}`, selected: row.die === die })),
+        dieOperationOptions: fixedOptions([
+          ["increaseSteps", "Increase Die Steps"],
+          ["setMinimumDie", "Set Minimum Die"],
+          ["setExactDie", "Set Exact Die"]
+        ], row.operation),
+        availabilityOptions: effectAvailabilityOptions(row.availability),
+        isFeature: row.category === "feature",
+        isResourceDie: row.category === "resourceDie",
+        isSpellSlot: row.category === "spellSlot",
+        isPactSlot: row.category === "pactSlot",
+        usesAmount: ["feature", "spellSlot", "pactSlot"].includes(row.category),
+        amountMultiplier: definition?.amountMultiplier ?? 1,
+        unit: definition?.unit ?? "uses"
+      };
+    });
+    const resourceModificationCount = resourceModificationRows.length;
+
     const effectValues = this.grantedEffectValues;
     const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({ ...row, index: index + 1, ...effectEntryOptions(key, row) }));
     const damageEffectOptions = key => Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
@@ -1439,7 +1497,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ...Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting" && settingHasProgression(this.enhancementValues[key])),
       ...Object.entries(this.grantedEffects).filter(([key, enabled]) => enabled && settingHasProgression(this.grantedEffectValues[key])),
       ...(effective?.additionalDamage ?? []).filter(settingHasProgression).map(row => [row.id, true]),
-      ...grantedSpellRows.filter(spell => spell.unlockOnLevel).map(spell => [spell.id, true])
+      ...grantedSpellRows.filter(spell => spell.unlockOnLevel).map(spell => [spell.id, true]),
+      ...resourceModificationRows.filter(row => row.unlockOnLevel).map(row => [row.id, true])
     ].length;
     const customImportedEffectRows = this.customImportedEffects.map(entry => ({
       ...entry,
@@ -1550,8 +1609,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
       enhancement: this.enhancements, enhancementValues: this.enhancementValues,
       magicalAutoFromGrantedSpellcasting: this.magicalAutoFromGrantedSpellcasting,
-      enhancementCount: Object.values(this.enhancements).filter(Boolean).length,
+      enhancementCount: Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting").length,
       grantedSpellCount: grantedSpellRows.length, grantedSpellRows,
+      resourceModificationCount, resourceModificationRows,
+      spellsResourcesComplete, spellsResourcesErrors: spellsResourcesValidation.errors,
       enhancementsComplete, enhancementErrors: enhancementValidation.errors,
       effectiveMagical: Boolean(isEquipment
         ? (this.enhancements.magicalItem || this.enhancements.armorEnhancement || grantedSpellRows.length)
@@ -1597,8 +1658,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           : isTool ? (localizedLabel(CONFIG.DND5E.toolTypes?.[effective?.toolType], effective?.toolType ?? "Tool"))
             : (this.selectedBaseWeaponDocument?.name ?? "—"),
         name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
-        enhancements: Object.values(this.enhancements).filter(Boolean).length,
+        enhancements: Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting").length,
         grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
+        resources: resourceModificationCount,
         importedCustom: importedCustomCount,
         convertedProperties: this.importedBaseSummary.length,
         progressions: levelProgressionCount,
@@ -1669,6 +1731,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
+    root.querySelector('[data-action="add-resource-modification"]')?.addEventListener("click", event => this.#addResourceModification(event));
+    root.querySelectorAll('[data-action="remove-resource-modification"]').forEach(button => button.addEventListener("click", event => this.#removeResourceModification(event)));
+    root.querySelectorAll('[data-resource-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateResourceModification(event));
+    });
     root.querySelector('[data-description-toggle]')?.addEventListener("change", event => this.#toggleDescriptionCustomization(event));
     const descriptionEditor = this.#mountDescriptionEditor(root);
     descriptionEditor?.addEventListener("input", event => this.#updateDescription(event));
@@ -1995,6 +2063,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       magicAutomation: { magicalFromGrantedSpellcasting: this.magicalAutoFromGrantedSpellcasting },
       grantedEffects: clone(this.grantedEffects),
       grantedEffectValues: clone(this.grantedEffectValues),
+      resourceModifications: clone(this.resourceModifications),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
       descriptionCustomized: this.descriptionCustomized,
       editingSourceUuid: this.editingItem?.uuid ?? null,
@@ -2100,7 +2169,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   async #commitItem(mode) {
     if (this.savingItem) return;
     this.#syncDescriptionFromEditor();
-    if (!this.#isBaseComplete() || !this.#validateEnhancements().valid || !this.#validateGrantedEffects().valid) {
+    if (!this.#isBaseComplete() || !this.#validateEnhancements().valid || !this.#validateGrantedEffects().valid || !this.#validateSpellsResources().valid) {
       ui.notifications.error("Item Creator found incomplete or invalid configuration. Review the enabled cards before saving.");
       return;
     }
@@ -2292,11 +2361,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (this.step === "grantedEffects" && this.#validateGrantedEffects().valid) {
       this.restoreScrollTop = null;
+      this.step = "spellsResources";
+      this.render({ force: true });
+      return;
+    }
+    if (this.step === "spellsResources" && this.#validateSpellsResources().valid) {
+      this.restoreScrollTop = null;
       this.step = "description";
       this.render({ force: true });
       return;
     }
-    if (this.step === "description" && this.#validateGrantedEffects().valid) {
+    if (this.step === "description" && this.#validateSpellsResources().valid) {
       this.restoreScrollTop = null;
       this.step = "review";
       this.render({ force: true });
@@ -2313,6 +2388,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
     if (this.step === "description") {
+      this.restoreScrollTop = null;
+      this.step = "spellsResources";
+      this.render({ force: true });
+      return;
+    }
+    if (this.step === "spellsResources") {
       this.restoreScrollTop = null;
       this.step = "grantedEffects";
       this.render({ force: true });
@@ -3003,6 +3084,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #resetGrantedEffects() {
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
+    this.resourceModifications = [];
   }
 
   #magicalEnhancementKey() {
@@ -3060,10 +3142,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (!(Number(critical.number) > 0 && Number(critical.denomination) > 0 && critical.damageType)) errors.extraCriticalDamage = true;
       }
     }
-    if (this.enhancements.grantedSpellcasting) {
-      const spells = values.grantedSpellcasting?.spells ?? [];
-      if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
-    }
     if (this.enhancements.ignoreResistance && !values.ignoreResistance?.damageTypes?.length) errors.ignoreResistance = true;
     if (this.enhancements.conditionalAdvantage) {
       const conditional = values.conditionalAdvantage;
@@ -3077,6 +3155,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const tierValidator = tierable ? tier => [1, 2, 3].includes(Number(tier.bonus)) : null;
       if (!this.#validateProgressionSetting(setting, { tierable, tierValidator })) errors[key] = true;
     }
+    return { valid: !Object.keys(errors).length, errors };
+  }
+
+  #validateSpellsResources() {
+    const errors = {};
+    if (this.enhancements.grantedSpellcasting) {
+      const spells = this.enhancementValues.grantedSpellcasting?.spells ?? [];
+      if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
+    }
+    if (this.resourceModifications.some(row => !validateResourceModification(row))) errors.resourceModifications = true;
     return { valid: !Object.keys(errors).length, errors };
   }
 
@@ -3430,6 +3518,45 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
     if (part === 'castLevelMode' && value === 'fixed') spell.fixedCastLevel = Math.max(Number(spell.fixedCastLevel) || spell.level, spell.level);
+    this.#renderPreservingScroll();
+  }
+
+  #addResourceModification(event) {
+    event.preventDefault();
+    this.resourceModifications.push(defaultResourceModification("feature"));
+    this.#renderPreservingScroll();
+  }
+
+  #removeResourceModification(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.resourceId;
+    this.resourceModifications = this.resourceModifications.filter(row => row.id !== id);
+    this.#renderPreservingScroll();
+  }
+
+  #updateResourceModification(event) {
+    const id = event.currentTarget.dataset.resourceId;
+    const part = event.currentTarget.dataset.resourceInput;
+    const row = this.resourceModifications.find(entry => entry.id === id);
+    if (!row || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    row[part] = value;
+
+    if (part === "category") {
+      const replacement = defaultResourceModification(value);
+      Object.assign(row, replacement, { id });
+    }
+    if (part === "resourceId") {
+      const definition = getResourceDefinition(value);
+      if (row.category === "resourceDie" && !definition?.supportsDieSize) {
+        const fallback = resourceGroups({ dieOnly: true })[0]?.items?.[0];
+        if (fallback) row.resourceId = fallback.id;
+      }
+    }
+    Object.assign(row, normalizeResourceModification(row));
     this.#renderPreservingScroll();
   }
 

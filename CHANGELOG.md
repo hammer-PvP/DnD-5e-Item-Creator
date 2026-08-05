@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 — Beta Candidate
+
+### Spells & Resources workflow
+
+- Added a dedicated **Spells & Resources** step between Granted Effects and Description for Weapon, Equipment, and Tool creation.
+- Moved Granted Spellcasting into the new step without duplicating its configuration in Enhancements.
+- Added repeatable Resource Modification cards with independent availability and total-character-level unlocks.
+- Added draft restoration, Review summaries, generated Item Properties, and Level Progression text for resource modifications.
+
+### Resource Modification runtime
+
+- Added a canonical registry for class and subclass resources including Rage, Bardic Inspiration, Channel Divinity, Wild Shape, Second Wind, Action Surge, Indomitable, Focus Points, Lay on Hands, Sorcery Points, Superiority Dice, Psionic Energy Dice, and other compatible feature pools.
+- Resource bonuses modify an existing feature only; missing class or subclass features are never created.
+- Lay on Hands uses the approved multiplier: each configured +1 adds 5 points.
+- Multiple Items and multiple rows aggregate into one managed maximum while preserving spent uses and the original recovery rules. Equipping or removing an Item never refills the pool.
+- Added Resource Die operations for increasing die steps, setting a minimum die, or setting an exact die when a compatible D&D5e scale can be located.
+- Added normal Spell Slot modifications with a closed 1st–9th-level selector and separate Pact Magic slot modifications. Slot bonuses preserve spent slots and follow native recovery.
+- Added GM diagnostics through `game.itemCreator.auditResources(actor)` and manual reconciliation through `game.itemCreator.syncResources(actor)`.
+
 ## 0.3.2 — Beta
 
 ### Elven Chain target integrity

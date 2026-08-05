@@ -2,6 +2,7 @@ import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
 import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
 import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
 import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
+import { resourceModificationLabel } from "./resource-modification-registry.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
 
@@ -995,6 +996,11 @@ function itemPropertyEntries(draft) {
   if (effects.spellSaveDcBonus && !settingHasProgression(effectValues.spellSaveDcBonus)) add("Spell Save DC", `${signedValue(effectValues.spellSaveDcBonus?.bonus)} to Spell Save DC`, effectValues.spellSaveDcBonus?.availability);
   if (effects.passiveScoreBonus && !settingHasProgression(effectValues.passiveScoreBonus)) add("Passive Scores", formatRows(effectValues.passiveScoreBonus?.entries, row => `${titleCase(row.score)} ${signedValue(row.bonus)}`), effectValues.passiveScoreBonus?.availability);
 
+  for (const resource of draft.resourceModifications ?? []) {
+    if (resource?.unlockOnLevel) continue;
+    add("Resource", resourceModificationLabel(resource), resource.availability ?? "equipped");
+  }
+
   for (const entry of draft.customImportedEffects ?? []) {
     if (entry?.included === false) continue;
     add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`);
@@ -1067,6 +1073,13 @@ function levelProgressionEntries(draft) {
         lines: [{ level: Number(spell.unlockLevel) || 1, value: "Granted Spellcasting becomes available" }]
       });
     }
+  }
+  for (const resource of draft.resourceModifications ?? []) {
+    if (!resource?.unlockOnLevel) continue;
+    groups.push({
+      label: "Resource Modification",
+      lines: [{ level: Number(resource.unlockLevel) || 1, value: resourceModificationLabel(resource) }]
+    });
   }
   return groups;
 }
@@ -1295,7 +1308,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1307,6 +1320,7 @@ export class ItemCreatorItemBuilder {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting.spells ?? []) : [],
+        resourceModifications: plain(draft.resourceModifications ?? []),
         structuralProgression: plain({
           itemType: "weapon",
           attackActivityId: attack._id,
@@ -1330,6 +1344,7 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        resourceModifications: draft.resourceModifications ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
@@ -1443,7 +1458,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1457,6 +1472,7 @@ export class ItemCreatorItemBuilder {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
+        resourceModifications: plain(draft.resourceModifications ?? []),
         structuralProgression: plain({
           itemType: "equipment",
           base: equipmentStructuralBase,
@@ -1478,6 +1494,7 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        resourceModifications: draft.resourceModifications ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
@@ -1596,7 +1613,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1609,6 +1626,7 @@ export class ItemCreatorItemBuilder {
         ignoreResistance: enhancements.ignoreResistance ? plain(enhancementValues.ignoreResistance) : null,
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
+        resourceModifications: plain(draft.resourceModifications ?? []),
         structuralProgression: plain({
           itemType: "tool",
           base: toolStructuralBase,
@@ -1623,6 +1641,7 @@ export class ItemCreatorItemBuilder {
         magicAutomation: draft.magicAutomation,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
+        resourceModifications: draft.resourceModifications ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
