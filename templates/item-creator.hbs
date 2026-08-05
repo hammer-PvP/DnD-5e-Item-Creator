@@ -43,6 +43,7 @@
       <p><strong>Resource Modifications:</strong> {{resourceModificationCount}}</p>
       <p><strong>Enhancements:</strong> {{enhancementCount}}</p>
       <p><strong>Granted Effects:</strong> {{grantedEffectCount}}</p>
+      <p><strong>Triggered Effects:</strong> {{triggeredEffectCount}}</p>
       <p><strong>Imported Custom:</strong> {{importedCustomCount}}</p>
       <p><strong>Level Progressions:</strong> {{levelProgressionCount}}</p>
       <p><strong>Description:</strong> {{#if descriptionCustomized}}Custom{{else if hasTemplateDescription}}Template{{else}}Empty{{/if}}</p>
@@ -883,6 +884,152 @@
         </div>
       </section>
 
+      <section class="ic-effect-group ic-triggered-effect-group {{#if grantedEffectErrors.triggeredEffects}}invalid{{/if}}">
+        <header>
+          <span class="ic-kicker">Event-driven Item Powers</span>
+          <h3>Triggered Effects</h3>
+          <p>Create temporary bearer effects that react to attacks, Spells, resource spending, damage, healing, or combat timing. Stacks and all runtime state are removed when the Combat ends.</p>
+        </header>
+
+        {{#if triggeredEffectRows.length}}
+        <div class="ic-triggered-effect-list">
+          {{#each triggeredEffectRows}}
+          <article class="ic-triggered-effect-card {{#if invalid}}invalid{{/if}}" data-trigger-id="{{id}}">
+            <header>
+              <div><strong>{{name}}</strong><small>{{summary}}</small></div>
+              <button type="button" class="ic-icon-button danger" data-action="remove-triggered-effect" data-trigger-id="{{id}}" aria-label="Remove Triggered Effect" title="Remove Triggered Effect"><i class="fa-solid fa-trash"></i></button>
+            </header>
+
+            <div class="ic-triggered-effect-body">
+              <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-fingerprint"></i><strong>Identity &amp; Availability</strong></header>
+                <div class="ic-triggered-grid three-columns">
+                  <label class="ic-triggered-wide"><span>Name</span><input type="text" maxlength="120" value="{{name}}" data-trigger-input="name" data-trigger-id="{{id}}"></label>
+                  <label><span>Available While</span><select data-trigger-input="availability" data-trigger-id="{{id}}">{{#each availabilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-checkbox-line"><input type="checkbox" data-trigger-input="unlockOnLevel" data-trigger-id="{{id}}" {{#if unlockOnLevel}}checked{{/if}}><span><strong>Unlock on Character Level</strong><small>Total Actor level.</small></span></label>
+                  {{#if unlockOnLevel}}<label><span>Character Level</span><input type="number" min="1" max="20" step="1" value="{{unlockLevel}}" data-trigger-input="unlockLevel" data-trigger-id="{{id}}" data-value-type="number"></label>{{/if}}
+                </div>
+              </section>
+
+              <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-bolt"></i><strong>Trigger</strong></header>
+                <div class="ic-triggered-grid three-columns">
+                  <label><span>Category</span><select data-trigger-input="category" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each categoryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-triggered-span-two"><span>Event</span><select data-trigger-input="event" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each eventOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+
+                  {{#if showAttackFilters}}
+                  <label class="ic-triggered-wide"><span>Attack Type</span><select data-trigger-input="attackType" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each attackTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span><strong>Critical Hit</strong> follows the attack's configured critical threshold. <strong>Natural 20</strong> requires an active d20 result of exactly 20.</span></aside>
+                  {{/if}}
+
+                  {{#if showSpellFilters}}
+                  <label><span>Spell Level</span><select data-trigger-input="spellLevel" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each spellLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Spell School</span><select data-trigger-input="spellSchool" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each spellSchoolOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/if}}
+
+                  {{#if showSpecificSpell}}
+                  <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if trigger.spellName}}{{trigger.spellName}}{{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-spell" data-trigger-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
+                  {{/if}}
+
+                  {{#if showResourceFilter}}
+                  <label class="ic-triggered-wide"><span>Resource</span><select data-trigger-input="resourceId" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each resourceGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+                  {{/if}}
+
+                  {{#if showSlotLevel}}
+                  <label><span>Slot Level</span><select data-trigger-input="spellSlotLevel" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each spellSlotLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/if}}
+
+                  {{#if showSpecificFeature}}
+                  <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Feature</strong><small>{{#if trigger.featureName}}{{trigger.featureName}}{{else}}No Feature selected{{/if}}</small></span><button type="button" data-action="browse-trigger-feature" data-trigger-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Feature</button></div>
+                  {{/if}}
+
+                  {{#if showDamageFilters}}
+                  <label><span>Source</span><select data-trigger-input="damageSource" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each damageSourceOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Damage Type</span><select data-trigger-input="damageType" data-trigger-scope="trigger" data-trigger-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Minimum Amount</span><input type="number" min="0" step="1" value="{{trigger.minimumAmount}}" data-trigger-input="minimumAmount" data-trigger-scope="trigger" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{/if}}
+                </div>
+              </section>
+
+              <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-list-ol"></i><strong>Activation Counting</strong></header>
+                <div class="ic-triggered-grid three-columns">
+                  <label><span>Count As</span><select data-trigger-input="counting" data-trigger-id="{{id}}">{{#each countingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Maximum per Turn</span><input type="number" min="0" max="99" step="1" value="{{maxPerTurn}}" data-trigger-input="maxPerTurn" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
+                  <label><span>Maximum per Round</span><input type="number" min="0" max="99" step="1" value="{{maxPerRound}}" data-trigger-input="maxPerRound" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
+                </div>
+              </section>
+
+              <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-layer-group"></i><strong>Stacks &amp; Duration</strong></header>
+                <div class="ic-triggered-grid four-columns">
+                  <label><span>Stacks per Activation</span><input type="number" min="1" max="99" step="1" value="{{stacks.granted}}" data-trigger-input="granted" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>Maximum Stacks</span><input type="number" min="1" max="999" step="1" value="{{stacks.maximum}}" data-trigger-input="maximum" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label class="ic-triggered-span-two"><span>Stack Behavior</span><select data-trigger-input="behavior" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each stackBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+
+                  {{#if showDurationFields}}
+                  <label><span>Duration</span><input type="number" min="1" max="999" step="1" value="{{stacks.durationAmount}}" data-trigger-input="durationAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{/if}}
+
+                  {{#if showInactivityGrace}}
+                  <label><span>Inactivity Grace</span><input type="number" min="0" max="999" step="1" value="{{stacks.inactivityGrace}}" data-trigger-input="inactivityGrace" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{/if}}
+                  {{#if showDecayFields}}
+                  <label><span>Stacks Lost per Tick</span><input type="number" min="1" max="999" step="1" value="{{stacks.decayAmount}}" data-trigger-input="decayAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{/if}}
+                  <label><span>Tracking Unit</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>The partial turn in which the trigger occurs is not consumed immediately. Ending or deleting the Combat removes all stacks and effects.</span></aside>
+              </section>
+
+              <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Applied Effects</strong></header>
+                <div class="ic-triggered-payload-list">
+                  {{#each effects}}
+                  <article class="ic-triggered-payload" data-payload-id="{{id}}">
+                    <header><strong>Effect {{index}}</strong><button type="button" class="ic-row-remove" data-action="remove-triggered-payload" data-trigger-id="{{../id}}" data-payload-id="{{id}}" aria-label="Remove effect"><i class="fa-solid fa-trash"></i></button></header>
+                    <div class="ic-triggered-grid four-columns">
+                      <label class="ic-triggered-span-two"><span>Effect</span><select data-trigger-payload-input="type" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <label><span>Scaling</span><select data-trigger-payload-input="scaling" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+
+                      {{#if isNumeric}}
+                      <label><span>Calculation</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each calculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if isDice}}
+                      <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      <label><span>Die</span><select data-trigger-payload-input="die" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{else if isCustomFormula}}
+                      <label class="ic-triggered-span-two"><span>Formula</span><input type="text" value="{{formula}}" placeholder="@prof + 1d4" data-trigger-payload-input="formula" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><small>Uses D&D5e roll data. Per Stack multiplies the complete formula.</small></label>
+                      {{else if (eq calculation "flat")}}
+                      <label><span>Amount</span><input type="number" step="1" value="{{amount}}" data-trigger-payload-input="amount" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      {{/if}}
+                      {{/if}}
+
+                      {{#if isSavingThrow}}<label><span>Saving Throw</span><select data-trigger-payload-input="ability" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each abilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      {{#if isMovement}}<label><span>Movement Type</span><select data-trigger-payload-input="movementType" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each movementTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      {{#if isDamageTrait}}<label><span>Damage Type</span><select data-trigger-payload-input="damageType" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      {{#if isConditionTrait}}<label><span>Condition</span><select data-trigger-payload-input="condition" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each conditionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      {{#if isCriticalThreshold}}
+                      <label><span>Applies To</span><select data-trigger-payload-input="criticalScope" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each criticalScopeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <label><span>Critical Hit On</span><select data-trigger-payload-input="criticalThreshold" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each criticalThresholdOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{/if}}
+                    </div>
+                  </article>
+                  {{/each}}
+                </div>
+                <button type="button" class="ic-add-triggered-payload" data-action="add-triggered-payload" data-trigger-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Applied Effect</button>
+              </section>
+            </div>
+          </article>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="ic-triggered-empty-state"><i class="fa-solid fa-bolt"></i><strong>No Triggered Effects</strong><p>Add an event-driven temporary effect. The GM controls balance; the runtime controls tracking and cleanup.</p></div>
+        {{/if}}
+
+        <button type="button" class="ic-add-triggered-effect" data-action="add-triggered-effect"><i class="fa-solid fa-plus"></i> Add Triggered Effect</button>
+      </section>
+
       {{#if customImportedEffectRows.length}}
       <section class="ic-effect-group ic-imported-custom-group">
         <header><span class="ic-kicker">Imported Custom Effects</span><h3>Untranslated or Independent Active Effect Data</h3><p>These changes are not folded into a normal Creator field, either because their key is unknown or because they must remain independent. They are rebuilt as new normalized Effects and can be kept, disabled, or removed.</p></header>
@@ -1231,6 +1378,7 @@
           <div><dt>Granted Spells</dt><dd>{{reviewSummary.grantedSpells}}</dd></div>
           <div><dt>Resource Modifications</dt><dd>{{reviewSummary.resources}}</dd></div>
           <div><dt>Granted Effects</dt><dd>{{reviewSummary.grantedEffects}}</dd></div>
+          <div><dt>Triggered Effects</dt><dd>{{reviewSummary.triggeredEffects}}</dd></div>
           <div><dt>Converted Base Properties</dt><dd>{{reviewSummary.convertedProperties}}</dd></div>
           <div><dt>Custom Imported Data</dt><dd>{{reviewSummary.importedCustom}}</dd></div>
           <div><dt>Level Progressions</dt><dd>{{reviewSummary.progressions}}</dd></div>
@@ -1259,8 +1407,8 @@
         {{/if}}
 
         <section class="ic-review-import-breakdown">
-          <header><strong>New Creator Properties</strong><small>Enhancements, Granted Effects, Granted Spells, and Resource Modifications configured in this draft.</small></header>
-          <p>{{reviewSummary.enhancements}} Enhancement(s), {{reviewSummary.grantedEffects}} Granted Effect(s), {{reviewSummary.grantedSpells}} Granted Spell(s), and {{reviewSummary.resources}} Resource Modification(s).</p>
+          <header><strong>New Creator Properties</strong><small>Enhancements, passive and triggered effects, Granted Spells, and Resource Modifications configured in this draft.</small></header>
+          <p>{{reviewSummary.enhancements}} Enhancement(s), {{reviewSummary.grantedEffects}} Granted Effect(s), {{reviewSummary.triggeredEffects}} Triggered Effect(s), {{reviewSummary.grantedSpells}} Granted Spell(s), and {{reviewSummary.resources}} Resource Modification(s).</p>
         </section>
 
         <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editMode}}Update Item modifies the selected World Item in place. Save as Copy creates a separate World Item and leaves the original unchanged. Existing copies already placed on Actors are not automatically updated.{{else}}Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.{{/if}}</p></aside>

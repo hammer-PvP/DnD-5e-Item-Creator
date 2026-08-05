@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.0 — Triggered Effects Beta Candidate
+
+### Generic event-driven Item effects
+
+- Added a repeatable **Triggered Effects** section inside Granted Effects for Weapon, Equipment, and Tool Items.
+- Each configuration defines availability, optional total-character-level unlock, trigger, activation cardinality, per-turn/per-round limits, stacks, duration or decay, and one or more temporary Actor effects.
+- No named gameplay presets are included. GMs build their own mechanics from functional effects such as Spell Attack Bonus, Spell Save DC Bonus, Weapon Damage Bonus, Armor Class, Saving Throws, movement, resistances, immunities, and critical threshold.
+- Added flat, Proficiency Bonus, ability-modifier, default/highest spellcasting modifier, dice, and custom-formula calculations, with fixed or per-stack scaling.
+
+### Attack and spell event tracking
+
+- Added separate attack events for **Attack Rolled**, **Attack Hit**, **Critical Hit**, **Natural 20**, and **Damage from an Attack Applied**.
+- `Critical Hit` follows the attack roll's actual critical threshold; `Natural 20` requires the active d20 result to be exactly 20. A natural 19 can therefore trigger Critical Hit when the threshold is 19 without triggering Natural 20.
+- Spell Attack hits are counted per successful attack roll, allowing multi-attack spells to grant one activation for each successful ray or strike.
+- Save-based spells can be configured through one-per-Activity spell-cast events, preventing area spells from multiplying activations by target count unless the GM deliberately chooses damage-per-target counting.
+- Added events for spell use, selected spell or feature use, resource and slot consumption, damage/healing application, and combat turn/round boundaries.
+
+### Stacks, duration, and cleanup
+
+- Added No Stacking/Refresh, Shared Duration, Independent Duration, Continuous Decay, and Delayed Decay after Inactivity.
+- Duration tracking supports Owner Turns, Combat Turns, and Rounds, with start/end tick selection. The partial turn in which an effect is gained is not consumed immediately.
+- Triggered state is stored in a versioned Actor ledger and reconciled idempotently after reloads, Item state changes, Actor updates, manual effect deletion, and level changes.
+- Ending or deleting a Combat immediately removes all Item Creator temporary effects, stacks, durations, counters, deduplication state, and ledger entries. Effects are never preserved between combats.
+- The runtime is GM-authoritative through the module socket and deduplicates events by combat, Activity, message, roll, and target identity.
+
+### Scope boundaries
+
+- Triggered Effects in this candidate apply temporary Active Effect-compatible Actor bonuses to the Item wielder.
+- Automatic summoning, executing another Activity, direct target debuffs, and persistent post-combat effects are intentionally excluded.
+- Structural Resource Modifications remain configured in **Spells & Resources** and are not temporary Triggered Effect payloads in this first candidate, preserving the v0.4.0b baseline/restoration guarantees while the event engine is validated.
+
+### Diagnostics and validation
+
+- Added `game.itemCreator.auditTriggeredEffects(actor)` and `game.itemCreator.syncTriggeredEffects(actor)`.
+- Added deterministic tests for threshold critical versus Natural 20, multi-roll stacking, all stack lifecycles, delayed inactivity decay, custom formulas, per-stack Spell Attack/Spell Save DC changes, and combat-end cleanup.
+
 ## 0.4.0b — Resource Baseline Ledger Repair
 
 ### Global original-value snapshots

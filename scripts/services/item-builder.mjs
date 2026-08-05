@@ -3,6 +3,7 @@ import { progressionVariants, selectProgressionTier, settingHasProgression, stri
 import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
 import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
 import { resourceModificationLabel } from "./resource-modification-registry.mjs";
+import { triggeredEffectSummary } from "./triggered-effect-registry.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
 
@@ -1001,6 +1002,11 @@ function itemPropertyEntries(draft) {
     add("Resource", resourceModificationLabel(resource), resource.availability ?? "equipped");
   }
 
+  for (const trigger of draft.triggeredEffects ?? []) {
+    if (trigger?.unlockOnLevel) continue;
+    add("Triggered Effect", `${trigger.name || "Triggered Effect"}: ${triggeredEffectSummary(trigger)}`, trigger.availability ?? "equipped");
+  }
+
   for (const entry of draft.customImportedEffects ?? []) {
     if (entry?.included === false) continue;
     add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`);
@@ -1079,6 +1085,13 @@ function levelProgressionEntries(draft) {
     groups.push({
       label: "Resource Modification",
       lines: [{ level: Number(resource.unlockLevel) || 1, value: resourceModificationLabel(resource) }]
+    });
+  }
+  for (const trigger of draft.triggeredEffects ?? []) {
+    if (!trigger?.unlockOnLevel) continue;
+    groups.push({
+      label: trigger.name || "Triggered Effect",
+      lines: [{ level: Number(trigger.unlockLevel) || 1, value: triggeredEffectSummary(trigger) }]
     });
   }
   return groups;
@@ -1308,7 +1321,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1321,6 +1334,7 @@ export class ItemCreatorItemBuilder {
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting.spells ?? []) : [],
         resourceModifications: plain(draft.resourceModifications ?? []),
+        triggeredEffects: plain(draft.triggeredEffects ?? []),
         structuralProgression: plain({
           itemType: "weapon",
           attackActivityId: attack._id,
@@ -1345,6 +1359,7 @@ export class ItemCreatorItemBuilder {
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         resourceModifications: draft.resourceModifications ?? [],
+        triggeredEffects: draft.triggeredEffects ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
@@ -1458,7 +1473,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1473,6 +1488,7 @@ export class ItemCreatorItemBuilder {
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
         resourceModifications: plain(draft.resourceModifications ?? []),
+        triggeredEffects: plain(draft.triggeredEffects ?? []),
         structuralProgression: plain({
           itemType: "equipment",
           base: equipmentStructuralBase,
@@ -1495,6 +1511,7 @@ export class ItemCreatorItemBuilder {
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         resourceModifications: draft.resourceModifications ?? [],
+        triggeredEffects: draft.triggeredEffects ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
@@ -1613,7 +1630,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 5,
+      schemaVersion: 6,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1627,6 +1644,7 @@ export class ItemCreatorItemBuilder {
         conditionalAdvantage: enhancements.conditionalAdvantage ? plain(enhancementValues.conditionalAdvantage) : null,
         grantedSpells: enhancements.grantedSpellcasting ? plain(enhancementValues.grantedSpellcasting?.spells ?? []) : [],
         resourceModifications: plain(draft.resourceModifications ?? []),
+        triggeredEffects: plain(draft.triggeredEffects ?? []),
         structuralProgression: plain({
           itemType: "tool",
           base: toolStructuralBase,
@@ -1642,6 +1660,7 @@ export class ItemCreatorItemBuilder {
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         resourceModifications: draft.resourceModifications ?? [],
+        triggeredEffects: draft.triggeredEffects ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,

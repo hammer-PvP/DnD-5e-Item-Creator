@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.4.0 Beta Candidate
+**Version:** 0.5.0 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -79,6 +79,23 @@ Weapons, Equipment, and Tools may grant Actor-facing bonuses including:
 
 Granted Spellcasting and structural resource changes are configured in the separate **Spells & Resources** step.
 
+### Triggered Effects
+
+Granted Effects also contains a repeatable **Triggered Effects** builder for temporary combat effects. A row combines:
+
+1. an event such as an attack roll, successful hit, threshold-aware Critical Hit, exact Natural 20, spell use, feature use, resource or Spell Slot consumption, damage/healing application, or combat boundary;
+2. activation counting such as once per Activity, attack roll, successful attack roll, damaged target, turn, or round;
+3. stacks and a duration/decay model;
+4. one or more generic effects applied to the Item wielder.
+
+`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. Multi-roll Spell Attacks can grant one activation per successful roll; save-based spell events default to once per spell Activity rather than once per target.
+
+Stack behavior may refresh a single effect, share one duration across stacks, track independent stack durations, decay continuously, or begin decaying only after a configured number of inactive turns. Tracking supports Owner Turns, Combat Turns, and Rounds. Ending or deleting the Combat immediately removes every temporary Item Creator effect and its ledger state.
+
+Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, and Actor critical threshold. Values may be flat, based on Proficiency Bonus or an ability modifier, use the Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each effect can be fixed while active or multiplied per stack.
+
+This first beta applies Active Effect-compatible bonuses to the Item wielder. It does not summon creatures, execute Activities automatically, apply target debuffs, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
+
 Availability can be configured as:
 
 - **Owned**;
@@ -131,6 +148,8 @@ Class and subclass resources are never created on an Actor who does not own the 
 The runtime changes only maximum capacity. It preserves spent uses and does not refill a feature or Spell Slot when an Item is equipped, unequipped, attuned, or removed. Spending and recovery remain controlled by the original D&D5e feature.
 
 Resource reconciliation is idempotent. Item Creator records the unmodified baseline, aggregates the currently active rows once, restores that baseline when bonuses become inactive, and preserves it across reloads. Repeated equip/unequip cycles therefore never turn a previous Item bonus into the new permanent maximum.
+
+Runtime diagnostics are available through `game.itemCreator.auditResources(actor)`, `game.itemCreator.syncResources(actor)`, `game.itemCreator.auditTriggeredEffects(actor)`, and `game.itemCreator.syncTriggeredEffects(actor)`.
 
 ## Rarity and pricing
 

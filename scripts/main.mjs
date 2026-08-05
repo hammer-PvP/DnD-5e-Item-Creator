@@ -4,6 +4,7 @@ import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
 import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
+import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
 import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
@@ -30,6 +31,7 @@ let moduleSettingsInstance = null;
 
 Hooks.once("init", () => {
   ItemCreatorRuntimeEffectService.registerHooks();
+  ItemCreatorTriggeredEffectService.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, "sourceSettings", {
@@ -88,6 +90,8 @@ Hooks.once("init", () => {
     },
     auditResources: actor => ItemCreatorRuntimeEffectService.auditResources(actor),
     syncResources: actor => ItemCreatorRuntimeEffectService.syncActor(actor),
+    auditTriggeredEffects: actor => ItemCreatorTriggeredEffectService.audit(actor),
+    syncTriggeredEffects: actor => ItemCreatorTriggeredEffectService.syncActor(actor),
     closeSupplier: () => closeSupplierWindows(),
     configureSources: () => openSourceSettings(),
     configure: () => openModuleSettings(),

@@ -9,6 +9,13 @@ import {
   RESOURCE_CATEGORIES, RESOURCE_DICE, defaultResourceModification, getResourceDefinition,
   normalizeResourceModification, resourceGroups, resourceModificationLabel, validateResourceModification
 } from "../services/resource-modification-registry.mjs";
+import {
+  ACTIVATION_COUNTING, ATTACK_TYPES, DURATION_UNITS, EFFECT_SCALING, STACK_BEHAVIORS,
+  TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES, TRIGGER_EVENTS, VALUE_CALCULATIONS,
+  defaultTriggeredEffect, defaultTriggeredEffectPayload, isDamageTriggeredEffect, isNumericTriggeredEffect,
+  isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
+  triggeredEffectSummary, validateTriggeredEffect
+} from "../services/triggered-effect-registry.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
@@ -911,6 +918,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
     this.resourceModifications = [];
+    this.triggeredEffects = [];
     this.templateDescription = "";
     this.templateDescriptionRaw = "";
     this.customDescription = "";
@@ -921,6 +929,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.sourceRegistryValidated = false;
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
+    this.triggerBrowserOpen = false;
     this.iconBrowserApp = null;
   }
 
@@ -1099,6 +1108,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
         this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
+        this.triggeredEffects = (savedDraft.triggeredEffects ?? []).map(normalizeTriggeredEffect);
         this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
         this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
         this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -1134,6 +1144,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.enhancementValues = clone(defaults);
         this.grantedEffects = {};
         this.grantedEffectValues = grantedEffectDefaults();
+        this.resourceModifications = [];
+        this.triggeredEffects = [];
         await this.#translateDocumentMechanics(item);
         this.templateDescriptionRaw = rawTemplateDescription(item);
         this.templateDescription = this.templateDescriptionRaw;
@@ -1167,6 +1179,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
       this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
       this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
+      this.triggeredEffects = (savedDraft.triggeredEffects ?? []).map(normalizeTriggeredEffect);
       this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
       this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
       this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -1215,6 +1228,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.enhancementValues = enhancementDefaults();
       this.grantedEffects = {};
       this.grantedEffectValues = grantedEffectDefaults();
+      this.resourceModifications = [];
+      this.triggeredEffects = [];
       await this.#translateDocumentMechanics(item);
       this.templateDescriptionRaw = rawTemplateDescription(item);
       this.templateDescription = this.templateDescriptionRaw;
@@ -1486,6 +1501,82 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     const resourceModificationCount = resourceModificationRows.length;
 
+    const triggerResourceOptions = resourceGroups({ dieOnly: false }).map(group => ({
+      label: group.label,
+      items: group.items.map(resource => ({ value: resource.id, label: resource.label }))
+    }));
+    const triggeredEffectRows = this.triggeredEffects.map((source, index) => {
+      const row = normalizeTriggeredEffect(source);
+      const trigger = row.trigger;
+      const stack = row.stacks;
+      const effectRows = row.effects.map((effectSource, effectIndex) => {
+        const effect = normalizeTriggeredEffectPayload(effectSource);
+        return {
+          ...effect,
+          index: effectIndex + 1,
+          typeOptions: fixedOptions(TRIGGER_EFFECT_TYPES, effect.type),
+          calculationOptions: fixedOptions(VALUE_CALCULATIONS, effect.calculation),
+          scalingOptions: fixedOptions(EFFECT_SCALING, effect.scaling),
+          dieOptions: [4, 6, 8, 10, 12, 20].map(die => ({ value: die, label: `d${die}`, selected: die === Number(effect.die) })),
+          abilityOptions: allAbilityOptions(effect.ability, { allLabel: "All Saving Throws" }),
+          movementTypeOptions: movementTypeOptions(effect.movementType),
+          damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, effect.damageType),
+          conditionOptions: conditionTypeOptions([effect.condition]),
+          criticalScopeOptions: fixedOptions([["weapon", "Weapon Attacks"], ["spell", "Spell Attacks"], ["all", "All Attacks"]], effect.criticalScope),
+          criticalThresholdOptions: Array.from({ length: 20 }, (_unused, i) => ({ value: i + 1, label: String(i + 1), selected: i + 1 === Number(effect.criticalThreshold) })),
+          isNumeric: isNumericTriggeredEffect(effect.type),
+          isDice: effect.calculation === "dice",
+          isCustomFormula: effect.calculation === "custom",
+          isSavingThrow: effect.type === "savingThrowBonus",
+          isMovement: effect.type === "movementBonus",
+          isDamageTrait: ["damageResistance", "damageImmunity"].includes(effect.type),
+          isConditionTrait: effect.type === "conditionImmunity",
+          isCriticalThreshold: effect.type === "actorCriticalThreshold",
+          isDamageEffect: isDamageTriggeredEffect(effect.type),
+          isTrait: isTraitTriggeredEffect(effect.type)
+        };
+      });
+      return {
+        ...row,
+        index: index + 1,
+        summary: triggeredEffectSummary(row),
+        invalid: !validateTriggeredEffect(row),
+        availabilityOptions: effectAvailabilityOptions(row.availability),
+        categoryOptions: Object.entries(TRIGGER_CATEGORIES).map(([value, label]) => ({ value, label, selected: value === trigger.category })),
+        eventOptions: fixedOptions(TRIGGER_EVENTS[trigger.category] ?? [], trigger.event),
+        attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
+        countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
+        stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS, stack.behavior),
+        durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
+        tickTimingOptions: fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming),
+        spellLevelOptions: [{ value: "any", label: "Any Spell Level", selected: trigger.spellLevel === "any" },
+          ...Array.from({ length: 10 }, (_unused, i) => ({ value: i, label: i === 0 ? "Cantrip" : spellLevelLabel(i), selected: Number(trigger.spellLevel) === i }))],
+        spellSlotLevelOptions: [{ value: "any", label: "Any Slot Level", selected: trigger.spellSlotLevel === "any" },
+          ...Array.from({ length: 9 }, (_unused, i) => ({ value: i + 1, label: spellLevelLabel(i + 1), selected: Number(trigger.spellSlotLevel) === i + 1 }))],
+        spellSchoolOptions: [{ value: "any", label: "Any School", selected: trigger.spellSchool === "any" },
+          ...configOptions(CONFIG.DND5E.spellSchools, trigger.spellSchool)],
+        resourceGroups: triggerResourceOptions.map(group => ({
+          label: group.label,
+          items: group.items.map(item => ({ ...item, selected: item.value === trigger.resourceId }))
+        })),
+        damageSourceOptions: fixedOptions([["any", "Any Source"], ["attack", "Attack"], ["spell", "Spell"], ["feature", "Feature / Item"]], trigger.damageSource),
+        damageTypeOptions: [{ value: "any", label: "Any Damage Type", selected: trigger.damageType === "any" },
+          ...configOptions(CONFIG.DND5E.damageTypes, trigger.damageType)],
+        showAttackFilters: trigger.category === "attack",
+        showSpellFilters: trigger.category === "spell",
+        showSpecificSpell: trigger.event === "specificSpellCast",
+        showResourceFilter: trigger.event === "specificResourceSpent",
+        showSlotLevel: ["spellSlotSpent", "pactSlotSpent"].includes(trigger.event),
+        showSpecificFeature: trigger.event === "specificFeatureUsed",
+        showDamageFilters: trigger.category === "damage" || trigger.event === "attackDamageApplied",
+        showDurationFields: ["refresh", "shared", "independent"].includes(stack.behavior),
+        showDecayFields: ["continuousDecay", "delayedDecay"].includes(stack.behavior),
+        showInactivityGrace: stack.behavior === "delayedDecay",
+        effects: effectRows
+      };
+    });
+    const triggeredEffectCount = triggeredEffectRows.length;
+
     const effectValues = this.grantedEffectValues;
     const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({ ...row, index: index + 1, ...effectEntryOptions(key, row) }));
     const damageEffectOptions = key => Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
@@ -1498,7 +1589,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ...Object.entries(this.grantedEffects).filter(([key, enabled]) => enabled && settingHasProgression(this.grantedEffectValues[key])),
       ...(effective?.additionalDamage ?? []).filter(settingHasProgression).map(row => [row.id, true]),
       ...grantedSpellRows.filter(spell => spell.unlockOnLevel).map(spell => [spell.id, true]),
-      ...resourceModificationRows.filter(row => row.unlockOnLevel).map(row => [row.id, true])
+      ...resourceModificationRows.filter(row => row.unlockOnLevel).map(row => [row.id, true]),
+      ...triggeredEffectRows.filter(row => row.unlockOnLevel).map(row => [row.id, true])
     ].length;
     const customImportedEffectRows = this.customImportedEffects.map(entry => ({
       ...entry,
@@ -1612,6 +1704,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       enhancementCount: Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting").length,
       grantedSpellCount: grantedSpellRows.length, grantedSpellRows,
       resourceModificationCount, resourceModificationRows,
+      triggeredEffectCount, triggeredEffectRows,
       spellsResourcesComplete, spellsResourcesErrors: spellsResourcesValidation.errors,
       enhancementsComplete, enhancementErrors: enhancementValidation.errors,
       effectiveMagical: Boolean(isEquipment
@@ -1660,7 +1753,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         name: this.itemName.trim() || "—", baseOverrides: customFieldCount,
         enhancements: Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting").length,
         grantedSpells: grantedSpellRows.length, grantedEffects: grantedEffectCount,
-        resources: resourceModificationCount,
+        triggeredEffects: triggeredEffectCount, resources: resourceModificationCount,
         importedCustom: importedCustomCount,
         convertedProperties: this.importedBaseSummary.length,
         progressions: levelProgressionCount,
@@ -1736,6 +1829,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-resource-input]').forEach(input => {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
       input.addEventListener(eventName, event => this.#updateResourceModification(event));
+    });
+    root.querySelector('[data-action="add-triggered-effect"]')?.addEventListener("click", event => this.#addTriggeredEffect(event));
+    root.querySelectorAll('[data-action="remove-triggered-effect"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredEffect(event)));
+    root.querySelectorAll('[data-trigger-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateTriggeredEffect(event));
+    });
+    root.querySelectorAll('[data-action="browse-trigger-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "spell")));
+    root.querySelectorAll('[data-action="browse-trigger-feature"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "feature")));
+    root.querySelectorAll('[data-action="add-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#addTriggeredPayload(event)));
+    root.querySelectorAll('[data-action="remove-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredPayload(event)));
+    root.querySelectorAll('[data-trigger-payload-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateTriggeredPayload(event));
     });
     root.querySelector('[data-description-toggle]')?.addEventListener("change", event => this.#toggleDescriptionCustomization(event));
     const descriptionEditor = this.#mountDescriptionEditor(root);
@@ -2064,6 +2171,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       grantedEffects: clone(this.grantedEffects),
       grantedEffectValues: clone(this.grantedEffectValues),
       resourceModifications: clone(this.resourceModifications),
+      triggeredEffects: clone(this.triggeredEffects),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
       descriptionCustomized: this.descriptionCustomized,
       editingSourceUuid: this.editingItem?.uuid ?? null,
@@ -2734,6 +2842,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       || meaningfulCustomization
       || Object.values(this.enhancements).some(Boolean)
       || Object.values(this.grantedEffects).some(Boolean)
+      || this.resourceModifications.length > 0
+      || this.triggeredEffects.length > 0
       || this.descriptionCustomized;
   }
 
@@ -3085,6 +3195,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.grantedEffects = {};
     this.grantedEffectValues = grantedEffectDefaults();
     this.resourceModifications = [];
+    this.triggeredEffects = [];
   }
 
   #magicalEnhancementKey() {
@@ -3170,6 +3281,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   #validateGrantedEffects() {
     const errors = {};
+    if (this.triggeredEffects.some(row => !validateTriggeredEffect(row))) errors.triggeredEffects = true;
     const values = this.grantedEffectValues;
     const finite = value => Number.isFinite(Number(value));
     const hasRows = (key, validator) => {
@@ -3560,6 +3672,132 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
+  #addTriggeredEffect(event) {
+    event.preventDefault();
+    this.triggeredEffects.push(defaultTriggeredEffect());
+    this.#renderPreservingScroll();
+  }
+
+  #removeTriggeredEffect(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.triggerId;
+    this.triggeredEffects = this.triggeredEffects.filter(entry => entry.id !== id);
+    this.#renderPreservingScroll();
+  }
+
+  #updateTriggeredEffect(event) {
+    const id = event.currentTarget.dataset.triggerId;
+    const part = event.currentTarget.dataset.triggerInput;
+    const scope = event.currentTarget.dataset.triggerScope || "root";
+    const row = this.triggeredEffects.find(entry => entry.id === id);
+    if (!row || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+
+    if (scope === "trigger") row.trigger[part] = value;
+    else if (scope === "stacks") row.stacks[part] = value;
+    else row[part] = value;
+
+    if (scope === "trigger" && part === "category") {
+      const events = TRIGGER_EVENTS[value] ?? TRIGGER_EVENTS.attack;
+      row.trigger.event = events[0]?.[0] ?? "attackRolled";
+      row.counting = value === "attack" ? "perAttackRoll" : value === "combat" ? "perTurn" : "perActivity";
+    }
+    if (scope === "trigger" && part === "event") {
+      if (["attackHit", "criticalHit", "natural20"].includes(value)) row.counting = "perSuccessfulAttack";
+      else if (value === "attackRolled") row.counting = "perAttackRoll";
+      else if (["spellCast", "spellAttackCast", "spellSaveCast", "specificSpellCast", "spellCastUsingSlot", "spellCastWithoutSlot"].includes(value)) row.counting = "perActivity";
+    }
+    if (scope === "stacks" && part === "durationUnit") {
+      row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
+    }
+    if (scope === "stacks" && part === "behavior" && value === "refresh") row.stacks.maximum = 1;
+
+    Object.assign(row, normalizeTriggeredEffect(row));
+    this.#renderPreservingScroll();
+  }
+
+  #addTriggeredPayload(event) {
+    event.preventDefault();
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    if (!row) return;
+    row.effects ??= [];
+    row.effects.push(defaultTriggeredEffectPayload("spellAttackBonus"));
+    this.#renderPreservingScroll();
+  }
+
+  #removeTriggeredPayload(event) {
+    event.preventDefault();
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    const payloadId = event.currentTarget.dataset.payloadId;
+    if (!row || !payloadId) return;
+    row.effects = (row.effects ?? []).filter(effect => effect.id !== payloadId);
+    if (!row.effects.length) row.effects.push(defaultTriggeredEffectPayload("spellAttackBonus"));
+    this.#renderPreservingScroll();
+  }
+
+  #updateTriggeredPayload(event) {
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    const payload = row?.effects?.find(entry => entry.id === event.currentTarget.dataset.payloadId);
+    const part = event.currentTarget.dataset.triggerPayloadInput;
+    if (!row || !payload || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    payload[part] = value;
+    Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+    this.#renderPreservingScroll();
+  }
+
+  async #browseTriggeredSource(event, kind) {
+    event.preventDefault();
+    if (this.triggerBrowserOpen) return;
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    if (!row) return;
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error("The native D&D5e Compendium Browser is unavailable.");
+      return;
+    }
+    this.triggerBrowserOpen = true;
+    this.#setBrowserBlock(true);
+    try {
+      const spell = kind === "spell";
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: spell ? "spells" : "items",
+        hint: spell ? "Select the Spell that activates this Triggered Effect." : "Select the Feature that activates this Triggered Effect.",
+        filters: { locked: { documentClass: "Item", types: new Set(spell ? ["spell"] : ["feat"]) } },
+        window: { modal: true }
+      });
+      if (!uuid) return;
+      const document = await fromUuid(uuid);
+      if (document?.documentName !== "Item" || (spell ? document.type !== "spell" : document.type !== "feat")) {
+        ui.notifications.warn(spell ? "Select a Spell Item." : "Select a Feature Item.");
+        return;
+      }
+      if (spell) {
+        row.trigger.spellUuid = document.uuid;
+        row.trigger.spellName = document.name;
+      } else {
+        row.trigger.featureUuid = document.uuid;
+        row.trigger.featureName = document.name;
+        row.trigger.featureIdentifier = document.system?.identifier ?? "";
+      }
+      Object.assign(row, normalizeTriggeredEffect(row));
+      this.#renderPreservingScroll();
+    } catch (error) {
+      console.error(`${MODULE_ID} | Trigger source browser failed.`, error);
+      ui.notifications.error("Item Creator could not open the trigger source browser.");
+    } finally {
+      this.triggerBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
+  }
+
   #toggleEnhancement(event) {
     const field = event.currentTarget.dataset.enhancementToggle;
     const defaults = enhancementDefaultsForType(this.selectedType);
@@ -3614,6 +3852,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     await this.iconBrowserApp?.close?.();
     this.templateBrowserOpen = false;
     this.spellBrowserOpen = false;
+    this.triggerBrowserOpen = false;
     this.iconBrowserApp = null;
     this.#setBrowserBlock(false);
     return super.close(options);
