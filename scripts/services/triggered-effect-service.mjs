@@ -1,6 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
-import { safeDeleteActiveEffects } from "./document-operation-service.mjs";
+import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
 import {
   buildTriggeredEffectChanges, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
@@ -15,6 +15,11 @@ const CONSUMPTION_STALE_MS = 5 * 60 * 1000;
 const ROLL_PATCH_FLAG = Symbol.for(`${MODULE_ID}.consumableRollPatch`);
 const POST_FAILURE_DELAY_MS = 100;
 const POST_FAILURE_RECENT_LIMIT = 240;
+const PRIORITY_PROMPT_APPEAR_MS = 900;
+const PRIORITY_PROMPT_TIMEOUT_MS = 30000;
+const PRIORITY_PROMPT_QUIET_MS = 350;
+const PRIORITY_CALLBACK_TIMEOUT_MS = 15000;
+const REPORTED_RESOLUTION_TTL_MS = 60000;
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -99,6 +104,165 @@ function sourceMessage(value) {
   if (value.documentName === "ChatMessage") return value;
   if (typeof value === "string") return game.messages?.get(value) ?? null;
   return null;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function firstFinite(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return null;
+}
+
+function rollMessageId(roll) {
+  return String(roll?.parent?.id ?? roll?.options?.messageId ?? "");
+}
+
+function defaultRollResolution(context = {}) {
+  const currentTotal = firstFinite(context.currentTotal, context.roll?.total) ?? 0;
+  const target = firstFinite(context.target, rollTargetNumber(context.roll));
+  return {
+    actorUuid: String(context.actorUuid ?? context.actor?.uuid ?? ""),
+    rollType: String(context.rollType ?? ""),
+    rollKey: String(context.rollKey ?? ""),
+    originalMessageId: String(context.originalMessageId ?? rollMessageId(context.roll)),
+    originalTotal: firstFinite(context.originalTotal, context.roll?.total) ?? currentTotal,
+    currentTotal,
+    target,
+    succeeded: target === null ? null : currentTotal >= target,
+    finalized: false,
+    adjustments: []
+  };
+}
+
+function resolutionKeys(context = {}) {
+  const actorUuid = String(context.actorUuid ?? context.actor?.uuid ?? "");
+  const rollType = String(context.rollType ?? "");
+  const messageId = String(context.originalMessageId ?? context.messageId ?? rollMessageId(context.roll));
+  const rollKey = String(context.rollKey ?? "");
+  return [...new Set([
+    rollKey && `roll:${rollKey}`,
+    messageId && `message:${messageId}`,
+    actorUuid && rollType && messageId && `actor:${actorUuid}:${rollType}:${messageId}`
+  ].filter(Boolean))];
+}
+
+function normalizedAdjustments(value) {
+  return valuesOf(value).map(entry => {
+    if (typeof entry === "number") return { source: "Higher-priority effect", bonus: Number(entry) };
+    const bonus = firstFinite(entry?.bonus, entry?.amount, entry?.delta, entry?.modifier, entry?.total);
+    return {
+      source: String(entry?.source ?? entry?.name ?? entry?.label ?? "Higher-priority effect"),
+      ...(bonus === null ? {} : { bonus })
+    };
+  }).filter(entry => entry.source || Number.isFinite(entry.bonus));
+}
+
+function normalizePriorityResolution(value, context = {}, { allowFallback = false } = {}) {
+  const fallback = defaultRollResolution(context);
+  const sources = [value, value?.resolution, value?.result, value?.data, value?.rollResolution]
+    .filter(entry => entry && typeof entry === "object");
+  if (!sources.length) return allowFallback ? fallback : null;
+  const read = keys => {
+    for (const source of sources) {
+      for (const key of keys) if (source[key] !== undefined && source[key] !== null) return source[key];
+    }
+    return undefined;
+  };
+  const currentTotal = firstFinite(read(["currentTotal", "newTotal", "finalTotal", "modifiedTotal", "resolvedTotal", "total"]));
+  const originalTotal = firstFinite(read(["originalTotal", "nativeTotal", "baseTotal"]), fallback.originalTotal);
+  const target = firstFinite(read(["target", "targetNumber", "dc", "ac"]), fallback.target);
+  const explicitSucceeded = read(["succeeded", "success", "isSuccess"]);
+  const explicitFinalized = read(["finalized", "complete", "completed", "resolved"]);
+  const adjustments = normalizedAdjustments(read(["adjustments", "modifiers", "bonuses"]));
+  const hasSignal = currentTotal !== null || typeof explicitSucceeded === "boolean"
+    || typeof explicitFinalized === "boolean" || adjustments.length > 0;
+  if (!hasSignal) return allowFallback ? fallback : null;
+  const resolvedTotal = currentTotal ?? (adjustments.length
+    ? adjustments.reduce((total, entry) => total + (Number(entry.bonus) || 0), originalTotal)
+    : fallback.currentTotal);
+  return {
+    ...fallback,
+    actorUuid: String(read(["actorUuid", "recipientActorUuid"]) ?? fallback.actorUuid),
+    rollType: String(read(["rollType", "type"]) ?? fallback.rollType),
+    rollKey: String(read(["rollKey", "key"]) ?? fallback.rollKey),
+    originalMessageId: String(read(["originalMessageId", "messageId", "sourceMessageId"]) ?? fallback.originalMessageId),
+    originalTotal,
+    currentTotal: resolvedTotal,
+    target,
+    succeeded: typeof explicitSucceeded === "boolean" ? explicitSucceeded : target === null ? null : resolvedTotal >= target,
+    finalized: typeof explicitFinalized === "boolean" ? explicitFinalized : true,
+    adjustments
+  };
+}
+
+function messageCreatedTime(message) {
+  return firstFinite(message?._stats?.createdTime, message?.timestamp, message?.time) ?? 0;
+}
+
+function plainMessageText(content) {
+  const value = String(content ?? "");
+  const document = globalThis.document;
+  if (document?.createElement) {
+    const element = document.createElement("div");
+    element.innerHTML = value;
+    return String(element.textContent ?? element.innerText ?? "").replace(/\s+/g, " ").trim();
+  }
+  return value.replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+}
+
+function priorityResolutionFromMessage(message, context = {}) {
+  if (!message || message.flags?.[MODULE_ID]?.triggeredEffectNotice) return null;
+  const actorId = context.actor?.id ?? "";
+  if (actorId && message.speaker?.actor && String(message.speaker.actor) !== String(actorId)) return null;
+  if (context.startedAt && messageCreatedTime(message) && messageCreatedTime(message) < Number(context.startedAt) - 500) return null;
+  const builderFlags = message.flags?.["dnd5e-character-builder"] ?? message.flags?.dnd5eCharacterBuilder ?? null;
+  const structured = normalizePriorityResolution(builderFlags, context);
+  if (structured) return structured;
+  const text = plainMessageText(message.content);
+  if (!/Bardic Inspiration/i.test(text)) return null;
+  const matches = [...text.matchAll(/(-?\d+(?:\.\d+)?)\s*\+\s*(-?\d+(?:\.\d+)?)\s*=\s*(-?\d+(?:\.\d+)?)/g)];
+  const chain = matches.at(-1);
+  if (!chain) return null;
+  const originalTotal = Number(chain[1]);
+  const nativeTotal = firstFinite(context.originalTotal, context.roll?.total);
+  if (nativeTotal !== null && originalTotal !== nativeTotal) return null;
+  const bonus = Number(chain[2]);
+  const currentTotal = Number(chain[3]);
+  const target = firstFinite(context.target, rollTargetNumber(context.roll));
+  const failure = /still\s+(?:a\s+)?failure|failed/i.test(text);
+  const success = !failure && /success|succeeded/i.test(text);
+  return {
+    ...defaultRollResolution(context),
+    originalTotal,
+    currentTotal,
+    target,
+    succeeded: success ? true : failure ? false : target === null ? null : currentTotal >= target,
+    finalized: true,
+    adjustments: [{ source: "Bardic Inspiration", bonus }]
+  };
+}
+
+function priorityPromptOpen() {
+  const matches = value => {
+    const text = String(value ?? "").replace(/\s+/g, " ");
+    return /Use Bardic Inspiration\?|Keep Inspiration|Use Bardic Inspiration \(/i.test(text);
+  };
+  for (const app of Object.values(globalThis.ui?.windows ?? {})) {
+    const title = app?.title ?? app?.options?.window?.title ?? app?.options?.title ?? "";
+    const text = app?.element?.textContent ?? app?.element?.innerText ?? "";
+    if (matches(title) || matches(text)) return true;
+  }
+  const document = globalThis.document;
+  if (!document?.querySelectorAll) return false;
+  for (const element of document.querySelectorAll(".application, .window-app, dialog")) {
+    if (matches(element?.textContent ?? "")) return true;
+  }
+  return false;
 }
 
 function messageContext(message) {
@@ -631,6 +795,7 @@ export class ItemCreatorTriggeredEffectService {
   static #rollPatches = [];
   static #recentPostFailureKeys = [];
   static #pendingPostFailureKeys = new Set();
+  static #reportedRollResolutions = new Map();
 
   static registerHooks() {
     Hooks.once("ready", () => {
@@ -640,6 +805,9 @@ export class ItemCreatorTriggeredEffectService {
         for (const actor of game.actors ?? []) void this.syncActor(actor);
       }
     });
+
+    Hooks.on(`${MODULE_ID}.reportRollResolution`, resolution => this.reportRollResolution(resolution));
+    Hooks.on("dnd5e-character-builder.rollResolution", resolution => this.reportRollResolution(resolution));
 
     Hooks.on("dnd5e.postRollAttack", (rolls, { subject } = {}) => this.#onAttackRolls(rolls, subject));
     Hooks.on("dnd5e.rollAbilityCheck", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
@@ -842,8 +1010,17 @@ export class ItemCreatorTriggeredEffectService {
     let resolution = "";
     if (details.mode === "afterFailure") {
       const targetLabel = details.rollType === "attackRoll" ? "AC" : "DC";
-      resolution = `<p><strong>Bonus:</strong> ${this.#escapeHtml(details.formula)} = ${Number(details.bonusTotal) || 0}. `
-        + `<strong>Result:</strong> ${Number(details.originalTotal) || 0} → ${Number(details.newTotal) || 0} against ${targetLabel} ${Number(details.target) || 0} — `
+      const nativeTotal = Number(details.originalRollTotal);
+      const currentTotal = Number(details.originalTotal) || 0;
+      const prior = normalizedAdjustments(details.priorAdjustments);
+      const priorText = prior.length
+        ? prior.map(entry => `${this.#escapeHtml(entry.source)} ${Number(entry.bonus) >= 0 ? "+" : ""}${Number(entry.bonus) || 0}`).join(", ")
+        : "";
+      const current = Number.isFinite(nativeTotal) && nativeTotal !== currentTotal
+        ? `<p><strong>Current result after higher-priority effects:</strong> ${currentTotal} (native ${nativeTotal}${priorText ? `; ${priorText}` : ""}).</p>`
+        : "";
+      resolution = current + `<p><strong>Bonus:</strong> ${this.#escapeHtml(details.formula)} = ${Number(details.bonusTotal) || 0}. `
+        + `<strong>Result:</strong> ${currentTotal} → ${Number(details.newTotal) || 0} against ${targetLabel} ${Number(details.target) || 0} — `
         + `<strong>${details.succeeded ? "success" : "still a failure"}</strong>.</p>`;
     }
     const remaining = result.removed
@@ -853,7 +1030,22 @@ export class ItemCreatorTriggeredEffectService {
       await ChatMessage.create({
         speaker: ChatMessage.getSpeaker({ actor: recipient }),
         content: `<section class="item-creator-triggered-message"><p><strong>${actorName}</strong> used <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${resolution}<p>${remaining}</p></section>`,
-        flags: { [MODULE_ID]: { triggeredEffectNotice: true, noticeType: "consumption", sourceActorUuid: result.sourceActorUuid, entryKey: result.entryKey, recipientActorUuid: recipient.uuid } }
+        flags: { [MODULE_ID]: {
+          triggeredEffectNotice: true,
+          noticeType: "consumption",
+          sourceActorUuid: result.sourceActorUuid,
+          entryKey: result.entryKey,
+          recipientActorUuid: recipient.uuid,
+          rollResolution: details.mode === "afterFailure" ? {
+            rollKey: details.rollKey ?? "",
+            originalMessageId: details.originalMessageId ?? "",
+            originalTotal: details.originalRollTotal ?? details.originalTotal,
+            currentTotal: details.newTotal,
+            target: details.target,
+            succeeded: Boolean(details.succeeded),
+            finalized: true
+          } : null
+        } }
       });
     } catch (error) {
       console.warn(`${MODULE_ID} | Could not post Triggered Effect consumption message.`, error);
@@ -1090,10 +1282,22 @@ export class ItemCreatorTriggeredEffectService {
     const key = this.#postFailureRollKey(actor, rollType, roll, context);
     if (this.#pendingPostFailureKeys.has(key) || this.#recentPostFailureKeys.includes(key)) return;
     this.#pendingPostFailureKeys.add(key);
+    const priorityContext = {
+      actor,
+      actorUuid: actor.uuid,
+      rollType,
+      roll,
+      ...context,
+      rollKey: key,
+      originalMessageId: rollMessageId(roll),
+      originalTotal: Number(roll?.total) || 0,
+      target: rollTargetNumber(roll),
+      startedAt: Date.now()
+    };
     setTimeout(() => void (async () => {
       try {
-        await this.#waitForHigherPriorityAutomation({ actor, rollType, roll, ...context });
-        await this.#resolveAfterFailureRoll(actor, rollType, roll, context);
+        const resolution = await this.#waitForHigherPriorityAutomation(priorityContext);
+        await this.#resolveAfterFailureRoll(actor, rollType, roll, context, resolution);
       } catch (error) {
         console.error(`${MODULE_ID} | Failed to resolve a post-result consumable effect.`, error);
       } finally {
@@ -1103,7 +1307,54 @@ export class ItemCreatorTriggeredEffectService {
     })(), POST_FAILURE_DELAY_MS);
   }
 
+  static reportRollResolution(value = {}) {
+    const context = {
+      actorUuid: value.actorUuid ?? value.recipientActorUuid ?? "",
+      rollType: value.rollType ?? value.type ?? "",
+      rollKey: value.rollKey ?? value.key ?? "",
+      originalMessageId: value.originalMessageId ?? value.messageId ?? value.sourceMessageId ?? "",
+      originalTotal: value.originalTotal ?? value.nativeTotal,
+      currentTotal: value.currentTotal ?? value.newTotal ?? value.finalTotal,
+      target: value.target ?? value.dc ?? value.ac
+    };
+    const normalized = normalizePriorityResolution(value, context);
+    if (!normalized) return null;
+    const expiresAt = Date.now() + REPORTED_RESOLUTION_TTL_MS;
+    for (const key of resolutionKeys({ ...context, ...normalized })) {
+      this.#reportedRollResolutions.set(key, { resolution: normalized, expiresAt });
+    }
+    return normalized;
+  }
+
+  static #takeReportedRollResolution(context = {}) {
+    const now = Date.now();
+    for (const [key, entry] of this.#reportedRollResolutions) {
+      if (!entry || Number(entry.expiresAt) <= now) this.#reportedRollResolutions.delete(key);
+    }
+    for (const key of resolutionKeys(context)) {
+      const entry = this.#reportedRollResolutions.get(key);
+      if (!entry) continue;
+      this.#reportedRollResolutions.delete(key);
+      return normalizePriorityResolution(entry.resolution, context, { allowFallback: true });
+    }
+    return null;
+  }
+
+  static #recentPriorityMessageResolution(context = {}) {
+    const allMessages = valuesOf(game.messages?.contents ?? game.messages);
+    const originalMessageId = String(context.originalMessageId ?? rollMessageId(context.roll));
+    const originalIndex = originalMessageId ? allMessages.findIndex(message => String(message?.id ?? "") === originalMessageId) : -1;
+    const candidates = (originalIndex >= 0 ? allMessages.slice(originalIndex + 1) : allMessages)
+      .sort((a, b) => messageCreatedTime(b) - messageCreatedTime(a));
+    for (const message of candidates) {
+      const resolution = priorityResolutionFromMessage(message, context);
+      if (resolution) return resolution;
+    }
+    return null;
+  }
+
   static async #waitForHigherPriorityAutomation(context) {
+    let resolution = defaultRollResolution(context);
     const moduleApi = game.modules?.get("dnd5e-character-builder")?.api;
     const candidates = [
       [moduleApi?.rulesAutomation, moduleApi?.rulesAutomation?.waitForRollResolution],
@@ -1113,26 +1364,77 @@ export class ItemCreatorTriggeredEffectService {
     for (const [owner, callback] of candidates) {
       if (!(callback instanceof Function)) continue;
       try {
-        await Promise.race([
+        const timeout = Symbol("priority-timeout");
+        const result = await Promise.race([
           Promise.resolve(callback.call(owner, context)),
-          new Promise(resolve => setTimeout(resolve, 5000))
+          sleep(PRIORITY_CALLBACK_TIMEOUT_MS).then(() => timeout)
         ]);
+        if (result !== timeout) resolution = normalizePriorityResolution(result, context, { allowFallback: true }) ?? resolution;
       } catch (error) {
         console.warn(`${MODULE_ID} | Higher-priority roll automation did not complete cleanly.`, error);
       }
       break;
     }
-    Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, context);
+
+    const reportedBeforePrompt = this.#takeReportedRollResolution(context);
+    if (reportedBeforePrompt) resolution = reportedBeforePrompt;
+
+    const characterBuilderActive = Boolean(game.modules?.get("dnd5e-character-builder")?.active);
+    if (characterBuilderActive && !resolution.finalized) {
+      const appearDeadline = Date.now() + PRIORITY_PROMPT_APPEAR_MS;
+      let seenPrompt = false;
+      while (Date.now() < appearDeadline) {
+        const reported = this.#takeReportedRollResolution(context);
+        if (reported) {
+          resolution = reported;
+          break;
+        }
+        if (priorityPromptOpen()) {
+          seenPrompt = true;
+          break;
+        }
+        await sleep(50);
+      }
+
+      if (seenPrompt) {
+        const deadline = Date.now() + PRIORITY_PROMPT_TIMEOUT_MS;
+        let quietSince = 0;
+        while (Date.now() < deadline) {
+          const reported = this.#takeReportedRollResolution(context);
+          if (reported) resolution = reported;
+          if (priorityPromptOpen()) quietSince = 0;
+          else {
+            quietSince ||= Date.now();
+            if (Date.now() - quietSince >= PRIORITY_PROMPT_QUIET_MS) break;
+          }
+          await sleep(50);
+        }
+      }
+      await sleep(100);
+    }
+
+    const reportedAfterPrompt = this.#takeReportedRollResolution(context);
+    if (reportedAfterPrompt) resolution = reportedAfterPrompt;
+    const messageResolution = this.#recentPriorityMessageResolution(context);
+    if (messageResolution && (!resolution.finalized || messageResolution.currentTotal !== resolution.currentTotal)) {
+      resolution = messageResolution;
+    }
+    Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution });
+    return { ...resolution, finalized: true };
   }
 
-  static async #resolveAfterFailureRoll(actor, rollType, roll, context = {}) {
-    if (!rollResultIsFailure(roll, rollType)) return;
-    const target = rollTargetNumber(roll);
+  static async #resolveAfterFailureRoll(actor, rollType, roll, context = {}, priorityResolution = null) {
+    const resolution = normalizePriorityResolution(priorityResolution, { actor, rollType, roll, ...context }, { allowFallback: true })
+      ?? defaultRollResolution({ actor, rollType, roll, ...context });
+    const target = firstFinite(resolution.target, rollTargetNumber(roll));
     if (target === null) return;
+    let runningTotal = firstFinite(resolution.currentTotal, roll?.total) ?? 0;
+    if (resolution.succeeded === true || runningTotal >= target) return;
     const candidates = this.#consumableCandidates(actor, rollType, "afterFailure");
     if (!candidates.length) return;
 
-    let runningTotal = Number(roll.total) || 0;
+    const nativeTotal = Number(roll?.total) || 0;
+    const priorAdjustments = normalizedAdjustments(resolution.adjustments);
     for (const candidate of candidates) {
       if (rollType === "attackRoll" && (roll?.isFumble || activeD20Result(roll) === 1)) break;
       if (runningTotal >= target) break;
@@ -1172,20 +1474,24 @@ export class ItemCreatorTriggeredEffectService {
         continue;
       }
       const bonusTotal = Number(bonusRoll?.total) || 0;
-      const originalTotal = runningTotal;
+      const previousTotal = runningTotal;
       runningTotal += bonusTotal;
       const succeeded = runningTotal >= target;
       await this.#finalizeConsumableRoll(actor, rollType, prepared, true, {
         mode: "afterFailure",
         formula,
         bonusTotal,
-        originalTotal,
+        originalRollTotal: nativeTotal,
+        originalTotal: previousTotal,
+        priorAdjustments,
         newTotal: runningTotal,
         target,
         succeeded,
         rollType,
-        originalMessageId: roll?.parent?.id ?? roll?.options?.messageId ?? ""
+        rollKey: resolution.rollKey || context.rollKey || "",
+        originalMessageId: resolution.originalMessageId || rollMessageId(roll)
       });
+      priorAdjustments.push({ source: candidate.name, bonus: bonusTotal });
     }
   }
 
@@ -1931,7 +2237,7 @@ export class ItemCreatorTriggeredEffectService {
         || JSON.stringify(currentStatuses) !== JSON.stringify(descriptor.statuses)
         || JSON.stringify(currentFlags) !== JSON.stringify(flags);
       if (needsUpdate) {
-        await recipient.updateEmbeddedDocuments("ActiveEffect", [{
+        await safeUpdateActiveEffects(recipient, [{
           _id: current.id,
           name: descriptor.name,
           img: descriptor.img,
@@ -2016,6 +2322,10 @@ export const __triggeredEffectTest = Object.freeze({
   consumptionIsStale,
   rollTargetNumber,
   rollResultIsFailure,
+  defaultRollResolution,
+  normalizePriorityResolution,
+  priorityResolutionFromMessage,
+  resolutionKeys,
   changeAppliesToRoll,
   managedBonusFormula,
   tickEntry,

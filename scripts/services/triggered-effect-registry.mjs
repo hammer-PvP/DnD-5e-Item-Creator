@@ -173,7 +173,9 @@ export const TRIGGER_EFFECT_TYPES = Object.freeze([
   ["damageImmunity", "Damage Immunity"],
   ["conditionImmunity", "Condition Immunity"],
   ["actorCriticalThreshold", "Actor Critical Threshold"],
-  ["selectedSpellEffects", "Apply Effects from Selected Spell"]
+  ["selectedSpellEffects", "Apply Effects from Selected Spell"],
+  ["addDiceToEligibleRoll", "Add Dice to Eligible Roll"],
+  ["subtractDiceFromEligibleRoll", "Subtract Dice from Eligible Roll"]
 ]);
 
 export const VALUE_CALCULATIONS = Object.freeze([
@@ -199,10 +201,11 @@ export const EFFECT_SCALING = Object.freeze([
 const NUMERIC_EFFECTS = new Set([
   "spellAttackBonus", "spellSaveDcBonus", "weaponAttackBonus", "weaponDamageBonus", "spellDamageBonus",
   "allAttackBonus", "allDamageBonus", "armorClassBonus", "savingThrowBonus", "concentrationSaveBonus",
-  "initiativeBonus", "maximumHitPointsBonus", "movementBonus"
+  "initiativeBonus", "maximumHitPointsBonus", "movementBonus", "addDiceToEligibleRoll", "subtractDiceFromEligibleRoll"
 ]);
 
 const DAMAGE_EFFECTS = new Set(["weaponDamageBonus", "spellDamageBonus", "allDamageBonus"]);
+const ROLL_DICE_EFFECTS = new Set(["addDiceToEligibleRoll", "subtractDiceFromEligibleRoll"]);
 const TRAIT_EFFECTS = new Set(["damageResistance", "damageImmunity", "conditionImmunity"]);
 
 function clone(value) {
@@ -303,8 +306,12 @@ function validChoice(list, value, fallback) {
 export function normalizeTriggeredEffectPayload(value = {}) {
   const fallback = defaultTriggeredEffectPayload();
   const type = validChoice(TRIGGER_EFFECT_TYPES, value.type, fallback.type);
-  const calculation = validChoice(VALUE_CALCULATIONS, value.calculation, fallback.calculation);
-  const scaling = validChoice(EFFECT_SCALING, value.scaling, fallback.scaling);
+  let calculation = validChoice(VALUE_CALCULATIONS, value.calculation, fallback.calculation);
+  let scaling = validChoice(EFFECT_SCALING, value.scaling, fallback.scaling);
+  if (ROLL_DICE_EFFECTS.has(type)) {
+    calculation = "dice";
+    scaling = "fixed";
+  }
   return {
     ...fallback,
     ...clone(value),
@@ -376,7 +383,13 @@ export function normalizeTriggeredEffect(value = {}) {
   const consumptionEvent = validChoice(CONSUMPTION_EVENTS, value.consumption?.event, fallback.consumption.event);
   const consumptionDecision = validChoice(CONSUMPTION_DECISIONS, value.consumption?.decision, fallback.consumption.decision);
   let consumptionTiming = validChoice(CONSUMPTION_TIMINGS, value.consumption?.timing, fallback.consumption.timing);
-  if (consumptionTiming === "afterFailure" && ["damageRoll", "healingRoll"].includes(consumptionEvent)) consumptionTiming = "beforeRoll";
+  const hasRollDiceEffect = effects.some(effect => ROLL_DICE_EFFECTS.has(effect.type));
+  const hasSubtractRollDiceEffect = effects.some(effect => effect.type === "subtractDiceFromEligibleRoll");
+  let normalizedConsumptionEvent = consumptionEvent;
+  if (hasRollDiceEffect && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) normalizedConsumptionEvent = "d20Test";
+  if (consumptionTiming === "afterFailure" && (["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent) || hasSubtractRollDiceEffect)) {
+    consumptionTiming = "beforeRoll";
+  }
 
   return {
     ...fallback,
@@ -411,9 +424,9 @@ export function normalizeTriggeredEffect(value = {}) {
     consumption: {
       ...fallback.consumption,
       ...(clone(value.consumption ?? {})),
-      enabled: Boolean(value.consumption?.enabled),
+      enabled: Boolean(value.consumption?.enabled) || hasRollDiceEffect,
       uses: Math.max(1, Number(value.consumption?.uses) || 1),
-      event: consumptionEvent,
+      event: normalizedConsumptionEvent,
       decision: consumptionDecision,
       timing: consumptionTiming
     },
@@ -474,6 +487,12 @@ export function validateTriggeredEffect(value) {
   if (!APPLICATION_MODES.some(([entry]) => entry === setting.application.mode)) return false;
   if (!SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
   if (!RETRIGGER_BEHAVIORS.some(([entry]) => entry === setting.application.retrigger)) return false;
+  const rollDiceEffects = setting.effects.filter(effect => ROLL_DICE_EFFECTS.has(effect.type));
+  if (rollDiceEffects.length) {
+    if (!setting.consumption.enabled) return false;
+    if (!["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(setting.consumption.event)) return false;
+    if (setting.consumption.timing === "afterFailure" && rollDiceEffects.some(effect => effect.type === "subtractDiceFromEligibleRoll")) return false;
+  }
   if (setting.consumption.enabled) {
     if (!(setting.consumption.uses > 0)) return false;
     if (!CONSUMPTION_EVENTS.some(([entry]) => entry === setting.consumption.event)) return false;
@@ -522,6 +541,14 @@ function addChange(changes, key, mode, value, priority = null) {
   changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
+function addEligibleRollChanges(changes, event, mode, value) {
+  if (["d20Test", "attackRoll"].includes(event)) {
+    for (const type of ["mwak", "rwak", "msak", "rsak"]) addChange(changes, `system.bonuses.${type}.attack`, mode, value);
+  }
+  if (["d20Test", "abilityCheck"].includes(event)) addChange(changes, "system.bonuses.abilities.check", mode, value);
+  if (["d20Test", "savingThrow"].includes(event)) addChange(changes, "system.bonuses.abilities.save", mode, value);
+}
+
 export function buildTriggeredEffectChanges(setting, stacks, actor = null, { payloads = null } = {}) {
   const add = CONST.ACTIVE_EFFECT_MODES.ADD;
   const downgrade = CONST.ACTIVE_EFFECT_MODES.DOWNGRADE;
@@ -544,6 +571,12 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
     }
     if (row.type === "selectedSpellEffects") continue;
     switch (row.type) {
+      case "addDiceToEligibleRoll":
+        addEligibleRollChanges(changes, setting.consumption?.event ?? "d20Test", add, value);
+        break;
+      case "subtractDiceFromEligibleRoll":
+        addEligibleRollChanges(changes, setting.consumption?.event ?? "d20Test", add, `-(${value})`);
+        break;
       case "spellAttackBonus":
         addChange(changes, "system.bonuses.msak.attack", add, value);
         addChange(changes, "system.bonuses.rsak.attack", add, value);
@@ -707,6 +740,11 @@ function payloadSummary(source, setting) {
   const row = normalizeTriggeredEffectPayload(source);
   const recipient = row.recipient === "target" ? "trigger target(s)" : "Item owner";
   const toRecipient = text => `${recipient}: ${text}`;
+  if (row.type === "addDiceToEligibleRoll" || row.type === "subtractDiceFromEligibleRoll") {
+    const operation = row.type === "subtractDiceFromEligibleRoll" ? "subtract" : "add";
+    const event = optionLabel(CONSUMPTION_EVENTS, setting.consumption?.event, setting.consumption?.event || "eligible roll");
+    return toRecipient(`${operation} ${calculationSummary(row)} ${operation === "add" ? "to" : "from"} the next eligible ${event}`);
+  }
   if (row.type === "selectedSpellEffects") {
     const spell = row.spellName || "the selected Spell";
     const count = row.spellEffects.length ? `; ${row.spellEffects.length} embedded effect(s)` : "";
@@ -854,6 +892,10 @@ export function isNumericTriggeredEffect(type) {
 
 export function isDamageTriggeredEffect(type) {
   return DAMAGE_EFFECTS.has(type);
+}
+
+export function isRollDiceTriggeredEffect(type) {
+  return ROLL_DICE_EFFECTS.has(type);
 }
 
 export function isTraitTriggeredEffect(type) {

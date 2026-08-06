@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0g — Ordered Consumable Resolution and Native Roll Dice Effects
+
+### Ordered post-result consumption
+
+- Reworked **After a Failed Result** as a real ordered queue. Item Creator now waits for a pending Character Builder Bardic Inspiration decision before opening its own prompt, so the two modal choices no longer coexist.
+- Item Creator now consumes the structured total returned by a higher-priority `waitForRollResolution` integration instead of discarding it. The public `game.itemCreator.reportRollResolution(data)` handoff and `dnd5e-item-creator.reportRollResolution` hook are available for cooperative modules.
+- Added a compatibility fallback for current Character Builder builds: Item Creator waits until the Bardic Inspiration modal is fully closed, reads its audited chat resolution, and continues from that updated total.
+- A higher-priority success cancels the Item Creator offer. A remaining failure continues from the adjusted total, so `10 + 8 Bardic Inspiration + 4 Item Creator = 22` is evaluated against the target as 22 rather than restarting from 10.
+- Consumption chat notices now identify the native total, prior higher-priority adjustments, the Item Creator die, and the final result when a preceding automation changed the roll.
+
+### Add/Subtract Dice without a Spell
+
+- Added **Add Dice to Eligible Roll** and **Subtract Dice from Eligible Roll** to Triggered Effect Applied Effects.
+- These payloads use the existing recipient, duration, **Remove When Consumed**, use count, Eligible Roll, timing, and decision controls. No duplicate Damage Roll or Healing Roll layer was added.
+- Supported eligible rolls are **Any D20 Test**, **Attack Roll**, **Ability Check**, and **Saving Throw**. The GM chooses the number and size of dice.
+- Add Dice supports pre-roll use and post-failure use. Subtract Dice is normalized to pre-roll use, allowing effects such as a target suffering `-1d4` on its next one or two Attack Rolls.
+- Add/Subtract Dice automatically requires consumption and can be applied to the Item owner or Trigger Target(s), preserving independent target durations and use counters.
+
+### Idempotent cleanup hardening
+
+- Added short-lived Active Effect tombstones so near-consecutive consumption, expiration, Combat cleanup, and reconciliation cannot delete the same stale document ID twice.
+- Expanded missing-document recognition to nested and aggregated Foundry errors and added guarded Active Effect updates, preventing `ActiveEffect "..." does not exist!` races from surfacing after a successful final-use removal.
+- Increased the Item Creator document schema to 12. The Triggered Effect ledger remains version 4 because no stored ledger shape changed.
+
 ## 0.5.0f — Active Consumable Effects and Result Timing
 
 ### Active recipient state

@@ -15,7 +15,7 @@ import {
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
   defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
-  isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
+  isRollDiceTriggeredEffect, isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
 } from "../services/triggered-effect-registry.mjs";
 
@@ -1515,6 +1515,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const stack = row.stacks;
       const effectRows = row.effects.map((effectSource, effectIndex) => {
         const effect = normalizeTriggeredEffectPayload(effectSource);
+        const isRollDiceModifier = isRollDiceTriggeredEffect(effect.type);
         return {
           ...effect,
           index: effectIndex + 1,
@@ -1538,13 +1539,23 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isConditionTrait: effect.type === "conditionImmunity",
           isCriticalThreshold: effect.type === "actorCriticalThreshold",
           isSelectedSpellEffects: effect.type === "selectedSpellEffects",
-          showScaling: effect.type !== "selectedSpellEffects",
+          isRollDiceModifier,
+          isAddRollDice: effect.type === "addDiceToEligibleRoll",
+          isSubtractRollDice: effect.type === "subtractDiceFromEligibleRoll",
+          showScaling: effect.type !== "selectedSpellEffects" && !isRollDiceModifier,
           selectedSpellEffectCount: Array.isArray(effect.spellEffects) ? effect.spellEffects.length : 0,
           isDamageEffect: isDamageTriggeredEffect(effect.type),
           isTrait: isTraitTriggeredEffect(effect.type)
         };
       });
       const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
+      const hasRollDiceModifier = effectRows.some(effect => effect.isRollDiceModifier);
+      const hasSubtractRollDiceModifier = effectRows.some(effect => effect.isSubtractRollDice);
+      const allowedConsumptionEvents = hasRollDiceModifier
+        ? CONSUMPTION_EVENTS.filter(([value]) => ["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(value))
+        : CONSUMPTION_EVENTS;
+      const allowedConsumptionTimings = CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterFailure"
+        || (!hasSubtractRollDiceModifier && !["damageRoll", "healingRoll"].includes(consumption.event)));
       const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration)
         .find(option => option.selected)?.label ?? application.expiration;
       const timingLabel = fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming)
@@ -1575,10 +1586,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         applicationModeOptions: fixedOptions(APPLICATION_MODES, application.mode),
         singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
-        consumptionEventOptions: fixedOptions(CONSUMPTION_EVENTS, consumption.event),
+        consumptionEventOptions: fixedOptions(allowedConsumptionEvents, consumption.event),
         consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, consumption.decision),
-        consumptionTimingOptions: fixedOptions(CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterFailure"
-          || !["damageRoll", "healingRoll"].includes(consumption.event)), consumption.timing),
+        consumptionTimingOptions: fixedOptions(allowedConsumptionTimings, consumption.timing),
+        hasRollDiceModifier,
+        hasSubtractRollDiceModifier,
         consumptionEnabled: consumption.enabled,
         consumptionAfterFailure: consumption.timing === "afterFailure",
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
@@ -3839,7 +3851,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     payload[part] = value;
     if (!commit) return;
     if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
+    if (part === "type" && ["addDiceToEligibleRoll", "subtractDiceFromEligibleRoll"].includes(value)) {
+      payload.calculation = "dice";
+      payload.scaling = "fixed";
+      row.consumption ??= {};
+      row.consumption.enabled = true;
+      if (!["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(row.consumption.event)) row.consumption.event = "d20Test";
+      if (value === "subtractDiceFromEligibleRoll") row.consumption.timing = "beforeRoll";
+    }
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+    if (part === "type") Object.assign(row, normalizeTriggeredEffect(row));
     if (part === "recipient") {
       const normalized = normalizeTriggeredEffect(row);
       Object.assign(row, normalized);

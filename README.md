@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0f Beta Candidate
+**Version:** 0.5.0g Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -107,6 +107,10 @@ Normal numeric effects may be flat, based on Proficiency Bonus or an ability mod
 The recipient immediately receives an enabled, visible Item Creator Active Effect showing the benefit and its remaining uses. Roll-changing payload documents are kept dormant between uses so an optional bonus cannot affect unrelated rolls. **Before the Roll** asks or activates before the native roll, enables the payload only for that roll, consumes one use only after a completed roll, and preserves the use when the roll is cancelled. **After a Failed Result** waits for the native Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw and only offers the effect when a numeric AC/DC is known and the result is still a failure. It rolls the applicable additive bonus, adds it to the existing total without rerolling the d20, reports whether the failure became a success, and then consumes one use. Damage and Healing Rolls use pre-roll timing because they do not have a native success/failure target. Declining always preserves the effect.
 
 Application, refresh, and confirmed consumption generate one chat notice for the managed Trigger application, including recipient, source Item, lifetime, uses, and post-failure result when applicable. Multiple Active Effects copied from one Spell remain one managed application and consume only one use together.
+
+Consumable Applied Effects also support **Add Dice to Eligible Roll** and **Subtract Dice from Eligible Roll** without requiring a Spell document. The GM chooses the dice, recipient, duration, number of uses, eligible Attack Roll / Ability Check / Saving Throw / Any D20 Test, decision mode, and timing. Add Dice may be offered before the roll or after a confirmed failure. Subtract Dice is applied before the eligible roll. These payloads use the existing consumption controls and do not add a second Damage Roll or Healing Roll layer.
+
+Post-failure Item Creator effects wait for higher-priority D&D5e and Character Builder decisions. When Character Builder exposes a structured `waitForRollResolution` result, or reports one through `game.itemCreator.reportRollResolution(data)`, Item Creator continues from the updated total. A compatibility fallback also waits for the active Bardic Inspiration decision and reads its audited chat result. If Bardic Inspiration already changes the result to a success, the Item Creator prompt is skipped; otherwise the Item Creator bonus is added to the updated total rather than the original d20 result.
 
 Triggered Effects apply Active Effect-compatible bonuses, penalties, conditions, resistances, immunities, and copied Spell effects to the configured recipient. They do not summon creatures, execute Activities automatically, reproduce a selected Spell's full casting workflow, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
 

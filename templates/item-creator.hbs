@@ -1005,8 +1005,8 @@
 
                 <div class="ic-triggered-consumption-block {{#if consumptionEnabled}}enabled{{/if}}">
                   <label class="ic-checkbox-line ic-triggered-consumption-toggle">
-                    <input type="checkbox" data-trigger-input="enabled" data-trigger-scope="consumption" data-trigger-id="{{id}}" {{#if consumptionEnabled}}checked{{/if}}>
-                    <span><strong>Remove When Consumed</strong><small>Add an early-removal condition without replacing the duration above.</small></span>
+                    <input type="checkbox" data-trigger-input="enabled" data-trigger-scope="consumption" data-trigger-id="{{id}}" {{#if consumptionEnabled}}checked{{/if}} {{#if hasRollDiceModifier}}disabled{{/if}}>
+                    <span><strong>Remove When Consumed</strong><small>{{#if hasRollDiceModifier}}Required by Add/Subtract Dice; change or remove that Applied Effect to disable consumption.{{else}}Add an early-removal condition without replacing the duration above.{{/if}}</small></span>
                   </label>
                   {{#if consumptionEnabled}}
                   <div class="ic-triggered-grid four-columns">
@@ -1016,6 +1016,9 @@
                     <label><span>Use Decision</span><select data-trigger-input="decision" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionDecisionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   </div>
                   <aside class="ic-triggered-note"><i class="fa-solid fa-hourglass-half"></i><span>The recipient immediately gains a visible active effect. It remains until its normal duration ends or its configured uses reach zero, whichever happens first. Declining preserves every use.</span></aside>
+                  {{#if hasRollDiceModifier}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-dice"></i><span><strong>Add/Subtract Dice</strong> uses the Eligible Roll, timing, decision, and use count above. It does not create a second Damage Roll layer. Choose Attack Roll, Ability Check, Saving Throw, or Any D20 Test; the configured dice are applied only to the confirmed eligible roll.</span></aside>
+                  {{/if}}
                   {{#if consumptionAfterFailure}}
                   <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span><strong>After a Failed Result</strong> waits for the native roll and only offers the effect when the roll has a known AC/DC and is still a failure. The configured bonus is rolled and added to the existing result; the original roll is not repeated. Results without a verifiable target number are left unchanged.</span></aside>
                   {{else}}
@@ -1039,6 +1042,10 @@
                       {{#if isSelectedSpellEffects}}
                       <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
                       <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. For target effects, choose <strong>Effect Recipient Turns</strong> in Application &amp; Duration to count the affected Actor's own turns.</span></aside>
+                      {{else if isRollDiceModifier}}
+                      <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      <label><span>Die</span><select data-trigger-payload-input="die" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-dice-d20"></i><span>{{#if isSubtractRollDice}}Subtracts{{else}}Adds{{/if}} this dice formula from or to the roll selected under <strong>Remove When Consumed → Eligible Roll</strong>. The effect can target the Item owner or the Trigger Target(s), and each confirmed use consumes one configured use.</span></aside>
                       {{else if isNumeric}}
                       <label><span>Calculation</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each calculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       {{#if isDice}}
