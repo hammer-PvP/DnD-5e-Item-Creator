@@ -888,7 +888,7 @@
         <header>
           <span class="ic-kicker">Event-driven Item Powers</span>
           <h3>Triggered Effects</h3>
-          <p>Create temporary effects for the Item owner or the trigger's target(s). They can react to attacks, Spells, resource spending, damage, healing, or combat timing. Stacks and all runtime state are removed when the Combat ends.</p>
+          <p>Create temporary bearer effects that react to attacks, Spells, resource spending, damage, healing, or combat timing. Stacks and all runtime state are removed when the Combat ends.</p>
         </header>
 
         {{#if triggeredEffectRows.length}}
@@ -953,6 +953,19 @@
               </section>
 
               <section class="ic-triggered-subsection">
+                <header><i class="fa-solid fa-crosshairs"></i><strong>Recipient &amp; Effect Source</strong></header>
+                <div class="ic-triggered-grid four-columns">
+                  <label class="ic-triggered-span-two"><span>Effect Recipient</span><select data-trigger-input="recipient" data-trigger-scope="target" data-trigger-id="{{id}}">{{#each recipientOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-triggered-span-two"><span>Turn Duration Anchor</span><select data-trigger-input="durationAnchor" data-trigger-scope="target" data-trigger-id="{{id}}">{{#each durationAnchorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-triggered-span-two"><span>Applied Effect Source</span><select data-trigger-input="mode" data-trigger-scope="effectSource" data-trigger-id="{{id}}">{{#each effectSourceModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if usesSpellEffects}}
+                  <div class="ic-trigger-source-picker ic-triggered-span-two"><span><strong>Selected Applied Spell</strong><small>{{#if effectSource.spellName}}{{effectSource.spellName}}{{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-applied-spell" data-trigger-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
+                  {{/if}}
+                </div>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-circle-info"></i><span><strong>Trigger Target</strong> uses the first resolved target. <strong>Each Affected Target</strong> creates an independently tracked copy on every resolved target. A selected Spell contributes only its Active Effects; it is not cast and does not execute damage, healing, saves, templates, concentration, targeting, or slot consumption.</span></aside>
+              </section>
+
+              <section class="ic-triggered-subsection">
                 <header><i class="fa-solid fa-list-ol"></i><strong>Activation Counting</strong></header>
                 <div class="ic-triggered-grid three-columns">
                   <label><span>Count As</span><select data-trigger-input="counting" data-trigger-id="{{id}}">{{#each countingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
@@ -969,6 +982,11 @@
                   {{#if isSingleActivation}}
                   <label><span>Expires At</span><select data-trigger-input="expiration" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each singleActivationExpirationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>When Triggered Again</span><select data-trigger-input="retrigger" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each retriggerBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{else if isUntilConsumed}}
+                  <label><span>Uses Before Removal</span><input type="number" min="1" max="99" step="1" value="{{consumption.uses}}" data-trigger-input="uses" data-trigger-scope="consumption" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>When Triggered Again</span><select data-trigger-input="retrigger" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each retriggerBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-triggered-span-two"><span>Eligible Consumption Event</span><select data-trigger-input="event" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionEventOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-triggered-span-two"><span>Consumption Decision</span><select data-trigger-input="decision" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionDecisionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{else}}
                   {{#if showStackQuantityFields}}
                   <label><span>Stacks per Activation</span><input type="number" min="1" max="99" step="1" value="{{stacks.granted}}" data-trigger-input="granted" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
@@ -987,38 +1005,34 @@
                   <label><span>Stacks Lost per Tick</span><input type="number" min="1" max="999" step="1" value="{{stacks.decayAmount}}" data-trigger-input="decayAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   {{/if}}
                   {{#if showTrackingFields}}
-                  <label><span>Duration Follows</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Tracking Unit</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{/if}}
                   {{/if}}
                 </div>
                 {{#if isSingleActivation}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect. If the selected Actor is not currently taking a turn, the next matching turn boundary is used.</span></aside>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>Single Activation applies one non-stacking temporary effect. The selected duration anchor decides whether Item-owner or recipient turn boundaries expire it. Choose whether a new trigger refreshes its lifetime or is ignored while active.</span></aside>
+                {{else if isUntilConsumed}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-hand-pointer"></i><span>Until Consumed remains available until the configured number of eligible uses has been completed or Combat ends. The effect stays dormant between rolls. <strong>Ask the Player</strong> asks before an eligible roll; <strong>Use Automatically</strong> skips that question. In either mode, the effect is enabled for the eligible roll only and consumes one use only when that roll is completed.</span></aside>
                 {{else if isSingleAttack}}
                 <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
                 {{else}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Ending or deleting the Combat removes all stacks and effects.</span></aside>
-                {{#if targetClockWarning}}
-                <aside class="ic-triggered-note ic-triggered-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>This Trigger applies one or more effects to target Actors, but the duration currently follows the <strong>source Actor</strong>. {{#if isSingleActivation}}Choose a recipient-based option under <strong>Expires At</strong> to count each target's own turn.{{else}}Choose <strong>Effect Recipient Turns</strong> under <strong>Duration Follows</strong> to count each target's own turns.{{/if}}</span></aside>
-                {{/if}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>A duration of 1 Owner Turn set to End of Owner Turn expires when the owner's current turn ends. Ending or deleting the Combat removes all stacks and effects.</span></aside>
                 {{/if}}
               </section>
 
               <section class="ic-triggered-subsection">
                 <header><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Applied Effects</strong></header>
+                {{#if usesBuilderEffects}}
                 <div class="ic-triggered-payload-list">
                   {{#each effects}}
                   <article class="ic-triggered-payload" data-payload-id="{{id}}">
                     <header><strong>Effect {{index}}</strong><button type="button" class="ic-row-remove" data-action="remove-triggered-payload" data-trigger-id="{{../id}}" data-payload-id="{{id}}" aria-label="Remove effect"><i class="fa-solid fa-trash"></i></button></header>
                     <div class="ic-triggered-grid four-columns">
                       <label class="ic-triggered-span-two"><span>Effect</span><select data-trigger-payload-input="type" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                      <label><span>Effect Recipient</span><select data-trigger-payload-input="recipient" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each recipientOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                      {{#if showScaling}}<label><span>Scaling</span><select data-trigger-payload-input="scaling" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      <label><span>Scaling</span><select data-trigger-payload-input="scaling" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
 
-                      {{#if isSelectedSpellEffects}}
-                      <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
-                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. For target effects, choose <strong>Effect Recipient Turns</strong> in Application &amp; Duration to count the affected Actor's own turns.</span></aside>
-                      {{else if isNumeric}}
+                      {{#if isNumeric}}
                       <label><span>Calculation</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each calculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       {{#if isDice}}
                       <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
@@ -1042,8 +1056,10 @@
                   </article>
                   {{/each}}
                 </div>
-                <aside class="ic-triggered-note"><i class="fa-solid fa-crosshairs"></i><span><strong>Trigger Target(s)</strong> uses the Actor targets recorded by the D&amp;D5e Activity or attack. Damage and healing events use the Actor that actually received the change. When no valid target exists, target effects are skipped; they never fall back to the Item owner. Formulas on normal effects use the recipient Actor's roll data. Recipient-turn expiration requires that recipient to have a Combat turn; otherwise Combat cleanup remains the final boundary.</span></aside>
-                <button type="button" class="ic-add-triggered-payload" data-action="add-triggered-payload" data-trigger-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Applied Effect</button>
+                <button type="button" class="ic-add-triggered-payload" data-action="add-triggered-payload" data-trigger-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Item Creator Effect</button>
+                {{else}}
+                <aside class="ic-triggered-note"><i class="fa-solid fa-wand-magic-sparkles"></i><span>This Trigger uses only the Active Effects stored on <strong>{{effectSource.spellName}}</strong>. Change Applied Effect Source to a combined mode to add Item Creator effect rows as well.</span></aside>
+                {{/if}}
               </section>
             </div>
           </article>

@@ -2853,8 +2853,6 @@ body.ic-protected-active { overflow: hidden; }
 .ic-triggered-span-two { grid-column: span 2; }
 .ic-triggered-note { display: flex; align-items: flex-start; gap: 8px; margin: 0 11px 11px; padding: 9px 10px; border: 1px solid rgba(117,160,214,.25); border-radius: 6px; background: rgba(65,95,135,.1); color: rgba(255,255,255,.7); line-height: 1.4; }
 .ic-triggered-note > i { color: #8fb6e8; margin-top: 2px; }
-.ic-triggered-note.ic-triggered-warning { border-color: rgba(224,171,72,.42); background: rgba(136,91,22,.16); color: rgba(255,236,198,.88); }
-.ic-triggered-note.ic-triggered-warning > i { color: #e0ab48; }
 .ic-trigger-source-picker { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; background: rgba(255,255,255,.025); }
 .ic-trigger-source-picker > span { min-width: 0; display: grid; gap: 2px; }
 .ic-trigger-source-picker small { color: rgba(255,255,255,.58); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
