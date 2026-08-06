@@ -978,8 +978,9 @@ function recipeBaseEntryForLine(line, pick, recipe, catalog) {
  */
 export function finalizeGlobalRecipePrice(line, pick, catalog, configuration) {
   if (!line?.documentData) return line;
-  const recipeId = String(line.materialization?.recipeId ?? line.materialization?.family ?? "");
-  const recipe = materializationRecipe(recipeId || line.documentData);
+  const recipeId = String(line.materialization?.recipeId ?? "");
+  const recipe = (recipeId ? materializationRecipe(recipeId) : null)
+    ?? materializationRecipe(line.documentData);
   if (!recipe || !recipe.pricing || recipe.pricing === "quality") return line;
 
   const rarity = normalizeRarity(line.rarity ?? foundry.utils.getProperty(line.documentData, "system.rarity"));

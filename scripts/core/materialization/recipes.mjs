@@ -182,7 +182,9 @@ function sourceIdentity(data) {
 }
 
 export function materializationRecipe(recipeOrSource) {
-  if (typeof recipeOrSource === "string" && RECIPE_BY_ID.has(recipeOrSource)) return RECIPE_BY_ID.get(recipeOrSource);
+  if (typeof recipeOrSource === "string") {
+    return RECIPE_BY_ID.get(recipeOrSource) ?? null;
+  }
   const data = asData(recipeOrSource);
   const identity = sourceIdentity(data);
   const direct = MATERIALIZATION_RECIPE_REGISTRY.find(recipe => recipe.aliases.some(alias => identity.includes(alias)));

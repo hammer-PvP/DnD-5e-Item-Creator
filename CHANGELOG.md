@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0i — Supplier Synthetic Enhancement Recipe Guard
+
+### Blacksmith stock generation
+
+- Fixed the Blacksmith preview failure `Cannot use 'in' operator to search for 'system.identifier' in enhancement` when a synthetic `+1/+2/+3` enhancement carried the generic materialization family `enhancement` without a registered recipe ID.
+- The global recipe price finalizer now consults only an explicit `materialization.recipeId` as a recipe identifier. When no recipe ID exists, it safely detects a recipe from the completed Item document instead of treating a generic family label as a recipe.
+- `materializationRecipe()` now treats string inputs strictly as registered recipe IDs and returns `null` for unknown strings. It no longer passes an arbitrary string into Foundry document-property access.
+- Synthetic enhancements continue through their existing quality-price path. Registered recipes such as Adamantine Armor, Mithral Armor, Elven Chain, enchanted ammunition, and Oil of Sharpness retain their existing materialization and pricing behavior.
+- No Triggered Effect, consumable-effect, Character Builder integration, Item schema, Supplier profile, or stock-distribution logic changed.
+
 ## 0.5.0h — Character Builder Resolution Contract and Serialized Effect Cleanup
 
 ### Structured Character Builder handoff
