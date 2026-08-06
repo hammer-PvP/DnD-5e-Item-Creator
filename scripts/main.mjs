@@ -92,6 +92,7 @@ Hooks.once("init", () => {
     syncResources: actor => ItemCreatorRuntimeEffectService.syncActor(actor),
     auditTriggeredEffects: actor => ItemCreatorTriggeredEffectService.audit(actor),
     syncTriggeredEffects: actor => ItemCreatorTriggeredEffectService.syncActor(actor),
+    reportRollResolutionPending: resolution => ItemCreatorTriggeredEffectService.reportRollResolutionPending(resolution),
     reportRollResolution: resolution => ItemCreatorTriggeredEffectService.reportRollResolution(resolution),
     closeSupplier: () => closeSupplierWindows(),
     configureSources: () => openSourceSettings(),

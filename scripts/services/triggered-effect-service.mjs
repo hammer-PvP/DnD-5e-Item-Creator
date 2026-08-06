@@ -20,6 +20,10 @@ const PRIORITY_PROMPT_TIMEOUT_MS = 30000;
 const PRIORITY_PROMPT_QUIET_MS = 350;
 const PRIORITY_CALLBACK_TIMEOUT_MS = 15000;
 const REPORTED_RESOLUTION_TTL_MS = 60000;
+const PRIORITY_CONTRACT_APPEAR_MS = 2500;
+const PRIORITY_CONTRACT_TIMEOUT_MS = 35000;
+const PRIORITY_EVENT_TTL_MS = 120000;
+const SHARED_ROLL_RESOLUTION_QUEUE = Symbol.for("dnd5e.roll-resolution-queue.v1");
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -149,6 +153,59 @@ function resolutionKeys(context = {}) {
     messageId && `message:${messageId}`,
     actorUuid && rollType && messageId && `actor:${actorUuid}:${rollType}:${messageId}`
   ].filter(Boolean))];
+}
+
+function normalizedResolutionRollType(value) {
+  const type = String(value ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (["attack", "attackroll", "rollattack"].includes(type)) return "attackRoll";
+  if (["ability", "abilitycheck", "skill", "skillcheck", "tool", "toolcheck"].includes(type)) return "abilityCheck";
+  if (["save", "savingthrow", "savingthrowroll"].includes(type)) return "savingThrow";
+  if (["damage", "damageroll"].includes(type)) return "damageRoll";
+  if (["healing", "heal", "healingroll"].includes(type)) return "healingRoll";
+  return String(value ?? "");
+}
+
+function priorityResolutionScore(resolution, context = {}, receivedAt = 0) {
+  if (!resolution) return Number.NEGATIVE_INFINITY;
+  const requiredRollKey = String(context.requiredRollKey ?? "");
+  if (requiredRollKey && String(resolution.rollKey ?? "") !== requiredRollKey) return Number.NEGATIVE_INFINITY;
+  const actorUuid = String(context.actorUuid ?? context.actor?.uuid ?? "");
+  const candidateActorUuid = String(resolution.actorUuid ?? "");
+  if (actorUuid && candidateActorUuid && actorUuid !== candidateActorUuid) return Number.NEGATIVE_INFINITY;
+
+  const rollType = normalizedResolutionRollType(context.rollType);
+  const candidateRollType = normalizedResolutionRollType(resolution.rollType);
+  if (rollType && candidateRollType && rollType !== candidateRollType) return Number.NEGATIVE_INFINITY;
+
+  const originalTotal = firstFinite(context.originalTotal, context.roll?.total);
+  const candidateOriginalTotal = firstFinite(resolution.originalTotal);
+  if (originalTotal !== null && candidateOriginalTotal !== null && Math.abs(originalTotal - candidateOriginalTotal) > 0.0001) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const target = firstFinite(context.target, rollTargetNumber(context.roll));
+  const candidateTarget = firstFinite(resolution.target);
+  if (target !== null && candidateTarget !== null && Math.abs(target - candidateTarget) > 0.0001) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const messageId = String(context.originalMessageId ?? context.messageId ?? rollMessageId(context.roll));
+  const candidateMessageId = String(resolution.originalMessageId ?? "");
+  if (messageId && candidateMessageId && messageId !== candidateMessageId) return Number.NEGATIVE_INFINITY;
+
+  const startedAt = Number(context.startedAt) || 0;
+  const earliestReceivedAt = Number(context.earliestReceivedAt) || (startedAt ? startedAt - 500 : 0);
+  if (earliestReceivedAt && receivedAt && receivedAt < earliestReceivedAt) return Number.NEGATIVE_INFINITY;
+
+  let score = 0;
+  if (actorUuid && candidateActorUuid === actorUuid) score += 40;
+  if (rollType && candidateRollType === rollType) score += 30;
+  if (originalTotal !== null && candidateOriginalTotal !== null) score += 20;
+  if (target !== null && candidateTarget !== null) score += 15;
+  if (messageId && candidateMessageId === messageId) score += 50;
+  if (context.rollKey && resolution.rollKey === context.rollKey) score += 100;
+  if (receivedAt) score += Math.min(10, Math.max(0, (receivedAt - startedAt) / 1000));
+  return score;
 }
 
 function normalizedAdjustments(value) {
@@ -796,6 +853,7 @@ export class ItemCreatorTriggeredEffectService {
   static #recentPostFailureKeys = [];
   static #pendingPostFailureKeys = new Set();
   static #reportedRollResolutions = new Map();
+  static #priorityResolutionEvents = [];
 
   static registerHooks() {
     Hooks.once("ready", () => {
@@ -808,6 +866,8 @@ export class ItemCreatorTriggeredEffectService {
 
     Hooks.on(`${MODULE_ID}.reportRollResolution`, resolution => this.reportRollResolution(resolution));
     Hooks.on("dnd5e-character-builder.rollResolution", resolution => this.reportRollResolution(resolution));
+    Hooks.on("dnd5e-character-builder.rollResolutionPending", resolution => this.reportRollResolutionPending(resolution));
+    Hooks.on("dnd5e-character-builder.rollResolutionFinalized", resolution => this.reportRollResolution(resolution));
 
     Hooks.on("dnd5e.postRollAttack", (rolls, { subject } = {}) => this.#onAttackRolls(rolls, subject));
     Hooks.on("dnd5e.rollAbilityCheck", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
@@ -1297,6 +1357,7 @@ export class ItemCreatorTriggeredEffectService {
     setTimeout(() => void (async () => {
       try {
         const resolution = await this.#waitForHigherPriorityAutomation(priorityContext);
+        if (!resolution?.finalized) return;
         await this.#resolveAfterFailureRoll(actor, rollType, roll, context, resolution);
       } catch (error) {
         console.error(`${MODULE_ID} | Failed to resolve a post-result consumable effect.`, error);
@@ -1319,11 +1380,122 @@ export class ItemCreatorTriggeredEffectService {
     };
     const normalized = normalizePriorityResolution(value, context);
     if (!normalized) return null;
+    normalized.finalized = true;
     const expiresAt = Date.now() + REPORTED_RESOLUTION_TTL_MS;
     for (const key of resolutionKeys({ ...context, ...normalized })) {
       this.#reportedRollResolutions.set(key, { resolution: normalized, expiresAt });
     }
+    this.#rememberPriorityResolutionEvent("finalized", normalized);
     return normalized;
+  }
+
+  static reportRollResolutionPending(value = {}) {
+    const context = {
+      actorUuid: value.actorUuid ?? value.recipientActorUuid ?? "",
+      rollType: value.rollType ?? value.type ?? "",
+      rollKey: value.rollKey ?? value.key ?? "",
+      originalMessageId: value.originalMessageId ?? value.messageId ?? value.sourceMessageId ?? "",
+      originalTotal: value.originalTotal ?? value.nativeTotal ?? value.currentTotal,
+      currentTotal: value.currentTotal ?? value.originalTotal ?? value.nativeTotal,
+      target: value.target ?? value.dc ?? value.ac
+    };
+    const normalized = normalizePriorityResolution({ ...value, finalized: false }, context, { allowFallback: true });
+    if (!normalized) return null;
+    normalized.finalized = false;
+    this.#rememberPriorityResolutionEvent("pending", normalized);
+    return normalized;
+  }
+
+  static #rememberPriorityResolutionEvent(kind, resolution) {
+    const now = Date.now();
+    this.#priorityResolutionEvents = this.#priorityResolutionEvents
+      .filter(entry => entry && now - Number(entry.receivedAt || 0) <= PRIORITY_EVENT_TTL_MS);
+    this.#priorityResolutionEvents.push({ kind, resolution: clone(resolution), receivedAt: now });
+    this.#priorityResolutionEvents = this.#priorityResolutionEvents.slice(-160);
+  }
+
+  static #findPriorityResolutionEvent(context = {}, kind = "") {
+    const now = Date.now();
+    this.#priorityResolutionEvents = this.#priorityResolutionEvents
+      .filter(entry => entry && now - Number(entry.receivedAt || 0) <= PRIORITY_EVENT_TTL_MS);
+    let best = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (const entry of this.#priorityResolutionEvents) {
+      if (kind && entry.kind !== kind) continue;
+      const score = priorityResolutionScore(entry.resolution, context, entry.receivedAt);
+      if (score <= bestScore) continue;
+      best = entry;
+      bestScore = score;
+    }
+    return bestScore > 0 && best ? normalizePriorityResolution(best.resolution, context, { allowFallback: true }) : null;
+  }
+
+  static #characterBuilderResolutionQueues() {
+    const apiQueue = game.modules?.get("dnd5e-character-builder")?.api?.rollResolutionQueue;
+    const sharedQueue = globalThis[SHARED_ROLL_RESOLUTION_QUEUE]
+      ?? globalThis.game?.[SHARED_ROLL_RESOLUTION_QUEUE]
+      ?? null;
+    return [...new Set([apiQueue, sharedQueue].filter(queue => queue && typeof queue === "object"))];
+  }
+
+  static async #waitForStructuredCharacterBuilderResolution(context = {}) {
+    const correlationContext = {
+      ...context,
+      earliestReceivedAt: (Number(context.startedAt) || Date.now()) - 500
+    };
+    let pending = this.#findPriorityResolutionEvent(correlationContext, "pending");
+    const appearDeadline = Date.now() + PRIORITY_CONTRACT_APPEAR_MS;
+    while (!pending && Date.now() < appearDeadline) {
+      await sleep(40);
+      pending = this.#findPriorityResolutionEvent(correlationContext, "pending");
+    }
+
+    if (!pending) return null;
+
+    const finalizedContext = {
+      ...correlationContext,
+      requiredRollKey: pending.rollKey || ""
+    };
+    let finalized = this.#findPriorityResolutionEvent(finalizedContext, "finalized");
+    if (finalized?.finalized) return finalized;
+
+    const queues = this.#characterBuilderResolutionQueues();
+    const queue = queues[0] ?? null;
+    let apiResolution = null;
+    let apiFinished = false;
+    if (queue && pending.rollKey) {
+      try {
+        const immediate = queue.getResolution instanceof Function
+          ? await Promise.resolve(queue.getResolution(pending.rollKey))
+          : null;
+        const normalizedImmediate = normalizePriorityResolution(immediate, context);
+        if (normalizedImmediate?.finalized) {
+          this.reportRollResolution(normalizedImmediate);
+          return normalizedImmediate;
+        }
+      } catch (error) {
+        console.debug(`${MODULE_ID} | Character Builder getResolution() was not available for this roll yet.`, error);
+      }
+
+      if (queue.waitForFinalized instanceof Function) {
+        void Promise.resolve(queue.waitForFinalized(pending.rollKey)).then(result => {
+          apiResolution = normalizePriorityResolution(result, context);
+          if (apiResolution?.finalized) this.reportRollResolution(apiResolution);
+        }).catch(error => {
+          console.warn(`${MODULE_ID} | Character Builder rollResolutionQueue.waitForFinalized() failed.`, error);
+        }).finally(() => { apiFinished = true; });
+      } else apiFinished = true;
+    } else apiFinished = true;
+
+    const deadline = Date.now() + PRIORITY_CONTRACT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (apiResolution?.finalized) return apiResolution;
+      finalized = this.#findPriorityResolutionEvent(finalizedContext, "finalized");
+      if (finalized?.finalized) return finalized;
+      if (apiFinished && !queue) break;
+      await sleep(50);
+    }
+    return null;
   }
 
   static #takeReportedRollResolution(context = {}) {
@@ -1354,6 +1526,25 @@ export class ItemCreatorTriggeredEffectService {
   }
 
   static async #waitForHigherPriorityAutomation(context) {
+    const characterBuilderModule = game.modules?.get("dnd5e-character-builder");
+    const characterBuilderActive = Boolean(characterBuilderModule?.active);
+    const structuredQueues = this.#characterBuilderResolutionQueues();
+
+    if (characterBuilderActive && structuredQueues.length) {
+      const structured = await this.#waitForStructuredCharacterBuilderResolution(context);
+      if (!structured?.finalized) {
+        console.warn(`${MODULE_ID} | Character Builder marked a higher-priority resolution path, but no finalized result was received. Item Creator cancelled its post-failure offer for safety.`, {
+          actorUuid: context.actorUuid,
+          rollType: context.rollType,
+          originalTotal: context.originalTotal,
+          target: context.target
+        });
+        return null;
+      }
+      Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: structured });
+      return structured;
+    }
+
     let resolution = defaultRollResolution(context);
     const moduleApi = game.modules?.get("dnd5e-character-builder")?.api;
     const candidates = [
@@ -1379,7 +1570,6 @@ export class ItemCreatorTriggeredEffectService {
     const reportedBeforePrompt = this.#takeReportedRollResolution(context);
     if (reportedBeforePrompt) resolution = reportedBeforePrompt;
 
-    const characterBuilderActive = Boolean(game.modules?.get("dnd5e-character-builder")?.active);
     if (characterBuilderActive && !resolution.finalized) {
       const appearDeadline = Date.now() + PRIORITY_PROMPT_APPEAR_MS;
       let seenPrompt = false;
@@ -2324,6 +2514,8 @@ export const __triggeredEffectTest = Object.freeze({
   rollResultIsFailure,
   defaultRollResolution,
   normalizePriorityResolution,
+  normalizedResolutionRollType,
+  priorityResolutionScore,
   priorityResolutionFromMessage,
   resolutionKeys,
   changeAppliesToRoll,

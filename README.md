@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0g Beta Candidate
+**Version:** 0.5.0h Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -110,7 +110,7 @@ Application, refresh, and confirmed consumption generate one chat notice for the
 
 Consumable Applied Effects also support **Add Dice to Eligible Roll** and **Subtract Dice from Eligible Roll** without requiring a Spell document. The GM chooses the dice, recipient, duration, number of uses, eligible Attack Roll / Ability Check / Saving Throw / Any D20 Test, decision mode, and timing. Add Dice may be offered before the roll or after a confirmed failure. Subtract Dice is applied before the eligible roll. These payloads use the existing consumption controls and do not add a second Damage Roll or Healing Roll layer.
 
-Post-failure Item Creator effects wait for higher-priority D&D5e and Character Builder decisions. When Character Builder exposes a structured `waitForRollResolution` result, or reports one through `game.itemCreator.reportRollResolution(data)`, Item Creator continues from the updated total. A compatibility fallback also waits for the active Bardic Inspiration decision and reads its audited chat result. If Bardic Inspiration already changes the result to a success, the Item Creator prompt is skipped; otherwise the Item Creator bonus is added to the updated total rather than the original d20 result.
+Post-failure Item Creator effects wait for higher-priority D&D5e and Character Builder decisions. With Character Builder `v0.9.8v` or later, Item Creator listens to `dnd5e-character-builder.rollResolutionPending` / `dnd5e-character-builder.rollResolutionFinalized` and consumes `game.modules.get("dnd5e-character-builder").api.rollResolutionQueue`. The finalized `currentTotal`, `target`, `succeeded`, and `adjustments` are authoritative: a Bardic Inspiration success closes the Item Creator queue without another prompt, while a remaining failure continues from the adjusted total instead of the original d20 result. When Character Builder has marked the roll as pending but does not finalize it, Item Creator cancels its own offer rather than risk an incorrect or duplicated consumption. Older integrations can still report a structured resolution through `game.itemCreator.reportRollResolution(data)` or the legacy shared queue symbol.
 
 Triggered Effects apply Active Effect-compatible bonuses, penalties, conditions, resistances, immunities, and copied Spell effects to the configured recipient. They do not summon creatures, execute Activities automatically, reproduce a selected Spell's full casting workflow, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
 

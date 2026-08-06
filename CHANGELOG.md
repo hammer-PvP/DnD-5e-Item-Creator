@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.0h — Character Builder Resolution Contract and Serialized Effect Cleanup
+
+### Structured Character Builder handoff
+
+- Added direct support for the Character Builder `v0.9.8v` roll-resolution contract through `dnd5e-character-builder.rollResolutionPending`, `dnd5e-character-builder.rollResolutionFinalized`, and `game.modules.get("dnd5e-character-builder").api.rollResolutionQueue`.
+- Item Creator now correlates the Character Builder roll by Actor, roll type, original total, target, message when available, and the Character Builder `rollKey`. This avoids relying on the Item Creator's independently generated local key.
+- A finalized Character Builder result is now authoritative. `succeeded: true` closes the Item Creator post-failure queue without opening another prompt; `succeeded: false` continues from `currentTotal` and preserves the structured `adjustments` chain.
+- Bardic Inspiration can therefore resolve `17 + 7 = 24` against AC 21 without Item Creator offering a redundant `1d4`, while a remaining failure such as `10 + 8 = 18` continues correctly from 18.
+- When Character Builder exposes the structured queue and marks a roll as pending but no finalized result is received, Item Creator cancels its own offer instead of silently falling back to the native total.
+- Preserved compatibility with the legacy `Symbol.for("dnd5e.roll-resolution-queue.v1")`, `game.itemCreator.reportRollResolution(data)`, the old cooperative callbacks, and the audited-chat fallback for Character Builder versions that do not expose the new queue.
+
+### Serialized Active Effect cleanup
+
+- Replaced parallel per-document Active Effect deletion with one serialized deletion queue per recipient Actor.
+- Marker and payload Active Effects belonging to the same managed application are revalidated, reserved, and removed in one `deleteEmbeddedDocuments` batch.
+- Consumption, duration expiration, reconciliation, Item cleanup, and Combat teardown now wait for the same Actor deletion queue, preventing them from issuing competing removals for the same IDs.
+- Active Effect updates wait for pending removals and skip IDs that are pending or tombstoned, preventing a final-use marker refresh from racing its own deletion.
+- Expanded nested missing-document recognition and increased the short-lived tombstone window. A document already removed by an external path is reconciled as completed cleanup.
+- No Item schema or Triggered Effect ledger shape changed; existing `v0.5.0g` Items and ledgers remain compatible.
+
 ## 0.5.0g — Ordered Consumable Resolution and Native Roll Dice Effects
 
 ### Ordered post-result consumption
