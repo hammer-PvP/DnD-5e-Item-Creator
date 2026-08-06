@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0c Beta Candidate
+**Version:** 0.5.0e Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -81,41 +81,30 @@ Granted Spellcasting and structural resource changes are configured in the separ
 
 ### Triggered Effects
 
-Granted Effects contains a repeatable **Triggered Effects** builder for temporary combat effects. A row combines:
+Granted Effects also contains a repeatable **Triggered Effects** builder for temporary combat effects. A row combines:
 
-1. an event such as an attack roll, successful hit, threshold-aware Critical Hit, exact Natural 20, Spell use, Feature use, resource or Spell Slot consumption, damage/healing application, or a combat boundary;
-2. a recipient: the Item owner, the first resolved trigger target, every resolved affected target, or the Actor that originated a received event;
-3. an effect source: effects built directly in Item Creator, embedded Active Effects copied from a selected Spell, or both together;
-4. activation counting and per-turn/per-round limits;
-5. an application lifetime: the existing stack/duration models, **Single Activation**, or **Until Consumed (Roll-Activated)**.
+1. an event such as an attack roll, successful hit, threshold-aware Critical Hit, exact Natural 20, spell use, feature use, resource or Spell Slot consumption, damage/healing application, or combat boundary;
+2. activation counting such as once per Activity, attack roll, successful attack roll, trigger target, turn, or round;
+3. an application mode, including the existing stack/duration models or a non-stacking **Single Activation** lifetime;
+4. one or more generic effects, each assigned to the Item owner or the trigger target(s).
 
-`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. Spell triggers distinguish **Any Spell Matching Filters** from **Specific Spell Cast**. The former requires no selected Spell and accepts any Spell matching the chosen level and school; the latter requires one selected Spell, with level and school remaining optional additional filters. Legacy v0.5.0a rows saved as Specific Spell Cast without a selected Spell migrate to Any Spell Matching Filters so their existing school/level intent works instead of silently matching nothing.
+`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. Spell triggers now distinguish **Any Spell Matching Filters** from **Specific Spell Cast**. The former requires no selected Spell and accepts any Spell matching the chosen level and school; the latter requires one selected Spell, with level and school remaining optional additional filters. Legacy v0.5.0a rows saved as Specific Spell Cast without a selected Spell migrate to Any Spell Matching Filters so their existing school/level intent works instead of silently matching nothing.
 
-### Recipient routing
-
-**Trigger Target** uses the first Actor resolved from the triggering Activity or damage/healing application. **Each Affected Target** creates an independently tracked copy on every resolved Actor. **Event Source Actor** supports reactions such as applying an effect to the creature that damaged or healed the Item owner. A target-dependent configuration does nothing when D&D5e does not provide a resolved target; it never silently redirects the effect to the owner.
-
-Targeted effects are GM-authoritative. The recipient Actor stores its own ledger entry and Active Effect, while the entry records the source Actor, source Item, Trigger ID, recipient, Combat, duration, and remaining consumable uses. Unequipping, unattuning, deleting, or invalidating the source Item reconciles and removes its copies from every recipient.
-
-### Selected Spell Active Effects
-
-The GM may select any Spell available to the native D&D5e Compendium Browser as an effect source. Item Creator copies the Spell's embedded Active Effect changes and statuses onto the configured recipient, then owns the copied effect's lifetime. The selected Spell is **not cast**: Item Creator does not execute its Activities, damage, healing, saving throw, attack, measured template, target selection, concentration, or Spell Slot consumption.
-
-A Spell with no embedded Active Effects is accepted but produces a warning and contributes no mechanical changes. This allows the GM to edit the Spell later or combine it with Item Creator effects without losing the selection. Mechanical and narrative coherence remains the GM's choice; for example, Lay on Hands may grant Bless-like effects to an ally, while an attack hit may apply Bane-like effects to the creature hit.
-
-### Application and lifetime
-
-Generated Item descriptions state the trigger and filters, recipient, effect source, applied mechanics, activation frequency and limits, application mode, stack behavior, duration boundary, duration anchor, retrigger rule, and consumable uses. For example, a movement trigger can state that casting any Enchantment Spell grants the owner +15 ft Walking speed once per Activity, with its exact turn boundary.
+Generated Item descriptions now state the trigger, filtered Spell/attack/resource, applied effects, activation frequency and limits, application mode, stack behavior, and expiration instead of reducing the rule to a generic stack count. For example, a movement trigger can state that casting any Enchantment Spell grants +15 ft Walking speed, once per Activity, with its exact turn boundary and retrigger behavior.
 
 The existing stack behaviors remain available unchanged: refresh a single effect, share one duration across stacks, track independent stack durations, decay continuously, begin decaying only after inactivity, or use **Single Attack — Remove After Damage Roll**. The single-attack mode remains available for Attack Hit, Critical Hit, and Natural 20; it keeps the effect through the next damage roll from the same Activity and then removes it, with end-of-current-turn cleanup as a fallback.
 
-**Single Activation** is available for every trigger category and applies one non-stacking temporary effect. It can expire at the end of the current owner turn, the start of the next owner turn, or the end of the next owner turn. Turn-based expiration can be anchored to the Item owner or the effect recipient. A new trigger may refresh that lifetime or be ignored while the effect is active.
+**Single Activation** is available for every trigger category and applies one non-stacking temporary effect. It can expire at the end of the source Actor's current turn, the start of the source Actor's next turn, the end of the source Actor's next turn, or the equivalent current/next-turn boundary of the **Effect Recipient**. A new trigger may refresh that lifetime or be ignored while the effect is active. Stacked lifetimes use **Duration Follows** to choose Source Actor Turns, Effect Recipient Turns, every Combat turn, or Combat rounds. Target-bound effects default to Effect Recipient Turns unless the GM explicitly selects another clock, and each recipient is counted independently. If the selected Actor is not currently taking a turn, the next matching turn boundary is used. A recipient-turn lifetime whose recipient is not a Combatant has no turn boundary and therefore remains until another cleanup condition or Combat end. Ending or deleting the Combat immediately removes every temporary Item Creator effect and its ledger state.
 
-**Until Consumed (Roll-Activated)** grants a GM-defined number of uses and supports Attack Rolls, Ability Checks, Saving Throws, any D20 Test, Damage Rolls, or Healing Rolls. The managed Active Effect stays dormant between rolls so imported multi-purpose effects cannot leak into unrelated roll types. **Ask the Player** offers a modal decision before an eligible roll; declining keeps every use. **Use Automatically** skips the question. In either mode, Item Creator enables the effect for the eligible roll only, consumes one use only after a completed roll, returns the effect to its dormant state, updates the visible counter, and removes it at zero uses.
+Every Applied Effect chooses an **Effect Recipient**: **Item Owner** preserves the original behavior, while **Trigger Target(s)** applies the payload to the Actor targets recorded by the D&D5e Activity or attack. Damage and healing events use the Actor that actually received the change. A missing target skips only target-bound payloads and never falls back to the Item owner. Normal effect formulas are evaluated from the recipient Actor's roll data.
 
-Applied effects built directly in Item Creator include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, and Actor critical threshold. Values may be flat, based on Proficiency Bonus or an ability modifier, use the Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each effect can be fixed while active or multiplied per stack.
+Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, Actor critical threshold, and **Apply Effects from Selected Spell**. Selecting a Spell snapshots its transferable Active Effects and conditions. The Trigger copies those effects directly to the chosen recipient; it does not cast the Spell, spend a slot or action, execute targeting or saving throws, preserve the Spell's original duration, or create concentration. Duration and retrigger behavior remain controlled by the Triggered Effect. Spells without transferable Active Effects are rejected with a clear warning.
 
-Triggered Effects remain combat-scoped in this beta. Ending or deleting the Combat immediately removes every temporary Item Creator effect, copied Spell effect, stack, duration, use counter, deduplication record, and ledger entry. Automatic summoning, full Spell execution, persistent post-combat effects, and temporary rewriting of structural Resource Modification pools remain outside this runtime.
+Normal numeric effects may be flat, based on Proficiency Bonus or an ability modifier, use the recipient Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each normal effect can be fixed while active or multiplied per stack.
+
+**Remove When Consumed** is an additional lifetime condition and never replaces the configured duration. The GM chooses a number of uses, an eligible roll type (Attack Roll, Ability Check, Saving Throw, any D20 Test, Damage Roll, or Healing Roll), and whether the player is asked before use or the effect is used automatically. The managed effect therefore lasts until its normal duration ends **or** its use counter reaches zero, whichever happens first. Declining the prompt or cancelling the native roll preserves every use. While waiting for an eligible roll, the managed Active Effects remain dormant so imported bonuses do not leak into unrelated rolls; Item Creator enables them only for the confirmed roll, then returns them to dormancy or removes them at zero uses. A new successful Trigger activation reapplies the effect and restores its configured use pool.
+
+Triggered Effects apply Active Effect-compatible bonuses, penalties, conditions, resistances, immunities, and copied Spell effects to the configured recipient. They do not summon creatures, execute Activities automatically, reproduce a selected Spell's full casting workflow, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
 
 Availability can be configured as:
 

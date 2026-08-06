@@ -11,10 +11,10 @@ import {
 } from "../services/resource-modification-registry.mjs";
 import {
   ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, CONSUMPTION_DECISIONS, CONSUMPTION_EVENTS,
-  DURATION_ANCHORS, DURATION_UNITS, EFFECT_RECIPIENTS, EFFECT_SCALING, EFFECT_SOURCE_MODES, RETRIGGER_BEHAVIORS,
+  DURATION_UNITS, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
-  defaultTriggeredEffect, defaultTriggeredEffectPayload, isDamageTriggeredEffect, isNumericTriggeredEffect,
+  defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
   isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
 } from "../services/triggered-effect-registry.mjs";
@@ -1511,6 +1511,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const row = normalizeTriggeredEffect(source);
       const trigger = row.trigger;
       const application = row.application;
+      const consumption = row.consumption;
       const stack = row.stacks;
       const effectRows = row.effects.map((effectSource, effectIndex) => {
         const effect = normalizeTriggeredEffectPayload(effectSource);
@@ -1518,6 +1519,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           ...effect,
           index: effectIndex + 1,
           typeOptions: fixedOptions(TRIGGER_EFFECT_TYPES, effect.type),
+          recipientOptions: fixedOptions(EFFECT_RECIPIENTS, effect.recipient),
           calculationOptions: fixedOptions(VALUE_CALCULATIONS, effect.calculation),
           scalingOptions: fixedOptions(EFFECT_SCALING, effect.scaling),
           dieOptions: [4, 6, 8, 10, 12, 20].map(die => ({ value: die, label: `d${die}`, selected: die === Number(effect.die) })),
@@ -1535,10 +1537,31 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isDamageTrait: ["damageResistance", "damageImmunity"].includes(effect.type),
           isConditionTrait: effect.type === "conditionImmunity",
           isCriticalThreshold: effect.type === "actorCriticalThreshold",
+          isSelectedSpellEffects: effect.type === "selectedSpellEffects",
+          showScaling: effect.type !== "selectedSpellEffects",
+          selectedSpellEffectCount: Array.isArray(effect.spellEffects) ? effect.spellEffects.length : 0,
           isDamageEffect: isDamageTriggeredEffect(effect.type),
           isTrait: isTraitTriggeredEffect(effect.type)
         };
       });
+      const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
+      const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration)
+        .find(option => option.selected)?.label ?? application.expiration;
+      const timingLabel = fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming)
+        .find(option => option.selected)?.label ?? stack.tickTiming;
+      const durationReference = stack.durationUnit === "recipientTurns"
+        ? "Each effect follows the turns of the Actor that received it. Every target has an independent duration."
+        : stack.durationUnit === "ownerTurns"
+          ? "The duration follows the source Actor who owns the Item, even when the effect is applied to a target."
+          : stack.durationUnit === "combatTurns"
+            ? "The duration advances on every Combat turn."
+            : "The duration advances once per Combat round.";
+      const durationGuidance = application.mode === "singleActivation"
+        ? `This application expires at ${expirationLabel}. Each recipient is tracked independently.`
+        : `${stack.durationAmount} ${stack.durationUnit === "recipientTurns" ? "Effect Recipient Turn(s)" : stack.durationUnit === "ownerTurns" ? "Source Actor Turn(s)" : stack.durationUnit === "combatTurns" ? "Combat Turn(s)" : "Combat Round(s)"}; ${timingLabel}. ${durationReference}`;
+      const targetClockWarning = hasTargetRecipients && (application.mode === "singleActivation"
+        ? application.expiration.startsWith("owner")
+        : stack.durationUnit === "ownerTurns");
       return {
         ...row,
         index: index + 1,
@@ -1549,14 +1572,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         eventOptions: fixedOptions(TRIGGER_EVENTS[trigger.category] ?? [], trigger.event),
         attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
         countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
-        recipientOptions: fixedOptions(EFFECT_RECIPIENTS, row.target.recipient),
-        durationAnchorOptions: fixedOptions(DURATION_ANCHORS, row.target.durationAnchor),
-        effectSourceModeOptions: fixedOptions(EFFECT_SOURCE_MODES, row.effectSource.mode),
-        consumptionEventOptions: fixedOptions(CONSUMPTION_EVENTS, row.consumption.event),
-        consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, row.consumption.decision),
         applicationModeOptions: fixedOptions(APPLICATION_MODES, application.mode),
         singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
+        consumptionEventOptions: fixedOptions(CONSUMPTION_EVENTS, consumption.event),
+        consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, consumption.decision),
+        consumptionEnabled: consumption.enabled,
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
           || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
         durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
@@ -1584,16 +1605,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         showSlotLevel: ["spellSlotSpent", "pactSlotSpent"].includes(trigger.event),
         showSpecificFeature: trigger.event === "specificFeatureUsed",
         showDamageFilters: trigger.category === "damage" || trigger.event === "attackDamageApplied",
-        usesSpellEffects: ["spell", "combined"].includes(row.effectSource.mode),
-        usesBuilderEffects: ["builder", "combined"].includes(row.effectSource.mode),
         isSingleActivation: application.mode === "singleActivation",
-        isUntilConsumed: application.mode === "untilConsumed",
         isSingleAttack: application.mode === "stacking" && stack.behavior === "singleAttack",
         showStackQuantityFields: application.mode === "stacking" && stack.behavior !== "singleAttack",
         showTrackingFields: application.mode === "stacking" && stack.behavior !== "singleAttack",
         showDurationFields: application.mode === "stacking" && ["refresh", "shared", "independent"].includes(stack.behavior),
         showDecayFields: application.mode === "stacking" && ["continuousDecay", "delayedDecay"].includes(stack.behavior),
         showInactivityGrace: application.mode === "stacking" && stack.behavior === "delayedDecay",
+        hasTargetRecipients,
+        targetClockWarning,
+        durationReference,
+        durationGuidance,
         effects: effectRows
       };
     });
@@ -1863,8 +1885,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     });
     root.querySelectorAll('[data-action="browse-trigger-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "spell")));
-    root.querySelectorAll('[data-action="browse-applied-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "appliedSpell")));
     root.querySelectorAll('[data-action="browse-trigger-feature"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredSource(event, "feature")));
+    root.querySelectorAll('[data-action="browse-trigger-effect-spell"]').forEach(button => button.addEventListener("click", event => this.#browseTriggeredEffectSpell(event)));
     root.querySelectorAll('[data-action="add-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#addTriggeredPayload(event)));
     root.querySelectorAll('[data-action="remove-triggered-payload"]').forEach(button => button.addEventListener("click", event => this.#removeTriggeredPayload(event)));
     root.querySelectorAll('[data-trigger-payload-input]').forEach(input => {
@@ -3730,11 +3752,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else value = event.currentTarget.value;
 
     if (scope === "trigger") row.trigger[part] = value;
-    else if (scope === "target") row.target[part] = value;
-    else if (scope === "effectSource") row.effectSource[part] = value;
-    else if (scope === "consumption") row.consumption[part] = value;
     else if (scope === "application") row.application[part] = value;
     else if (scope === "stacks") row.stacks[part] = value;
+    else if (scope === "consumption") {
+      row.consumption ??= {};
+      row.consumption[part] = value;
+    }
     else row[part] = value;
 
     if (!commit) return;
@@ -3754,13 +3777,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.application.expiration ||= "ownerTurnEndCurrent";
       row.application.retrigger ||= "refresh";
     }
-    if (scope === "application" && part === "mode" && value === "untilConsumed") {
-      row.application.retrigger ||= "refresh";
-      row.consumption ??= { uses: 1, event: "d20Test", decision: "prompt" };
-      row.consumption.uses ||= 1;
-      row.consumption.event ||= "d20Test";
-      row.consumption.decision ||= "prompt";
-    }
+    if (scope === "application" && part === "expiration") row.application.expirationExplicit = true;
 
     const singleAttackEligible = row.trigger.category === "attack"
       && ["attackHit", "criticalHit", "natural20"].includes(row.trigger.event);
@@ -3769,6 +3786,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     if (scope === "stacks" && part === "durationUnit") {
+      row.stacks.durationUnitExplicit = true;
       row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
     }
     if (scope === "stacks" && part === "behavior") {
@@ -3817,8 +3835,62 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else value = event.currentTarget.value;
     payload[part] = value;
     if (!commit) return;
+    if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+    if (part === "recipient") {
+      const normalized = normalizeTriggeredEffect(row);
+      Object.assign(row, normalized);
+    }
     if (render) this.#renderPreservingScroll();
+  }
+
+  async #browseTriggeredEffectSpell(event) {
+    event.preventDefault();
+    if (this.triggerBrowserOpen) return;
+    const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
+    const payload = row?.effects?.find(entry => entry.id === event.currentTarget.dataset.payloadId);
+    if (!row || !payload) return;
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error("The native D&D5e Compendium Browser is unavailable.");
+      return;
+    }
+    this.triggerBrowserOpen = true;
+    this.#setBrowserBlock(true);
+    try {
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: "spells",
+        hint: "Select a Spell whose transferable Active Effects will be applied by this Triggered Effect.",
+        filters: { locked: { documentClass: "Item", types: new Set(["spell"]) } },
+        window: { modal: true }
+      });
+      if (!uuid) return;
+      const document = await fromUuid(uuid);
+      if (!isSpellItemDocument(document)) {
+        ui.notifications.warn("Select a Spell Item.");
+        return;
+      }
+      const snapshots = extractSelectedSpellEffects(document);
+      if (!snapshots.length) {
+        ui.notifications.warn(`${document.name} has no transferable Active Effects. No Spell was assigned.`);
+        return;
+      }
+      payload.type = "selectedSpellEffects";
+      payload.scaling = "fixed";
+      payload.spellUuid = document.uuid;
+      payload.spellName = document.name;
+      payload.spellImg = document.img ?? "";
+      payload.spellEffects = snapshots;
+      Object.assign(payload, normalizeTriggeredEffectPayload(payload));
+      this.#renderPreservingScroll();
+    } catch (error) {
+      console.error(`${MODULE_ID} | Triggered Effect Spell browser failed.`, error);
+      ui.notifications.error("Item Creator could not open the Spell effect browser.");
+    } finally {
+      this.triggerBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
   }
 
   async #browseTriggeredSource(event, kind) {
@@ -3834,14 +3906,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.triggerBrowserOpen = true;
     this.#setBrowserBlock(true);
     try {
-      const spell = kind === "spell" || kind === "appliedSpell";
-      const appliedSpell = kind === "appliedSpell";
+      const spell = kind === "spell";
       const uuid = await CompendiumBrowser.selectOne({
         mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
         tab: spell ? "spells" : "items",
-        hint: appliedSpell ? "Select the Spell whose Active Effects will be copied to the Trigger recipient."
-          : spell ? "Select the Spell that activates this Triggered Effect."
-            : "Select the Feature that activates this Triggered Effect.",
+        hint: spell ? "Select the Spell that activates this Triggered Effect." : "Select the Feature that activates this Triggered Effect.",
         filters: { locked: { documentClass: "Item", types: new Set(spell ? ["spell"] : ["feat"]) } },
         window: { modal: true }
       });
@@ -3851,13 +3920,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         ui.notifications.warn(spell ? "Select a Spell Item." : "Select a Feature Item.");
         return;
       }
-      if (appliedSpell) {
-        row.effectSource.spellUuid = document.uuid;
-        row.effectSource.spellName = document.name;
-        if (!valuesOf(document.effects).length) {
-          ui.notifications.warn(`${document.name} has no embedded Active Effects to copy. The selection is kept, but it will not add a mechanical effect unless the Spell is edited or Item Creator Effects are combined with it.`);
-        }
-      } else if (spell) {
+      if (spell) {
         row.trigger.spellSelectionMode = "specific";
         row.trigger.spellUuid = document.uuid;
         row.trigger.spellName = document.name;

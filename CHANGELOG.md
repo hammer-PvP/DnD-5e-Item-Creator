@@ -1,41 +1,72 @@
 # Changelog
 
-## 0.5.0c — Targeted and Consumable Triggered Effects
+## 0.5.0e — Duration or Consumption Lifetimes
 
-### Generic effect recipients
+### Additional consumption condition
 
-- Added **Item Owner / Wielder**, **Trigger Target**, **Each Affected Target**, and **Event Source Actor** as recipient choices for every Triggered Effect category.
-- Target copies are stored and reconciled independently on each recipient while retaining their source Actor, source Item, Trigger ID, and Combat provenance.
-- Source Item availability, Attunement, level unlocks, deletion, Actor deletion, and Combat cleanup now remove dependent effects from every recipient through the GM-authoritative runtime.
-- Target-dependent rows never silently fall back to the Item owner when D&D5e supplies no target.
+- Added **Remove When Consumed** to every Triggered Effect without removing or replacing any existing Application Mode, Stack Behavior, duration unit, recipient clock, or Single Attack behavior.
+- Consumption is layered on top of the normal lifetime: an effect remains available until its configured duration ends **or** its use counter reaches zero, whichever happens first. A configuration such as `10 Effect Recipient Turns / 1 use` therefore expires after ten recipient turns if unused, or immediately after its one confirmed use.
+- Added a GM-defined **Uses Before Removal** field and eligible roll choices for Attack Rolls, Ability Checks, Saving Throws, any D20 Test, Damage Rolls, and Healing Rolls.
+- Added **Ask the Player** and **Use Automatically** decisions. Declining preserves all uses, and cancelling the native D&D5e roll does not consume a use.
 
-### Selected Spell Active Effects
+### Managed roll activation
 
-- Added **Selected Spell Active Effects** and **Item Creator + Selected Spell Effects** as effect sources.
-- The native D&D5e Compendium Browser selects the source Spell. Item Creator copies its embedded Active Effect changes and statuses but does not cast the Spell or execute damage, healing, attacks, saves, templates, concentration, targeting, Activities, or slot consumption.
-- A selected Spell without embedded Active Effects now produces a clear warning while preserving the GM's selection.
-- Item Creator replaces the copied effect's original lifetime with the Triggered Effect configuration and records the selected Spell UUID for audit.
+- Consumable Item Creator effects remain dormant between eligible rolls so copied Spell effects or generic bonuses cannot affect unrelated checks, attacks, saves, damage, or healing.
+- When a use is confirmed, the active GM temporarily enables every Active Effect belonging to that Trigger application, allows the native D&D5e roll to resolve, consumes exactly one use only after a completed roll, and then returns the effects to dormancy or removes them at zero uses.
+- Multiple embedded effects copied from one selected Spell are prepared, consumed, and cleaned as one managed application while retaining their independent Active Effect documents.
+- Added socket request/response handling so player-owned recipients can make the choice while the active GM remains authoritative for enabling, decrementing, removing, and reconciling the managed effects.
+- Added stale prepared-use recovery, duplicate-consumption keys, visible remaining-use counters, and per-recipient consumption state in the Triggered Effect ledger.
 
-### Recipient-anchored duration
+### Compatibility
 
-- Added **Turn Duration Anchor** so turn-based Single Activation and stack durations can follow either the Item owner's turns or the recipient's turns.
-- Existing owner-duration behavior remains the default for all older Items.
+- Preserved the complete v0.5.0d recipient-turn implementation and all existing target ledgers.
+- Existing Triggered Effects default to consumption disabled and retain their previous behavior unchanged.
+- Increased the Item Creator document schema to 10 and the Triggered Effect runtime ledger to version 3.
 
-### Until Consumed (Roll-Activated)
+## 0.5.0d — Recipient Turn Duration Clarity
 
-- Added a new application mode with a dedicated **Uses Before Removal** field.
-- Added eligible events for any D20 Test, Attack Roll, Ability Check, Saving Throw, Damage Roll, and Healing Roll.
-- Added **Ask the Player** and **Use Automatically** decisions. Prompt mode offers a modal choice before the roll; declining preserves the effect and every use.
-- Consumable effects remain dormant between rolls, activate only around an eligible roll, consume one use only after a completed roll, return to dormancy when uses remain, and are removed at zero.
-- Damage-roll interception covers every D&D5e Activity type that exposes `rollDamage`, including attacks, save Activities, direct damage, and healing.
-- New triggers can reset all configured uses or be ignored while an existing consumable copy remains active.
+### Duration reference
 
-### Compatibility and descriptions
+- Renamed the stacked duration selector to **Duration Follows** and made its choices explicit: **Source Actor Turns (Item Owner)**, **Effect Recipient Turns**, **Every Combat Turn**, and **Combat Rounds**.
+- Target-bound effects now default to **Effect Recipient Turns** when no duration reference was explicitly chosen. Existing owner-only Triggered Effects keep their prior owner-turn behavior.
+- Duration references chosen in v0.5.0d are marked as explicit and are never overwritten by later normalization or recipient changes.
+- Single Activation target effects likewise default to the matching recipient-turn expiration unless the GM explicitly chooses a source-Actor boundary.
+- Added a contextual warning whenever target effects are intentionally timed by the source Actor, plus dynamic duration guidance that states exactly whose turns advance the effect.
 
-- No previous Triggered Effect option or stack behavior was removed. Older Items normalize to Item Owner, owner-anchored duration, and Item Creator Effects.
-- Generated descriptions now include recipient routing, selected Spell effect source, duration anchor, consumable event, use count, decision behavior, and retrigger handling.
-- Increased the Item Creator document schema to 8 and the targeted runtime ledger to version 2, with migration from the v0.5.0b owner-only ledger.
-- Triggered Effects remain Combat-scoped; ending or deleting Combat clears every managed target copy and consumable use.
+### Runtime and compatibility
+
+- Each target continues to use its own ledger entry and therefore loses copied Spell effects or other payloads according to that target's individual Combat turns.
+- Increased the Item Creator document schema to 9. v0.5.0c target rows still carrying the owner-turn default migrate to recipient turns. Other duration units are preserved, and choices made from v0.5.0d onward are recorded explicitly.
+
+## 0.5.0c — Target Recipients and Selected Spell Effects
+
+### Target-aware Applied Effects
+
+- Added **Effect Recipient** to every Triggered Effect payload without changing the existing creation flow or removing any current effect type.
+- **Item Owner** preserves all prior behavior. **Trigger Target(s)** applies the payload to the Actor targets recorded by the D&D5e Activity or attack.
+- Resource and Feature triggers can therefore deliver effects to their selected targets, while attack-hit triggers can deliver effects to the creature hit. Damage and healing events use the Actor that actually received the change.
+- Target payloads never silently fall back to the Item owner. When an event has no valid target, only the target-bound payload is skipped.
+- Added one ledger entry per recipient and one shared activation-control entry per Trigger, preserving per-Activity, per-target, per-turn, per-round, and duplicate-event limits across multiple recipients.
+
+### Effects from a selected Spell
+
+- Added **Apply Effects from Selected Spell** to Applied Effects, using the native D&D5e Spell browser.
+- The selected Spell's enabled, transferable Active Effects and conditions are snapshotted into the Item so the result remains deterministic and does not depend on a live cast.
+- The runtime copies those effects directly to the chosen recipient. It does not cast the Spell, consume a slot or action, execute the Spell's targeting, damage, healing, saving throw, template, or other Activities, retain its original duration, or create concentration.
+- Spells with no transferable Active Effects are rejected during selection instead of creating an inert configuration.
+- Multiple embedded effects from one Spell are tracked and cleaned independently, while still belonging to one Trigger application.
+
+### Recipient-based lifetimes
+
+- Added Single Activation expiration at the end of the recipient's current turn, the start of the recipient's next turn, or the end of the recipient's next turn.
+- Added **Effect Recipient Turns** to the existing stacked duration units. Owner Turns, Combat Turns, Rounds, Single Attack, and every existing stack behavior remain unchanged.
+- Remote effects are removed when their Trigger expires, the source Item is unequipped or deleted, its Attunement/level requirement is lost, the Active Effect is reconciled, or the Combat ends.
+
+### Description and compatibility
+
+- Generated summaries now identify the recipient of every payload and explain selected-Spell effects as effect copying rather than spellcasting.
+- Renamed per-target activation counting to **Once per Trigger Target** for general attack, Feature, resource, damage, and healing use.
+- Increased the Item Creator document schema to 8 and the Triggered Effect runtime ledger to version 2. Existing payloads default to **Item Owner**, and version-1 ledger entries migrate to owner-recipient entries without changing their behavior.
 
 ## 0.5.0b — Trigger Clarity and Single-Activation Lifetimes
 

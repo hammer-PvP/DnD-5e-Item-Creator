@@ -49,8 +49,8 @@ export const TRIGGER_EVENTS = Object.freeze({
     ["healingReceived", "Healing Received by the Wielder"]
   ]),
   combat: Object.freeze([
-    ["ownerTurnStart", "Start of Owner Turn"],
-    ["ownerTurnEnd", "End of Owner Turn"],
+    ["ownerTurnStart", "Start of Source Actor Turn"],
+    ["ownerTurnEnd", "End of Source Actor Turn"],
     ["roundStart", "Start of Round"],
     ["roundEnd", "End of Round"],
     ["combatStart", "Combat Started"]
@@ -72,44 +72,33 @@ export const ACTIVATION_COUNTING = Object.freeze([
   ["perActivity", "Once per Activity"],
   ["perAttackRoll", "Once per Attack Roll"],
   ["perSuccessfulAttack", "Once per Successful Attack Roll"],
-  ["perTarget", "Once per Damaged Target"],
+  ["perTarget", "Once per Trigger Target"],
   ["perTurn", "Once per Turn"],
   ["perRound", "Once per Round"]
 ]);
 
 export const APPLICATION_MODES = Object.freeze([
   ["stacking", "Stacks & Duration"],
-  ["singleActivation", "Single Activation"],
-  ["untilConsumed", "Until Consumed (Roll-Activated)"]
+  ["singleActivation", "Single Activation"]
 ]);
 
 export const SINGLE_ACTIVATION_EXPIRATIONS = Object.freeze([
-  ["ownerTurnEndCurrent", "End of Anchored Actor's Current Turn"],
-  ["ownerTurnStartNext", "Start of Anchored Actor's Next Turn"],
-  ["ownerTurnEndNext", "End of Anchored Actor's Next Turn"]
-]);
-
-export const RETRIGGER_BEHAVIORS = Object.freeze([
-  ["refresh", "Refresh Duration / Reset Uses"],
-  ["ignore", "Ignore While Active"]
+  ["ownerTurnEndCurrent", "End of Source Actor's Current Turn"],
+  ["ownerTurnStartNext", "Start of Source Actor's Next Turn"],
+  ["ownerTurnEndNext", "End of Source Actor's Next Turn"],
+  ["recipientTurnEndCurrent", "End of Effect Recipient's Current Turn"],
+  ["recipientTurnStartNext", "Start of Effect Recipient's Next Turn"],
+  ["recipientTurnEndNext", "End of Effect Recipient's Next Turn"]
 ]);
 
 export const EFFECT_RECIPIENTS = Object.freeze([
-  ["owner", "Item Owner / Wielder"],
-  ["triggerTarget", "Trigger Target"],
-  ["eachAffectedTarget", "Each Affected Target"],
-  ["eventSource", "Event Source Actor"]
+  ["owner", "Item Owner"],
+  ["target", "Trigger Target(s)"]
 ]);
 
-export const DURATION_ANCHORS = Object.freeze([
-  ["owner", "Item Owner's Turns"],
-  ["recipient", "Recipient's Turns"]
-]);
-
-export const EFFECT_SOURCE_MODES = Object.freeze([
-  ["builder", "Item Creator Effects"],
-  ["spell", "Selected Spell Active Effects"],
-  ["combined", "Item Creator + Selected Spell Effects"]
+export const RETRIGGER_BEHAVIORS = Object.freeze([
+  ["refresh", "Refresh Duration"],
+  ["ignore", "Ignore While Active"]
 ]);
 
 export const CONSUMPTION_EVENTS = Object.freeze([
@@ -136,15 +125,20 @@ export const STACK_BEHAVIORS = Object.freeze([
 ]);
 
 export const DURATION_UNITS = Object.freeze([
-  ["ownerTurns", "Owner Turns"],
-  ["combatTurns", "Combat Turns"],
-  ["rounds", "Rounds"]
+  ["ownerTurns", "Source Actor Turns (Item Owner)"],
+  ["recipientTurns", "Effect Recipient Turns"],
+  ["combatTurns", "Every Combat Turn"],
+  ["rounds", "Combat Rounds"]
 ]);
 
 export const TICK_TIMINGS = Object.freeze({
   ownerTurns: Object.freeze([
     ["ownerTurnStart", "Start of Owner Turn"],
     ["ownerTurnEnd", "End of Owner Turn"]
+  ]),
+  recipientTurns: Object.freeze([
+    ["ownerTurnStart", "Start of Effect Recipient Turn"],
+    ["ownerTurnEnd", "End of Effect Recipient Turn"]
   ]),
   combatTurns: Object.freeze([
     ["combatTurnStart", "Start of Combat Turn"],
@@ -173,7 +167,8 @@ export const TRIGGER_EFFECT_TYPES = Object.freeze([
   ["damageResistance", "Damage Resistance"],
   ["damageImmunity", "Damage Immunity"],
   ["conditionImmunity", "Condition Immunity"],
-  ["actorCriticalThreshold", "Actor Critical Threshold"]
+  ["actorCriticalThreshold", "Actor Critical Threshold"],
+  ["selectedSpellEffects", "Apply Effects from Selected Spell"]
 ]);
 
 export const VALUE_CALCULATIONS = Object.freeze([
@@ -228,7 +223,12 @@ export function defaultTriggeredEffectPayload(type = "spellAttackBonus") {
     damageType: "fire",
     condition: "charmed",
     criticalScope: "all",
-    criticalThreshold: 19
+    criticalThreshold: 19,
+    recipient: "owner",
+    spellUuid: "",
+    spellName: "",
+    spellImg: "",
+    spellEffects: []
   };
 }
 
@@ -260,24 +260,17 @@ export function defaultTriggeredEffect() {
     counting: "perSuccessfulAttack",
     maxPerTurn: 0,
     maxPerRound: 0,
-    target: {
-      recipient: "owner",
-      durationAnchor: "owner"
-    },
-    effectSource: {
-      mode: "builder",
-      spellUuid: "",
-      spellName: ""
-    },
-    consumption: {
-      uses: 1,
-      event: "d20Test",
-      decision: "prompt"
-    },
     application: {
       mode: "stacking",
       expiration: "ownerTurnEndCurrent",
+      expirationExplicit: false,
       retrigger: "refresh"
+    },
+    consumption: {
+      enabled: false,
+      uses: 1,
+      event: "d20Test",
+      decision: "prompt"
     },
     stacks: {
       granted: 1,
@@ -285,6 +278,7 @@ export function defaultTriggeredEffect() {
       behavior: "delayedDecay",
       durationAmount: 2,
       durationUnit: "ownerTurns",
+      durationUnitExplicit: false,
       tickTiming: "ownerTurnEnd",
       inactivityGrace: 2,
       decayAmount: 1
@@ -321,7 +315,12 @@ export function normalizeTriggeredEffectPayload(value = {}) {
     damageType: value.damageType || "fire",
     condition: value.condition || "charmed",
     criticalScope: ["weapon", "spell", "all"].includes(value.criticalScope) ? value.criticalScope : "all",
-    criticalThreshold: Math.clamp(Number(value.criticalThreshold) || 19, 1, 20)
+    criticalThreshold: Math.clamp(Number(value.criticalThreshold) || 19, 1, 20),
+    recipient: validChoice(EFFECT_RECIPIENTS, value.recipient, fallback.recipient),
+    spellUuid: String(value.spellUuid ?? "").trim(),
+    spellName: String(value.spellName ?? "").trim(),
+    spellImg: String(value.spellImg ?? "").trim(),
+    spellEffects: Array.isArray(value.spellEffects) ? clone(value.spellEffects) : []
   };
 }
 
@@ -337,17 +336,40 @@ export function normalizeTriggeredEffect(value = {}) {
   // filters by migrating only that legacy shape to Any Spell Cast. New Specific Spell drafts carry
   // spellSelectionMode="specific" while the user is choosing the Spell and remain editable.
   if (category === "spell" && event === "specificSpellCast" && !selectedSpell && !explicitSpellSelection) event = "spellCast";
-  const durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
+
+  const effects = (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
+    .map(normalizeTriggeredEffectPayload);
+  const hasTargetRecipient = effects.some(effect => effect.recipient === "target");
+
+  const durationUnitExplicit = Boolean(value.stacks?.durationUnitExplicit);
+  let durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
+  // v0.5.0c introduced target recipients but left the default clock on the Item owner. When a row
+  // has target-bound payloads and no explicit clock choice, migrate it to each effect recipient's
+  // turns. A manual selection is recorded and always preserved.
+  if (!durationUnitExplicit) {
+    if (hasTargetRecipient && durationUnit === "ownerTurns") durationUnit = "recipientTurns";
+    else if (!hasTargetRecipient && durationUnit === "recipientTurns") durationUnit = "ownerTurns";
+  }
   const tickTiming = validChoice(TICK_TIMINGS[durationUnit] ?? [], value.stacks?.tickTiming,
     TICK_TIMINGS[durationUnit]?.[1]?.[0] ?? TICK_TIMINGS[durationUnit]?.[0]?.[0]);
+
   const applicationMode = validChoice(APPLICATION_MODES, value.application?.mode, fallback.application.mode);
-  const expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
+  const expirationExplicit = Boolean(value.application?.expirationExplicit);
+  let expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
+  if (!expirationExplicit) {
+    const ownerToRecipient = {
+      ownerTurnEndCurrent: "recipientTurnEndCurrent",
+      ownerTurnStartNext: "recipientTurnStartNext",
+      ownerTurnEndNext: "recipientTurnEndNext"
+    };
+    const recipientToOwner = Object.fromEntries(Object.entries(ownerToRecipient).map(([owner, recipient]) => [recipient, owner]));
+    if (hasTargetRecipient && ownerToRecipient[expiration]) expiration = ownerToRecipient[expiration];
+    else if (!hasTargetRecipient && recipientToOwner[expiration]) expiration = recipientToOwner[expiration];
+  }
   const retrigger = validChoice(RETRIGGER_BEHAVIORS, value.application?.retrigger, fallback.application.retrigger);
-  const recipient = validChoice(EFFECT_RECIPIENTS, value.target?.recipient, fallback.target.recipient);
-  const durationAnchor = validChoice(DURATION_ANCHORS, value.target?.durationAnchor, fallback.target.durationAnchor);
-  const effectSourceMode = validChoice(EFFECT_SOURCE_MODES, value.effectSource?.mode, fallback.effectSource.mode);
   const consumptionEvent = validChoice(CONSUMPTION_EVENTS, value.consumption?.event, fallback.consumption.event);
   const consumptionDecision = validChoice(CONSUMPTION_DECISIONS, value.consumption?.decision, fallback.consumption.decision);
+
   return {
     ...fallback,
     ...clone(value),
@@ -370,32 +392,21 @@ export function normalizeTriggeredEffect(value = {}) {
     counting: validChoice(ACTIVATION_COUNTING, value.counting, fallback.counting),
     maxPerTurn: Math.max(0, Number(value.maxPerTurn) || 0),
     maxPerRound: Math.max(0, Number(value.maxPerRound) || 0),
-    target: {
-      ...fallback.target,
-      ...(clone(value.target ?? {})),
-      recipient,
-      durationAnchor
-    },
-    effectSource: {
-      ...fallback.effectSource,
-      ...(clone(value.effectSource ?? {})),
-      mode: effectSourceMode,
-      spellUuid: String(value.effectSource?.spellUuid ?? "").trim(),
-      spellName: String(value.effectSource?.spellName ?? "").trim()
-    },
-    consumption: {
-      ...fallback.consumption,
-      ...(clone(value.consumption ?? {})),
-      uses: Math.max(1, Number(value.consumption?.uses) || 1),
-      event: consumptionEvent,
-      decision: consumptionDecision
-    },
     application: {
       ...fallback.application,
       ...(clone(value.application ?? {})),
       mode: applicationMode,
       expiration,
+      expirationExplicit,
       retrigger
+    },
+    consumption: {
+      ...fallback.consumption,
+      ...(clone(value.consumption ?? {})),
+      enabled: Boolean(value.consumption?.enabled),
+      uses: Math.max(1, Number(value.consumption?.uses) || 1),
+      event: consumptionEvent,
+      decision: consumptionDecision
     },
     stacks: (() => {
       const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
@@ -408,13 +419,13 @@ export function normalizeTriggeredEffect(value = {}) {
         behavior,
         durationAmount: singleAttack ? 1 : Math.max(1, Number(value.stacks?.durationAmount) || 1),
         durationUnit: singleAttack ? "ownerTurns" : durationUnit,
+        durationUnitExplicit,
         tickTiming: singleAttack ? "ownerTurnEnd" : tickTiming,
         inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
         decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
       };
     })(),
-    effects: (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
-      .map(normalizeTriggeredEffectPayload)
+    effects
   };
 }
 
@@ -433,6 +444,9 @@ export function validateTriggeredEffectPayload(value) {
   if (row.type === "conditionImmunity" && !row.condition) return false;
   if (row.type === "actorCriticalThreshold" && (!(row.criticalThreshold >= 1 && row.criticalThreshold <= 20)
     || !["weapon", "spell", "all"].includes(row.criticalScope))) return false;
+  if (!EFFECT_RECIPIENTS.some(([recipient]) => recipient === row.recipient)) return false;
+  if (row.type === "selectedSpellEffects"
+    && !String(row.spellUuid ?? "").trim() && !row.spellEffects.length) return false;
   return true;
 }
 
@@ -447,30 +461,21 @@ export function validateTriggeredEffect(value) {
     && !String(setting.trigger.featureUuid || setting.trigger.featureName || setting.trigger.featureIdentifier || "").trim()) return false;
   if (!["owned", "equipped", "equippedAttuned"].includes(setting.availability)) return false;
   if (setting.unlockOnLevel && !(setting.unlockLevel >= 1 && setting.unlockLevel <= 20)) return false;
+  if (!(setting.stacks.granted > 0 && setting.stacks.maximum > 0)) return false;
   if (!APPLICATION_MODES.some(([entry]) => entry === setting.application.mode)) return false;
+  if (!SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
   if (!RETRIGGER_BEHAVIORS.some(([entry]) => entry === setting.application.retrigger)) return false;
-  if (!EFFECT_RECIPIENTS.some(([entry]) => entry === setting.target.recipient)) return false;
-  if (!DURATION_ANCHORS.some(([entry]) => entry === setting.target.durationAnchor)) return false;
-  if (!EFFECT_SOURCE_MODES.some(([entry]) => entry === setting.effectSource.mode)) return false;
-  if (["spell", "combined"].includes(setting.effectSource.mode)
-    && !String(setting.effectSource.spellUuid || setting.effectSource.spellName || "").trim()) return false;
-  if (["builder", "combined"].includes(setting.effectSource.mode)
-    && (!setting.effects.length || setting.effects.some(effect => !validateTriggeredEffectPayload(effect)))) return false;
-  if (setting.application.mode === "singleActivation"
-    && !SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
-  if (setting.application.mode === "untilConsumed") {
+  if (setting.consumption.enabled) {
     if (!(setting.consumption.uses > 0)) return false;
     if (!CONSUMPTION_EVENTS.some(([entry]) => entry === setting.consumption.event)) return false;
     if (!CONSUMPTION_DECISIONS.some(([entry]) => entry === setting.consumption.decision)) return false;
   }
-  if (setting.application.mode === "stacking") {
-    if (!(setting.stacks.granted > 0 && setting.stacks.maximum > 0)) return false;
-    if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
-    if (setting.stacks.behavior === "singleAttack"
-      && !(setting.trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(setting.trigger.event))) return false;
-    if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.durationUnit)) return false;
-    if (!(TICK_TIMINGS[setting.stacks.durationUnit] ?? []).some(([entry]) => entry === setting.stacks.tickTiming)) return false;
-  }
+  if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
+  if (setting.application.mode === "stacking" && setting.stacks.behavior === "singleAttack"
+    && !(setting.trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(setting.trigger.event))) return false;
+  if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.durationUnit)) return false;
+  if (!(TICK_TIMINGS[setting.stacks.durationUnit] ?? []).some(([entry]) => entry === setting.stacks.tickTiming)) return false;
+  if (!setting.effects.length || setting.effects.some(effect => !validateTriggeredEffectPayload(effect))) return false;
   return true;
 }
 
@@ -506,7 +511,7 @@ function addChange(changes, key, mode, value, priority = null) {
   changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
-export function buildTriggeredEffectChanges(setting, stacks, actor = null) {
+export function buildTriggeredEffectChanges(setting, stacks, actor = null, { payloads = null } = {}) {
   const add = CONST.ACTIVE_EFFECT_MODES.ADD;
   const downgrade = CONST.ACTIVE_EFFECT_MODES.DOWNGRADE;
   const changes = [];
@@ -519,13 +524,14 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null) {
     if (!Number.isFinite(highestSpellcasting)) highestSpellcasting = Number(actor.system?.abilities?.[actor.system?.attributes?.spellcasting]?.mod ?? 0) || 0;
   }
 
-  for (const source of setting.effects ?? []) {
+  for (const source of payloads ?? setting.effects ?? []) {
     const row = normalizeTriggeredEffectPayload(source);
     let value = formulaForPayload(row, stacks);
     if (row.calculation === "highestSpellcasting") {
       const multiplier = row.scaling === "perStack" ? Math.max(1, Number(stacks) || 1) : 1;
       value = String((Number(highestSpellcasting) || 0) * multiplier);
     }
+    if (row.type === "selectedSpellEffects") continue;
     switch (row.type) {
       case "spellAttackBonus":
         addChange(changes, "system.bonuses.msak.attack", add, value);
@@ -688,33 +694,40 @@ function calculationSummary(row) {
 
 function payloadSummary(source, setting) {
   const row = normalizeTriggeredEffectPayload(source);
+  const recipient = row.recipient === "target" ? "trigger target(s)" : "Item owner";
+  const toRecipient = text => `${recipient}: ${text}`;
+  if (row.type === "selectedSpellEffects") {
+    const spell = row.spellName || "the selected Spell";
+    const count = row.spellEffects.length ? `; ${row.spellEffects.length} embedded effect(s)` : "";
+    return toRecipient(`transferable Active Effects from ${spell}${count} (effect only; no Spell cast, slot/action, saving throw, original duration, or concentration)`);
+  }
   const value = calculationSummary(row);
-  const scaling = setting.application.mode !== "stacking" || row.scaling !== "perStack"
+  const scaling = setting.application.mode === "singleActivation" || row.scaling !== "perStack"
     ? " while active" : " per stack";
   if (row.type === "movementBonus") {
     const movement = localizedConfigLabel(CONFIG.DND5E.movementTypes, row.movementType, row.movementType);
-    return `${movement} speed ${value} ft${scaling}`;
+    return toRecipient(`${movement} speed ${value} ft${scaling}`);
   }
   if (row.type === "savingThrowBonus") {
     const ability = row.ability === "all" ? "all saving throws"
       : `${localizedConfigLabel(CONFIG.DND5E.abilities, row.ability, row.ability)} saving throws`;
-    return `${value} to ${ability}${scaling}`;
+    return toRecipient(`${value} to ${ability}${scaling}`);
   }
   if (row.type === "damageResistance") {
-    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage resistance`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage resistance`);
   }
   if (row.type === "damageImmunity") {
-    return `${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage immunity`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.damageTypes, row.damageType, row.damageType)} damage immunity`);
   }
   if (row.type === "conditionImmunity") {
-    return `${localizedConfigLabel(CONFIG.DND5E.conditionTypes, row.condition, row.condition)} condition immunity`;
+    return toRecipient(`${localizedConfigLabel(CONFIG.DND5E.conditionTypes, row.condition, row.condition)} condition immunity`);
   }
   if (row.type === "actorCriticalThreshold") {
     const scope = row.criticalScope === "weapon" ? "weapon attacks" : row.criticalScope === "spell" ? "spell attacks" : "all attacks";
-    return `critical hit on ${row.criticalThreshold === 20 ? "20" : `${row.criticalThreshold}–20`} for ${scope}`;
+    return toRecipient(`critical hit on ${row.criticalThreshold === 20 ? "20" : `${row.criticalThreshold}–20`} for ${scope}`);
   }
   const label = optionLabel(TRIGGER_EFFECT_TYPES, row.type, row.type);
-  return `${label} ${value}${scaling}`;
+  return toRecipient(`${label} ${value}${scaling}`);
 }
 
 function frequencySummary(setting) {
@@ -726,7 +739,7 @@ function frequencySummary(setting) {
 }
 
 function durationUnitPhrase(unit, amount = 1) {
-  const singular = { ownerTurns: "Owner Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
+  const singular = { ownerTurns: "Owner Turn", recipientTurns: "Effect Recipient Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
   if (!singular) return optionLabel(DURATION_UNITS, unit, unit);
   return Number(amount) === 1 ? singular : `${singular}s`;
 }
@@ -747,37 +760,75 @@ function stackDurationSummary(setting) {
   return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; loses ${setting.stacks.decayAmount} stack(s) per ${unit} at ${timing}${grace}`;
 }
 
-function recipientSummary(setting) {
-  const recipient = optionLabel(EFFECT_RECIPIENTS, setting.target.recipient, setting.target.recipient);
-  if (setting.target.recipient === "owner") return recipient;
-  return `${recipient}; turn durations use ${setting.target.durationAnchor === "recipient" ? "the recipient" : "the Item owner"}`;
-}
-
-function effectSourceSummary(setting) {
-  const builder = setting.effects.map(effect => payloadSummary(effect, setting)).join("; ");
-  if (setting.effectSource.mode === "builder") return builder;
-  const spell = `transferable Active Effects from ${setting.effectSource.spellName || "the selected Spell"}`;
-  if (setting.effectSource.mode === "spell") return spell;
-  return [builder, spell].filter(Boolean).join("; ");
-}
-
 function applicationSummary(setting) {
-  if (setting.application.mode === "stacking") return stackDurationSummary(setting);
-  const retrigger = setting.application.retrigger === "ignore" ? "new triggers are ignored while active" : "new triggers refresh the lifetime or reset uses";
-  if (setting.application.mode === "untilConsumed") {
-    const event = optionLabel(CONSUMPTION_EVENTS, setting.consumption.event, setting.consumption.event);
-    const decision = setting.consumption.decision === "automatic" ? "enabled and consumed automatically for the next eligible roll" : "the player is asked before use";
-    return `Until Consumed; ${setting.consumption.uses} use(s); eligible on ${event}; ${decision}; ${retrigger}`;
-  }
+  if (setting.application.mode !== "singleActivation") return stackDurationSummary(setting);
   const expiration = optionLabel(SINGLE_ACTIVATION_EXPIRATIONS, setting.application.expiration, setting.application.expiration);
-  return `Single Activation; expires at ${expiration} using ${setting.target.durationAnchor === "recipient" ? "recipient" : "owner"} turns; ${retrigger}`;
+  const retrigger = setting.application.retrigger === "ignore" ? "new triggers are ignored while active" : "new triggers refresh the duration";
+  return `Single Activation; expires at ${expiration}; ${retrigger}`;
+}
+
+function consumptionSummary(setting) {
+  if (!setting.consumption.enabled) return "";
+  const uses = Math.max(1, Number(setting.consumption.uses) || 1);
+  const event = optionLabel(CONSUMPTION_EVENTS, setting.consumption.event, setting.consumption.event);
+  const decision = setting.consumption.decision === "automatic"
+    ? "used automatically"
+    : "the player chooses whether to use it; declining or cancelling the roll does not consume a use";
+  return ` Consumption: also expires after ${uses} confirmed ${event} use(s); ${decision}. Duration and consumption are independent, so whichever ends first removes the effect.`;
 }
 
 export function triggeredEffectSummary(value) {
   const setting = normalizeTriggeredEffect(value);
   const trigger = triggerSummary(setting);
-  const effects = effectSourceSummary(setting);
-  return `Trigger: ${trigger}. Recipient: ${recipientSummary(setting)}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.`;
+  const effects = setting.effects.map(effect => payloadSummary(effect, setting)).join("; ");
+  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.${consumptionSummary(setting)}`;
+}
+
+function collectionValues(value) {
+  if (value instanceof Set) return [...value];
+  if (Array.isArray(value)) return [...value];
+  if (value instanceof Map) return [...value.values()];
+  if (value?.values instanceof Function) {
+    try { return [...value.values()]; } catch (_error) { /* fall through */ }
+  }
+  if (value && typeof value === "object") return Object.values(value);
+  return [];
+}
+
+function sanitizedSpellEffectFlags(value = {}) {
+  const flags = clone(value ?? {});
+  delete flags[MODULE_ID];
+  if (flags.core) {
+    delete flags.core.sourceId;
+    if (!Object.keys(flags.core).length) delete flags.core;
+  }
+  if (flags.dnd5e) {
+    for (const key of ["dependentOn", "dependents", "concentration"]) delete flags.dnd5e[key];
+    if (!Object.keys(flags.dnd5e).length) delete flags.dnd5e;
+  }
+  return flags;
+}
+
+export function extractSelectedSpellEffects(document) {
+  const effects = collectionValues(document?.effects);
+  const snapshots = [];
+  for (const effect of effects) {
+    const data = effect?.toObject instanceof Function ? effect.toObject() : clone(effect ?? {});
+    if (data.disabled) continue;
+    const changes = clone(data.system?.changes ?? data.changes ?? []);
+    const statuses = collectionValues(data.statuses).map(String).filter(Boolean);
+    const flags = sanitizedSpellEffectFlags(data.flags ?? {});
+    if (!changes.length && !statuses.length && !Object.keys(flags).length) continue;
+    snapshots.push({
+      id: String(data._id ?? data.id ?? foundry.utils.randomID()),
+      name: String(data.name ?? document?.name ?? "Spell Effect"),
+      img: String(data.img ?? document?.img ?? ""),
+      changes,
+      statuses,
+      flags
+    });
+  }
+  return snapshots;
 }
 
 export function isNumericTriggeredEffect(type) {
