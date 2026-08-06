@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.0f — Active Consumable Effects and Result Timing
+
+### Active recipient state
+
+- Rebuilt the consumable-effect layer on the v0.5.0d target and recipient-turn model without removing any existing Trigger, stack, duration, Single Activation, or Single Attack option.
+- A consumable Trigger now creates an enabled, visible **managed effect marker** on the recipient immediately when the Trigger resolves. The actual roll-changing payload remains isolated until a confirmed use, preventing optional bonuses from leaking into unrelated rolls while still showing that the Actor possesses the effect.
+- Added one application/refresh chat notice per Trigger recipient, including source Item, configured lifetime, and remaining uses. Consumption also produces one audited chat notice rather than one message for each copied Spell Active Effect.
+
+### Configurable decision timing
+
+- Added **Ask / Use Timing** with **Before the Roll** and **After a Failed Result**. The existing pre-roll behavior remains available and continues to preserve uses when the native roll is cancelled.
+- **After a Failed Result** waits for the native Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw. It only offers the effect when a numeric AC/DC is known and the result is still a failure; successes and indeterminate results are ignored.
+- On acceptance after failure, Item Creator rolls the applicable additive bonus from the managed payload, adds it to the existing result without rerolling the d20, reports the new total and whether the failure became a success, then consumes exactly one use. A use is consumed even when the bonus is insufficient, because the player confirmed and received the bonus.
+- Post-failure resolution supports additive attack, save, ability, skill, and tool bonus changes from Item Creator payloads or copied Spell Active Effects. Non-additive effects remain available for pre-roll use but are not falsely presented as retroactive numeric bonuses.
+- Damage and Healing Rolls keep **Before the Roll** because they do not have a native success/failure target.
+
+### Coordination and compatibility
+
+- Added a cooperative wait point for higher-priority post-roll automation, including Character Builder integrations that expose `waitForRollResolution`, before Item Creator evaluates whether the result is still a failure.
+- Migrated v0.5.0e ledgers by creating the missing active marker and preserving existing duration and use counters. Existing rows default to **Before the Roll**.
+- Increased the Item Creator document schema to 11 and the Triggered Effect runtime ledger to version 4.
+
 ## 0.5.0e — Duration or Consumption Lifetimes
 
 ### Additional consumption condition

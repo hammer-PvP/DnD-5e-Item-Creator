@@ -2881,3 +2881,13 @@ body.ic-protected-active { overflow: hidden; }
   .ic-triggered-wide, .ic-triggered-span-two { grid-column: 1; }
   .ic-trigger-source-picker { align-items: stretch; flex-direction: column; }
 }
+
+/* v0.5.0f Triggered Effect chat notices */
+.item-creator-triggered-message {
+  padding: 8px 10px;
+  border-left: 3px solid #8b69be;
+  border-radius: 4px;
+  background: rgba(92,65,120,.08);
+}
+.item-creator-triggered-message p { margin: 0 0 5px; }
+.item-creator-triggered-message p:last-child { margin-bottom: 0; }

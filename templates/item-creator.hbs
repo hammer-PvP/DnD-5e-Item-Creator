@@ -1009,12 +1009,18 @@
                     <span><strong>Remove When Consumed</strong><small>Add an early-removal condition without replacing the duration above.</small></span>
                   </label>
                   {{#if consumptionEnabled}}
-                  <div class="ic-triggered-grid three-columns">
+                  <div class="ic-triggered-grid four-columns">
                     <label><span>Uses Before Removal</span><input type="number" min="1" max="999" step="1" value="{{consumption.uses}}" data-trigger-input="uses" data-trigger-scope="consumption" data-trigger-id="{{id}}" data-value-type="number"></label>
                     <label><span>Eligible Roll</span><select data-trigger-input="event" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionEventOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label><span>Ask / Use Timing</span><select data-trigger-input="timing" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     <label><span>Use Decision</span><select data-trigger-input="decision" data-trigger-scope="consumption" data-trigger-id="{{id}}">{{#each consumptionDecisionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   </div>
-                  <aside class="ic-triggered-note"><i class="fa-solid fa-hourglass-half"></i><span>The managed effect remains available until its normal duration ends or its configured uses reach zero, whichever happens first. For <strong>Ask the Player</strong>, declining preserves every use. Cancelling the native roll also preserves every use.</span></aside>
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-hourglass-half"></i><span>The recipient immediately gains a visible active effect. It remains until its normal duration ends or its configured uses reach zero, whichever happens first. Declining preserves every use.</span></aside>
+                  {{#if consumptionAfterFailure}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span><strong>After a Failed Result</strong> waits for the native roll and only offers the effect when the roll has a known AC/DC and is still a failure. The configured bonus is rolled and added to the existing result; the original roll is not repeated. Results without a verifiable target number are left unchanged.</span></aside>
+                  {{else}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-dice-d20"></i><span><strong>Before the Roll</strong> enables the managed payload only for the confirmed native roll. Cancelling the roll preserves every use.</span></aside>
+                  {{/if}}
                   {{/if}}
                 </div>
               </section>

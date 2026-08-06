@@ -115,6 +115,11 @@ export const CONSUMPTION_DECISIONS = Object.freeze([
   ["automatic", "Use Automatically"]
 ]);
 
+export const CONSUMPTION_TIMINGS = Object.freeze([
+  ["beforeRoll", "Before the Roll"],
+  ["afterFailure", "After a Failed Result"]
+]);
+
 export const STACK_BEHAVIORS = Object.freeze([
   ["singleAttack", "Single Attack — Remove After Damage Roll"],
   ["refresh", "No Stacking — Refresh Duration"],
@@ -270,7 +275,8 @@ export function defaultTriggeredEffect() {
       enabled: false,
       uses: 1,
       event: "d20Test",
-      decision: "prompt"
+      decision: "prompt",
+      timing: "beforeRoll"
     },
     stacks: {
       granted: 1,
@@ -369,6 +375,8 @@ export function normalizeTriggeredEffect(value = {}) {
   const retrigger = validChoice(RETRIGGER_BEHAVIORS, value.application?.retrigger, fallback.application.retrigger);
   const consumptionEvent = validChoice(CONSUMPTION_EVENTS, value.consumption?.event, fallback.consumption.event);
   const consumptionDecision = validChoice(CONSUMPTION_DECISIONS, value.consumption?.decision, fallback.consumption.decision);
+  let consumptionTiming = validChoice(CONSUMPTION_TIMINGS, value.consumption?.timing, fallback.consumption.timing);
+  if (consumptionTiming === "afterFailure" && ["damageRoll", "healingRoll"].includes(consumptionEvent)) consumptionTiming = "beforeRoll";
 
   return {
     ...fallback,
@@ -406,7 +414,8 @@ export function normalizeTriggeredEffect(value = {}) {
       enabled: Boolean(value.consumption?.enabled),
       uses: Math.max(1, Number(value.consumption?.uses) || 1),
       event: consumptionEvent,
-      decision: consumptionDecision
+      decision: consumptionDecision,
+      timing: consumptionTiming
     },
     stacks: (() => {
       const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
@@ -469,6 +478,8 @@ export function validateTriggeredEffect(value) {
     if (!(setting.consumption.uses > 0)) return false;
     if (!CONSUMPTION_EVENTS.some(([entry]) => entry === setting.consumption.event)) return false;
     if (!CONSUMPTION_DECISIONS.some(([entry]) => entry === setting.consumption.decision)) return false;
+    if (!CONSUMPTION_TIMINGS.some(([entry]) => entry === setting.consumption.timing)) return false;
+    if (setting.consumption.timing === "afterFailure" && ["damageRoll", "healingRoll"].includes(setting.consumption.event)) return false;
   }
   if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
   if (setting.application.mode === "stacking" && setting.stacks.behavior === "singleAttack"
@@ -771,10 +782,16 @@ function consumptionSummary(setting) {
   if (!setting.consumption.enabled) return "";
   const uses = Math.max(1, Number(setting.consumption.uses) || 1);
   const event = optionLabel(CONSUMPTION_EVENTS, setting.consumption.event, setting.consumption.event);
+  const timing = setting.consumption.timing === "afterFailure"
+    ? "after a result is confirmed as a failure"
+    : "before the roll";
   const decision = setting.consumption.decision === "automatic"
-    ? "used automatically"
-    : "the player chooses whether to use it; declining or cancelling the roll does not consume a use";
-  return ` Consumption: also expires after ${uses} confirmed ${event} use(s); ${decision}. Duration and consumption are independent, so whichever ends first removes the effect.`;
+    ? `used automatically ${timing}`
+    : `the player chooses whether to use it ${timing}; declining does not consume a use${setting.consumption.timing === "beforeRoll" ? ", and cancelling the roll also preserves it" : ""}`;
+  const resultRule = setting.consumption.timing === "afterFailure"
+    ? " A target number must be known; successful rolls and results without a verifiable DC/AC are not offered."
+    : "";
+  return ` Consumption: also expires after ${uses} confirmed ${event} use(s); ${decision}. Duration and consumption are independent, so whichever ends first removes the effect.${resultRule}`;
 }
 
 export function triggeredEffectSummary(value) {

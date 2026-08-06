@@ -10,7 +10,7 @@ import {
   normalizeResourceModification, resourceGroups, resourceModificationLabel, validateResourceModification
 } from "../services/resource-modification-registry.mjs";
 import {
-  ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, CONSUMPTION_DECISIONS, CONSUMPTION_EVENTS,
+  ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, CONSUMPTION_DECISIONS, CONSUMPTION_EVENTS, CONSUMPTION_TIMINGS,
   DURATION_UNITS, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
@@ -1577,7 +1577,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
         consumptionEventOptions: fixedOptions(CONSUMPTION_EVENTS, consumption.event),
         consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, consumption.decision),
+        consumptionTimingOptions: fixedOptions(CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterFailure"
+          || !["damageRoll", "healingRoll"].includes(consumption.event)), consumption.timing),
         consumptionEnabled: consumption.enabled,
+        consumptionAfterFailure: consumption.timing === "afterFailure",
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
           || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
         durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),

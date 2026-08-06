@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0e Beta Candidate
+**Version:** 0.5.0f Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -102,7 +102,11 @@ Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/dam
 
 Normal numeric effects may be flat, based on Proficiency Bonus or an ability modifier, use the recipient Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each normal effect can be fixed while active or multiplied per stack.
 
-**Remove When Consumed** is an additional lifetime condition and never replaces the configured duration. The GM chooses a number of uses, an eligible roll type (Attack Roll, Ability Check, Saving Throw, any D20 Test, Damage Roll, or Healing Roll), and whether the player is asked before use or the effect is used automatically. The managed effect therefore lasts until its normal duration ends **or** its use counter reaches zero, whichever happens first. Declining the prompt or cancelling the native roll preserves every use. While waiting for an eligible roll, the managed Active Effects remain dormant so imported bonuses do not leak into unrelated rolls; Item Creator enables them only for the confirmed roll, then returns them to dormancy or removes them at zero uses. A new successful Trigger activation reapplies the effect and restores its configured use pool.
+**Remove When Consumed** is an additional lifetime condition and never replaces the configured duration. The GM chooses a number of uses, an eligible roll type (Attack Roll, Ability Check, Saving Throw, any D20 Test, Damage Roll, or Healing Roll), a decision mode, and **Ask / Use Timing**. The managed effect therefore lasts until its normal duration ends **or** its use counter reaches zero, whichever happens first. A configuration such as `10 Effect Recipient Turns / 1 use` expires after ten recipient turns if unused or immediately after its confirmed use. A new successful Trigger activation reapplies the effect and restores its configured use pool.
+
+The recipient immediately receives an enabled, visible Item Creator Active Effect showing the benefit and its remaining uses. Roll-changing payload documents are kept dormant between uses so an optional bonus cannot affect unrelated rolls. **Before the Roll** asks or activates before the native roll, enables the payload only for that roll, consumes one use only after a completed roll, and preserves the use when the roll is cancelled. **After a Failed Result** waits for the native Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw and only offers the effect when a numeric AC/DC is known and the result is still a failure. It rolls the applicable additive bonus, adds it to the existing total without rerolling the d20, reports whether the failure became a success, and then consumes one use. Damage and Healing Rolls use pre-roll timing because they do not have a native success/failure target. Declining always preserves the effect.
+
+Application, refresh, and confirmed consumption generate one chat notice for the managed Trigger application, including recipient, source Item, lifetime, uses, and post-failure result when applicable. Multiple Active Effects copied from one Spell remain one managed application and consume only one use together.
 
 Triggered Effects apply Active Effect-compatible bonuses, penalties, conditions, resistances, immunities, and copied Spell effects to the configured recipient. They do not summon creatures, execute Activities automatically, reproduce a selected Spell's full casting workflow, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
 

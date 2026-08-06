@@ -8,11 +8,13 @@ import {
 
 const SOCKET_CHANNEL = `module.${MODULE_ID}`;
 const LEDGER_FLAG = "triggeredEffectLedger";
-const LEDGER_VERSION = 3;
+const LEDGER_VERSION = 4;
 const MAX_RECENT_KEYS = 120;
 const CONSUMPTION_PREPARE_TIMEOUT_MS = 15000;
 const CONSUMPTION_STALE_MS = 5 * 60 * 1000;
 const ROLL_PATCH_FLAG = Symbol.for(`${MODULE_ID}.consumableRollPatch`);
+const POST_FAILURE_DELAY_MS = 100;
+const POST_FAILURE_RECENT_LIMIT = 240;
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -212,7 +214,7 @@ function normalizeEntry(value = {}, ownerActor = null) {
 function readLedger(actor) {
   const raw = clone(actor.getFlag(MODULE_ID, LEDGER_FLAG) ?? null);
   const entries = new Map();
-  if ([1, 2, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
+  if ([1, 2, 3, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
     for (const value of raw.entries) {
       const entry = normalizeEntry(value, actor);
       if (Number(raw.version) === 1 && !entry.control && entry.sourceItemId && entry.triggerId) {
@@ -368,6 +370,76 @@ function consumptionIsStale(entry, now = Date.now()) {
     && (!entry.activeConsumptionPreparedAt || now - entry.activeConsumptionPreparedAt > CONSUMPTION_STALE_MS));
 }
 
+function rollTargetNumber(roll) {
+  const target = Number(roll?.options?.target);
+  return Number.isFinite(target) ? target : null;
+}
+
+function rollResultIsFailure(roll, rollType) {
+  const target = rollTargetNumber(roll);
+  if (target === null || !Number.isFinite(Number(roll?.total))) return false;
+  if (rollType === "attackRoll" && (roll?.isCritical || activeD20Result(roll) === 20)) return false;
+  if (rollType === "attackRoll" && (roll?.isFumble || activeD20Result(roll) === 1)) return true;
+  return Number(roll.total) < target;
+}
+
+function additiveChange(change) {
+  const mode = change?.mode ?? change?.type;
+  const addMode = globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
+  return Number(mode) === Number(addMode) || String(mode ?? "").toLowerCase() === "add";
+}
+
+function attackBonusPath(activity) {
+  const classification = attackClassification(activity);
+  if (classification.spell) {
+    if (classification.melee) return "system.bonuses.msak.attack";
+    if (classification.ranged) return "system.bonuses.rsak.attack";
+  }
+  if (classification.weapon) {
+    if (classification.melee) return "system.bonuses.mwak.attack";
+    if (classification.ranged) return "system.bonuses.rwak.attack";
+  }
+  return "";
+}
+
+function changeAppliesToRoll(change, context = {}) {
+  if (!additiveChange(change)) return false;
+  const key = String(change?.key ?? "");
+  if (!key || !String(change?.value ?? "").trim()) return false;
+  if (context.rollType === "attackRoll") {
+    const exact = attackBonusPath(context.activity);
+    return exact ? key === exact : /^system\.bonuses\.(?:mwak|rwak|msak|rsak)\.attack$/.test(key);
+  }
+  if (context.rollType === "savingThrow") {
+    return key === "system.bonuses.abilities.save"
+      || (context.ability && key === `system.abilities.${context.ability}.bonuses.save`);
+  }
+  if (context.rollType === "abilityCheck") {
+    return key === "system.bonuses.abilities.check"
+      || (context.ability && key === `system.abilities.${context.ability}.bonuses.check`)
+      || (context.skill && key === `system.skills.${context.skill}.bonuses.check`)
+      || (context.tool && key === `system.tools.${context.tool}.bonuses.check`);
+  }
+  return false;
+}
+
+function managedBonusFormula(effects, sourceActorUuid, entryKey, context = {}) {
+  const formulas = [];
+  for (const effect of effects ?? []) {
+    const flags = effect.flags?.[MODULE_ID] ?? {};
+    if (!flags.triggeredRuntime || !flags.consumptionPayload) continue;
+    if (String(flags.sourceActorUuid ?? "") !== String(sourceActorUuid ?? "")) continue;
+    if (String(flags.entryKey ?? "") !== String(entryKey ?? "")) continue;
+    const changes = effect.system?.changes ?? effect.changes ?? [];
+    for (const change of changes) {
+      if (!changeAppliesToRoll(change, context)) continue;
+      const formula = String(change.value ?? "").trim();
+      if (formula) formulas.push(`(${formula})`);
+    }
+  }
+  return formulas.join(" + ");
+}
+
 function withinActivationLimits(entry, setting, combat) {
   const turnKey = `${combat.id}:${combat.round}:${combat.turn}`;
   const roundKey = `${combat.id}:${combat.round}`;
@@ -487,7 +559,7 @@ function singleAttackResolutionMatches(entry, setting, event) {
   return true;
 }
 
-function effectFlags(entry, slot, setting = null, item = null) {
+function effectFlags(entry, slot, setting = null, item = null, { marker = false, payload = false } = {}) {
   const consumable = Boolean(setting?.consumption?.enabled);
   return {
     triggeredRuntime: true,
@@ -501,10 +573,13 @@ function effectFlags(entry, slot, setting = null, item = null) {
     stacks: entry.stacks,
     entryKey: entry.key,
     consumable,
+    consumptionMarker: consumable && marker,
+    consumptionPayload: consumable && payload,
     usesMaximum: consumable ? entry.usesMaximum : 0,
     usesRemaining: consumable ? entry.usesRemaining : 0,
     consumptionEvent: consumable ? setting.consumption.event : "",
     consumptionDecision: consumable ? setting.consumption.decision : "",
+    consumptionTiming: consumable ? setting.consumption.timing : "",
     consumptionActive: consumable ? Boolean(entry.activeConsumptionKey) : false,
     managedEffectName: String(setting?.name ?? ""),
     sourceItemName: String(item?.name ?? "")
@@ -554,6 +629,8 @@ export class ItemCreatorTriggeredEffectService {
   static #pendingSocketRequests = new Map();
   static #activeRollContexts = new Set();
   static #rollPatches = [];
+  static #recentPostFailureKeys = [];
+  static #pendingPostFailureKeys = new Set();
 
   static registerHooks() {
     Hooks.once("ready", () => {
@@ -565,6 +642,10 @@ export class ItemCreatorTriggeredEffectService {
     });
 
     Hooks.on("dnd5e.postRollAttack", (rolls, { subject } = {}) => this.#onAttackRolls(rolls, subject));
+    Hooks.on("dnd5e.rollAbilityCheck", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
+    Hooks.on("dnd5e.rollSavingThrow", (rolls, data = {}) => this.#onD20TestRolls("savingThrow", rolls, data));
+    Hooks.on("dnd5e.rollSkill", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
+    Hooks.on("dnd5e.rollToolCheck", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
     Hooks.on("dnd5e.rollDamage", (rolls, { subject } = {}) => this.#onDamageRolled(rolls, subject));
     Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => this.#onActivityUsed(activity, usageConfig, results));
     Hooks.on("dnd5e.applyDamage", (actor, amount, options) => this.#onDamageApplied(actor, amount, options));
@@ -678,21 +759,22 @@ export class ItemCreatorTriggeredEffectService {
     });
   }
 
-  static #consumableCandidates(actor, rollType) {
+  static #consumableCandidates(actor, rollType, timing = "beforeRoll") {
     if (actor?.documentName !== "Actor") return [];
     const combat = currentCombatForActor(actor);
     if (!combat) return [];
     const groups = new Map();
     for (const effect of actor.effects ?? []) {
       const flags = effect.flags?.[MODULE_ID] ?? {};
-      if (!flags.triggeredRuntime || !flags.consumable || flags.combatId !== combat.id) continue;
+      if (!flags.triggeredRuntime || !flags.consumable || !flags.consumptionMarker || effect.disabled) continue;
+      if (flags.combatId !== combat.id || flags.consumptionTiming !== timing) continue;
       if (!consumptionEventMatches(flags.consumptionEvent, rollType)) continue;
       if (Number(flags.usesRemaining) <= 0 || flags.consumptionActive) continue;
       const entryKey = String(flags.entryKey ?? "");
       const sourceActorUuid = String(flags.sourceActorUuid ?? "");
       if (!entryKey || !sourceActorUuid) continue;
       const key = `${sourceActorUuid}:${entryKey}`;
-      const group = groups.get(key) ?? {
+      groups.set(key, {
         sourceActorUuid,
         entryKey,
         recipientActorUuid: actor.uuid,
@@ -702,10 +784,9 @@ export class ItemCreatorTriggeredEffectService {
         sourceItemName: String(flags.sourceItemName || "Item"),
         usesMaximum: Math.max(1, Number(flags.usesMaximum) || 1),
         usesRemaining: Math.max(0, Number(flags.usesRemaining) || 0),
-        decision: String(flags.consumptionDecision || "prompt")
-      };
-      group.usesRemaining = Math.min(group.usesRemaining, Math.max(0, Number(flags.usesRemaining) || 0));
-      groups.set(key, group);
+        decision: String(flags.consumptionDecision || "prompt"),
+        timing: String(flags.consumptionTiming || "beforeRoll")
+      });
     }
     return [...groups.values()];
   }
@@ -716,21 +797,92 @@ export class ItemCreatorTriggeredEffectService {
     })[character]);
   }
 
-  static async #promptConsumableUse(actor, candidate) {
+  static #lifecycleText(setting, entry) {
+    const lifetime = effectiveLifetime(setting);
+    const unit = lifetime.durationUnit === "recipientTurns" ? "recipient turn(s)"
+      : lifetime.durationUnit === "ownerTurns"
+        ? (lifetime.anchor === "recipient" ? "recipient turn(s)" : "source-actor turn(s)")
+        : lifetime.durationUnit === "combatTurns" ? "combat turn(s)"
+          : lifetime.durationUnit === "rounds" ? "round(s)" : lifetime.durationUnit;
+    const timing = lifetime.tickTiming === "ownerTurnStart" ? "at the start of the tracked turn"
+      : lifetime.tickTiming === "ownerTurnEnd" ? "at the end of the tracked turn"
+        : lifetime.tickTiming === "combatTurnStart" ? "at the start of a combat turn"
+          : lifetime.tickTiming === "combatTurnEnd" ? "at the end of a combat turn"
+            : lifetime.tickTiming === "roundStart" ? "at the start of a round" : "at the end of a round";
+    const duration = `${lifetime.durationAmount} ${unit}, ${timing}`;
+    return setting.consumption?.enabled
+      ? `${duration}, or until ${entry.usesMaximum} use(s) are consumed, whichever happens first`
+      : duration;
+  }
+
+  static async #announceApplication(sourceActor, item, setting, entry, recipient, { refreshed = false } = {}) {
+    if (!recipient || !(setting.consumption?.enabled || recipient.uuid !== sourceActor.uuid)) return;
+    const actorName = this.#escapeHtml(recipient.name);
+    const effectName = this.#escapeHtml(setting.name);
+    const itemName = this.#escapeHtml(item.name);
+    const action = refreshed ? "has refreshed" : "has gained";
+    const lifecycle = this.#escapeHtml(this.#lifecycleText(setting, entry));
+    const uses = setting.consumption?.enabled
+      ? `<p><strong>Uses remaining:</strong> ${entry.usesRemaining}/${entry.usesMaximum}.</p>` : "";
+    try {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: recipient }),
+        content: `<section class="item-creator-triggered-message"><p><strong>${actorName}</strong> ${action} <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p><p><strong>Lifetime:</strong> ${lifecycle}.</p>${uses}</section>`,
+        flags: { [MODULE_ID]: { triggeredEffectNotice: true, noticeType: refreshed ? "refresh" : "application", sourceActorUuid: sourceActor.uuid, sourceItemId: item.id, triggerId: setting.id, recipientActorUuid: recipient.uuid } }
+      });
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Could not post Triggered Effect application message.`, error);
+    }
+  }
+
+  static async #announceConsumption(recipient, result, details = {}) {
+    const actorName = this.#escapeHtml(recipient.name);
+    const effectName = this.#escapeHtml(result.effectName);
+    const itemName = this.#escapeHtml(result.sourceItemName);
+    let resolution = "";
+    if (details.mode === "afterFailure") {
+      const targetLabel = details.rollType === "attackRoll" ? "AC" : "DC";
+      resolution = `<p><strong>Bonus:</strong> ${this.#escapeHtml(details.formula)} = ${Number(details.bonusTotal) || 0}. `
+        + `<strong>Result:</strong> ${Number(details.originalTotal) || 0} → ${Number(details.newTotal) || 0} against ${targetLabel} ${Number(details.target) || 0} — `
+        + `<strong>${details.succeeded ? "success" : "still a failure"}</strong>.</p>`;
+    }
+    const remaining = result.removed
+      ? "The effect has no uses remaining and was removed."
+      : `${result.usesRemaining}/${result.usesMaximum} use(s) remain.`;
+    try {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: recipient }),
+        content: `<section class="item-creator-triggered-message"><p><strong>${actorName}</strong> used <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${resolution}<p>${remaining}</p></section>`,
+        flags: { [MODULE_ID]: { triggeredEffectNotice: true, noticeType: "consumption", sourceActorUuid: result.sourceActorUuid, entryKey: result.entryKey, recipientActorUuid: recipient.uuid } }
+      });
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Could not post Triggered Effect consumption message.`, error);
+    }
+  }
+
+  static async #promptConsumableUse(actor, candidate, context = {}) {
     const DialogV2 = foundry.applications.api.DialogV2;
     const effectName = this.#escapeHtml(candidate.name);
     const actorName = this.#escapeHtml(actor.name);
     const itemName = this.#escapeHtml(candidate.sourceItemName);
+    const target = Number(context.target);
+    const total = Number(context.total);
+    const failure = Number.isFinite(target) && Number.isFinite(total)
+      ? `<p>The current result is <strong>${total}</strong> against ${context.rollType === "attackRoll" ? "AC" : "DC"} <strong>${target}</strong>.</p>`
+      : "";
+    const timing = candidate.timing === "afterFailure"
+      ? `${failure}<p>The configured bonus will be rolled and added to this existing result. The original roll will not be repeated.</p>`
+      : "<p>The managed payload will be enabled only for this native roll.</p>";
     return Boolean(await DialogV2.confirm({
       window: { title: `Use ${effectName}?`, modal: true },
-      content: `<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong> for this roll.</p><p>${candidate.usesRemaining} of ${candidate.usesMaximum} use(s) remain. Choosing No preserves the effect and all remaining uses.</p>`,
+      content: `<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${timing}<p>${candidate.usesRemaining} of ${candidate.usesMaximum} use(s) remain. Choosing No preserves the effect and all remaining uses.</p>`,
       yes: { label: "Use", icon: "fa-solid fa-dice-d20" },
       no: { label: "Keep for Later", icon: "fa-solid fa-hourglass-half" }
     }));
   }
 
   static async #prepareConsumableRoll(actor, rollType) {
-    const candidates = this.#consumableCandidates(actor, rollType);
+    const candidates = this.#consumableCandidates(actor, rollType, "beforeRoll");
     if (!candidates.length) return [];
     const selections = [];
     for (const candidate of candidates) {
@@ -747,17 +899,19 @@ export class ItemCreatorTriggeredEffectService {
     const response = await this.#requestAuthoritativeGM("prepareConsumableRoll", {
       recipientActorUuid: actor.uuid,
       rollType,
+      timing: "beforeRoll",
       selections
     });
     return Array.isArray(response?.prepared) ? response.prepared : [];
   }
 
-  static async #finalizeConsumableRoll(actor, rollType, prepared, completed) {
-    if (!prepared.length) return;
-    await this.#requestAuthoritativeGM("finalizeConsumableRoll", {
+  static async #finalizeConsumableRoll(actor, rollType, prepared, completed, details = {}) {
+    if (!prepared.length) return { finalized: 0, results: [] };
+    return this.#requestAuthoritativeGM("finalizeConsumableRoll", {
       recipientActorUuid: actor.uuid,
       rollType,
       completed: Boolean(completed),
+      details,
       prepared
     });
   }
@@ -776,6 +930,7 @@ export class ItemCreatorTriggeredEffectService {
       throw new Error("The requesting user cannot operate the effect recipient.");
     }
     const rollType = String(payload.rollType ?? "");
+    const timing = String(payload.timing ?? "beforeRoll");
     const prepared = [];
     for (const selection of valuesOf(payload.selections)) {
       if (selection.recipientActorUuid !== recipient.uuid || !selection.sourceActorUuid || !selection.entryKey || !selection.useKey) continue;
@@ -786,7 +941,8 @@ export class ItemCreatorTriggeredEffectService {
         const entry = ledger.entries.get(selection.entryKey);
         if (!entry || entry.control || entry.recipientActorUuid !== recipient.uuid || entry.stacks <= 0) return null;
         const { item, setting } = findConfig(sourceActor, entry.sourceItemId, entry.triggerId);
-        if (!item || !setting?.consumption?.enabled || !consumptionEventMatches(setting.consumption.event, rollType)) return null;
+        if (!item || !setting?.consumption?.enabled || setting.consumption.timing !== timing
+          || !consumptionEventMatches(setting.consumption.event, rollType)) return null;
         if (!itemAvailable(item, setting.availability)
           || (setting.unlockOnLevel && actorTotalLevel(sourceActor) < setting.unlockLevel)) return null;
         if (entry.usesRemaining <= 0 || entry.combatId !== currentCombatForActor(recipient)?.id) return null;
@@ -803,7 +959,8 @@ export class ItemCreatorTriggeredEffectService {
           sourceActorUuid: sourceActor.uuid,
           entryKey: entry.key,
           recipientActorUuid: recipient.uuid,
-          useKey: entry.activeConsumptionKey
+          useKey: entry.activeConsumptionKey,
+          timing
         };
       });
       if (result) prepared.push(result);
@@ -816,29 +973,33 @@ export class ItemCreatorTriggeredEffectService {
     if (!recipient || !this.#requestingUserCanOperate(recipient, payload.requestingUserId)) {
       throw new Error("The requesting user cannot finalize this managed effect.");
     }
-    let finalized = 0;
+    const results = [];
     for (const prepared of valuesOf(payload.prepared)) {
       if (prepared.recipientActorUuid !== recipient.uuid || !prepared.sourceActorUuid || !prepared.entryKey || !prepared.useKey) continue;
       const sourceActor = resolveActorDocument(prepared.sourceActorUuid);
       if (!sourceActor) continue;
-      const changed = await this.#enqueue(sourceActor.uuid, async () => {
+      const result = await this.#enqueue(sourceActor.uuid, async () => {
         const ledger = readLedger(sourceActor);
         const entry = ledger.entries.get(prepared.entryKey);
-        if (!entry || entry.activeConsumptionKey !== prepared.useKey) return false;
+        if (!entry || entry.activeConsumptionKey !== prepared.useKey) return null;
         const { item, setting } = findConfig(sourceActor, entry.sourceItemId, entry.triggerId);
         clearActiveConsumption(entry);
         if (!item || !setting?.consumption?.enabled) {
           await this.#removeEntryEffects(entry);
           ledger.entries.delete(entry.key);
           await this.#writeLedger(sourceActor, ledger.entries);
-          return true;
+          return { consumed: false, removed: true, usesRemaining: 0 };
         }
+
+        let consumed = false;
         if (payload.completed && !entry.recentConsumptionKeys.includes(prepared.useKey)) {
           entry.recentConsumptionKeys.push(prepared.useKey);
           entry.recentConsumptionKeys = entry.recentConsumptionKeys.slice(-MAX_RECENT_KEYS);
           entry.usesRemaining = Math.max(0, entry.usesRemaining - 1);
+          consumed = true;
         }
-        if (entry.usesRemaining <= 0 || entry.stacks <= 0) {
+        const removed = entry.usesRemaining <= 0 || entry.stacks <= 0;
+        if (removed) {
           await this.#removeEntryEffects(entry);
           ledger.entries.delete(entry.key);
         } else {
@@ -846,11 +1007,24 @@ export class ItemCreatorTriggeredEffectService {
           ledger.entries.set(entry.key, entry);
         }
         await this.#writeLedger(sourceActor, ledger.entries);
-        return true;
+
+        const data = {
+          consumed,
+          removed,
+          usesRemaining: Math.max(0, Number(entry.usesRemaining) || 0),
+          usesMaximum: Math.max(1, Number(entry.usesMaximum) || 1),
+          effectName: setting.name,
+          sourceItemName: item.name,
+          recipientName: recipient.name,
+          sourceActorUuid: sourceActor.uuid,
+          entryKey: entry.key
+        };
+        if (consumed) await this.#announceConsumption(recipient, data, payload.details ?? {});
+        return data;
       });
-      if (changed) finalized += 1;
+      if (result) results.push(result);
     }
-    return { finalized };
+    return { finalized: results.length, results };
   }
 
   static #rollCompleted(result) {
@@ -878,13 +1052,140 @@ export class ItemCreatorTriggeredEffectService {
     } finally {
       if (prepared.length) {
         try {
-          await this.#finalizeConsumableRoll(actor, rollType, prepared, this.#rollCompleted(result));
+          await this.#finalizeConsumableRoll(actor, rollType, prepared, this.#rollCompleted(result), { mode: "beforeRoll", rollType });
         } catch (error) {
           console.error(`${MODULE_ID} | Could not finalize a consumable managed effect.`, error);
           ui.notifications?.error?.("Item Creator could not finalize a consumable effect. The active GM should reconcile the Actor.");
         }
       }
       this.#activeRollContexts.delete(contextKey);
+    }
+  }
+
+  static #onD20TestRolls(rollType, rolls, data = {}) {
+    const actor = data.subject?.documentName === "Actor" ? data.subject : data.subject?.actor;
+    if (!actor || !currentCombatForActor(actor)) return;
+    for (const [index, roll] of valuesOf(rolls).entries()) {
+      this.#scheduleAfterFailureRoll(actor, rollType, roll, {
+        ability: data.ability ?? "",
+        skill: data.skill ?? "",
+        tool: data.tool ?? "",
+        index
+      });
+    }
+  }
+
+  static #postFailureRollKey(actor, rollType, roll, context = {}) {
+    const messageId = roll?.parent?.id ?? roll?.options?.messageId ?? "";
+    return `${actor.uuid}:${rollType}:${messageId || context.index || 0}:${Number(roll?.total) || 0}:${activeD20Result(roll)}`;
+  }
+
+  static #rememberPostFailureKey(key) {
+    this.#recentPostFailureKeys.push(key);
+    this.#recentPostFailureKeys = this.#recentPostFailureKeys.slice(-POST_FAILURE_RECENT_LIMIT);
+  }
+
+  static #scheduleAfterFailureRoll(actor, rollType, roll, context = {}) {
+    if (!rollResultIsFailure(roll, rollType)) return;
+    const key = this.#postFailureRollKey(actor, rollType, roll, context);
+    if (this.#pendingPostFailureKeys.has(key) || this.#recentPostFailureKeys.includes(key)) return;
+    this.#pendingPostFailureKeys.add(key);
+    setTimeout(() => void (async () => {
+      try {
+        await this.#waitForHigherPriorityAutomation({ actor, rollType, roll, ...context });
+        await this.#resolveAfterFailureRoll(actor, rollType, roll, context);
+      } catch (error) {
+        console.error(`${MODULE_ID} | Failed to resolve a post-result consumable effect.`, error);
+      } finally {
+        this.#pendingPostFailureKeys.delete(key);
+        this.#rememberPostFailureKey(key);
+      }
+    })(), POST_FAILURE_DELAY_MS);
+  }
+
+  static async #waitForHigherPriorityAutomation(context) {
+    const moduleApi = game.modules?.get("dnd5e-character-builder")?.api;
+    const candidates = [
+      [moduleApi?.rulesAutomation, moduleApi?.rulesAutomation?.waitForRollResolution],
+      [moduleApi, moduleApi?.waitForRollResolution],
+      [globalThis.dnd5eCharacterBuilder, globalThis.dnd5eCharacterBuilder?.waitForRollResolution]
+    ];
+    for (const [owner, callback] of candidates) {
+      if (!(callback instanceof Function)) continue;
+      try {
+        await Promise.race([
+          Promise.resolve(callback.call(owner, context)),
+          new Promise(resolve => setTimeout(resolve, 5000))
+        ]);
+      } catch (error) {
+        console.warn(`${MODULE_ID} | Higher-priority roll automation did not complete cleanly.`, error);
+      }
+      break;
+    }
+    Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, context);
+  }
+
+  static async #resolveAfterFailureRoll(actor, rollType, roll, context = {}) {
+    if (!rollResultIsFailure(roll, rollType)) return;
+    const target = rollTargetNumber(roll);
+    if (target === null) return;
+    const candidates = this.#consumableCandidates(actor, rollType, "afterFailure");
+    if (!candidates.length) return;
+
+    let runningTotal = Number(roll.total) || 0;
+    for (const candidate of candidates) {
+      if (rollType === "attackRoll" && (roll?.isFumble || activeD20Result(roll) === 1)) break;
+      if (runningTotal >= target) break;
+      const rollContext = { ...context, rollType, activity: context.activity ?? null };
+      const formula = managedBonusFormula(actor.effects, candidate.sourceActorUuid, candidate.entryKey, rollContext);
+      if (!formula) {
+        console.warn(`${MODULE_ID} | ${candidate.name} has no additive ${rollType} change that can be applied after a failed result.`);
+        continue;
+      }
+      const use = candidate.decision === "automatic" || await this.#promptConsumableUse(actor, candidate, {
+        rollType, total: runningTotal, target
+      });
+      if (!use) continue;
+
+      const useKey = foundry.utils.randomID();
+      const response = await this.#requestAuthoritativeGM("prepareConsumableRoll", {
+        recipientActorUuid: actor.uuid,
+        rollType,
+        timing: "afterFailure",
+        selections: [{
+          sourceActorUuid: candidate.sourceActorUuid,
+          entryKey: candidate.entryKey,
+          recipientActorUuid: candidate.recipientActorUuid,
+          useKey
+        }]
+      });
+      const prepared = Array.isArray(response?.prepared) ? response.prepared : [];
+      if (!prepared.length) continue;
+
+      let bonusRoll = null;
+      try {
+        bonusRoll = await (new Roll(formula, actor.getRollData?.() ?? {})).evaluate();
+      } catch (error) {
+        await this.#finalizeConsumableRoll(actor, rollType, prepared, false);
+        ui.notifications?.warn?.(`${candidate.name} could not roll its post-failure bonus.`);
+        console.warn(`${MODULE_ID} | Invalid post-failure bonus formula: ${formula}`, error);
+        continue;
+      }
+      const bonusTotal = Number(bonusRoll?.total) || 0;
+      const originalTotal = runningTotal;
+      runningTotal += bonusTotal;
+      const succeeded = runningTotal >= target;
+      await this.#finalizeConsumableRoll(actor, rollType, prepared, true, {
+        mode: "afterFailure",
+        formula,
+        bonusTotal,
+        originalTotal,
+        newTotal: runningTotal,
+        target,
+        succeeded,
+        rollType,
+        originalMessageId: roll?.parent?.id ?? roll?.options?.messageId ?? ""
+      });
     }
   }
 
@@ -910,6 +1211,8 @@ export class ItemCreatorTriggeredEffectService {
   static #installConsumableRollPatches() {
     const actorPrototype = CONFIG.Actor?.documentClass?.prototype;
     this.#patchRollMethod(actorPrototype, "rollAbilityCheck", "abilityCheck", "d20");
+    this.#patchRollMethod(actorPrototype, "rollSkill", "abilityCheck", "d20");
+    this.#patchRollMethod(actorPrototype, "rollToolCheck", "abilityCheck", "d20");
     this.#patchRollMethod(actorPrototype, "rollSavingThrow", "savingThrow", "d20");
 
     const activities = CONFIG.DND5E?.activityTypes ?? {};
@@ -1151,6 +1454,7 @@ export class ItemCreatorTriggeredEffectService {
       if (hit) this.#emit({ ...base, id: eventId("attackHit", base.rollKey), type: "attackHit" });
       if (critical) this.#emit({ ...base, id: eventId("criticalHit", base.rollKey), type: "criticalHit" });
       if (natural === 20) this.#emit({ ...base, id: eventId("natural20", base.rollKey), type: "natural20" });
+      this.#scheduleAfterFailureRoll(actor, "attackRoll", roll, { activity, index, messageId });
     }
   }
 
@@ -1421,6 +1725,7 @@ export class ItemCreatorTriggeredEffectService {
 
             for (const group of eligible) {
               let entry = group.existing;
+              const wasActive = Boolean(entry?.combatId === combat.id && entry?.stacks > 0);
               if (entry?.combatId && entry.combatId !== combat.id) {
                 await this.#removeEntryEffects(entry);
                 ledger.entries.delete(group.key);
@@ -1452,6 +1757,7 @@ export class ItemCreatorTriggeredEffectService {
               applyActivation(entry, setting, combat, event);
               ledger.entries.set(group.key, entry);
               await this.#syncEntryEffects(actor, item, setting, entry);
+              await this.#announceApplication(actor, item, setting, entry, group.actor, { refreshed: wasActive });
             }
 
             control.recentActivationKeys.push(cycle.activationKey);
@@ -1505,18 +1811,31 @@ export class ItemCreatorTriggeredEffectService {
   static async #effectDescriptors(item, setting, entry, recipient) {
     const payloads = entryPayloads(setting, entry);
     const descriptors = [];
-    const uses = setting.consumption?.enabled
-      ? `; ${entry.usesRemaining}/${entry.usesMaximum} use(s)` : "";
+    const consumable = Boolean(setting.consumption?.enabled);
+    if (consumable) {
+      descriptors.push({
+        slot: "consumption:marker",
+        name: `Item Creator — ${setting.name} (${entry.usesRemaining}/${entry.usesMaximum} use(s) remaining)`,
+        img: item.img || "icons/svg/aura.svg",
+        changes: [],
+        statuses: [],
+        flags: {},
+        consumptionMarker: true,
+        consumptionPayload: false
+      });
+    }
     const directPayloads = payloads.filter(payload => payload.type !== "selectedSpellEffects");
     const directChanges = buildTriggeredEffectChanges(setting, entry.stacks, recipient, { payloads: directPayloads });
     if (directChanges.length) {
       descriptors.push({
         slot: "direct",
-        name: `Item Creator — ${setting.name} (${entry.stacks} stack(s)${uses})`,
+        name: `Item Creator — ${setting.name} (${entry.stacks} stack(s))`,
         img: item.img || "icons/svg/aura.svg",
         changes: directChanges,
         statuses: [],
-        flags: {}
+        flags: {},
+        consumptionMarker: false,
+        consumptionPayload: consumable
       });
     }
 
@@ -1534,11 +1853,13 @@ export class ItemCreatorTriggeredEffectService {
         const snapshotId = String(snapshot?.id ?? index);
         descriptors.push({
           slot: `spell:${payload.id}:${snapshotId}`,
-          name: `Item Creator — ${setting.name}: ${payload.spellName || "Selected Spell"}${snapshot?.name ? ` — ${snapshot.name}` : ""}${uses}`,
+          name: `Item Creator — ${setting.name}: ${payload.spellName || "Selected Spell"}${snapshot?.name ? ` — ${snapshot.name}` : ""}`,
           img: snapshot?.img || payload.spellImg || item.img || "icons/svg/aura.svg",
           changes: clone(snapshot?.changes ?? []),
           statuses: valuesOf(snapshot?.statuses).map(String).filter(Boolean),
-          flags: clone(snapshot?.flags ?? {})
+          flags: clone(snapshot?.flags ?? {}),
+          consumptionMarker: false,
+          consumptionPayload: consumable
         });
       }
     }
@@ -1564,10 +1885,15 @@ export class ItemCreatorTriggeredEffectService {
     const desiredSlots = new Set(descriptors.map(descriptor => descriptor.slot));
     let changed = false;
     const nextRefs = [];
-    const dormant = Boolean(setting.consumption?.enabled && !entry.activeConsumptionKey);
+    const preparedBeforeRoll = Boolean(setting.consumption?.enabled
+      && setting.consumption.timing === "beforeRoll" && entry.activeConsumptionKey);
 
     for (const descriptor of descriptors) {
-      const runtimeFlags = effectFlags(entry, descriptor.slot, setting, item);
+      const disabled = Boolean(setting.consumption?.enabled && descriptor.consumptionPayload && !preparedBeforeRoll);
+      const runtimeFlags = effectFlags(entry, descriptor.slot, setting, item, {
+        marker: Boolean(descriptor.consumptionMarker),
+        payload: Boolean(descriptor.consumptionPayload)
+      });
       const flags = foundry.utils.mergeObject(clone(descriptor.flags ?? {}), {
         [MODULE_ID]: runtimeFlags
       }, { inplace: false, recursive: true, overwrite: true });
@@ -1576,7 +1902,7 @@ export class ItemCreatorTriggeredEffectService {
         img: descriptor.img,
         origin: item.uuid,
         transfer: false,
-        disabled: dormant,
+        disabled,
         duration: {},
         statuses: descriptor.statuses,
         system: { changes: descriptor.changes },
@@ -1599,7 +1925,7 @@ export class ItemCreatorTriggeredEffectService {
       const needsUpdate = current.name !== descriptor.name
         || current.img !== descriptor.img
         || current.origin !== item.uuid
-        || current.disabled !== dormant
+        || current.disabled !== disabled
         || current.transfer
         || JSON.stringify(currentChanges) !== JSON.stringify(descriptor.changes)
         || JSON.stringify(currentStatuses) !== JSON.stringify(descriptor.statuses)
@@ -1611,7 +1937,7 @@ export class ItemCreatorTriggeredEffectService {
           img: descriptor.img,
           origin: item.uuid,
           transfer: false,
-          disabled: dormant,
+          disabled,
           duration: {},
           statuses: descriptor.statuses,
           "system.changes": descriptor.changes,
@@ -1688,6 +2014,10 @@ export const __triggeredEffectTest = Object.freeze({
   consumptionEventMatches,
   clearActiveConsumption,
   consumptionIsStale,
+  rollTargetNumber,
+  rollResultIsFailure,
+  changeAppliesToRoll,
+  managedBonusFormula,
   tickEntry,
   matchingTick,
   singleAttackResolutionMatches,
