@@ -1,6 +1,7 @@
 # Changelog
 
 ## 0.5.0k — Shared Decision UX and GM Resolution Audit
+- ApplicationV2 blur correction: post-roll Use/Keep decisions no longer use DialogV2, eliminating the native modal visual layer while preserving functional blocking and attention feedback.
 
 ### Privacy-neutral decision window
 

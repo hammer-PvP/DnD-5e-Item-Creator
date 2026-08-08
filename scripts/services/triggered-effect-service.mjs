@@ -2,6 +2,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
 import { ProtectedTransactionDialogService } from "./protected-transaction-dialog-service.mjs";
+import { TriggeredConsumptionDecisionApp } from "../apps/triggered-consumption-decision-app.mjs";
 import {
   buildTriggeredEffectChanges, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
@@ -1171,20 +1172,20 @@ export class ItemCreatorTriggeredEffectService {
     const timing = afterRoll
       ? `${rollInfo}<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${modifierInfo}<p>Wait for the GM's ruling, then use the modifier if you need it or keep it for a later eligible roll.</p>`
       : `<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p><p>The managed payload will be enabled only for this native roll. Cancelling the roll preserves the effect.</p>`;
-    return Boolean(await ProtectedTransactionDialogService.confirm({
+    const decisionApp = new TriggeredConsumptionDecisionApp({
+      title: effectName,
+      content: `${timing}<p class="ic-triggered-consumption-uses">${candidate.usesRemaining}/${candidate.usesMaximum} use(s) remain.</p>`,
+      useLabel: afterRoll && formula ? `Use ${formula}` : "Use",
+      useIcon: "fa-solid fa-dice-d20",
+      keepLabel: "Keep",
+      keepIcon: "fa-solid fa-shield-halved"
+    });
+    return Boolean(await ProtectedTransactionDialogService.runProtectedApplication({
       key: `triggered-consumption-${actor.uuid}-${candidate.sourceActorUuid}-${candidate.entryKey}`,
       matchClass: "ic-triggered-consumption-dialog",
-      visualBackdrop: false,
       containKeyboard: true,
       attentionFeedback: true,
-      dialogOptions: {
-        classes: ["ic-triggered-consumption-dialog"],
-        modal: false,
-        window: { title: effectName },
-        content: `<section class="ic-triggered-consumption-content">${timing}<p class="ic-triggered-consumption-uses">${candidate.usesRemaining}/${candidate.usesMaximum} use(s) remain.</p></section>`,
-        yes: { label: afterRoll && formula ? `Use ${formula}` : "Use", icon: "fa-solid fa-dice-d20" },
-        no: { label: "Keep", icon: "fa-solid fa-shield-halved" }
-      }
+      operation: () => decisionApp.waitForDecision()
     }));
   }
 

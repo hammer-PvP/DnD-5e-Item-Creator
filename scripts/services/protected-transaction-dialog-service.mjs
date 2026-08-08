@@ -15,11 +15,11 @@ export class ProtectedTransactionDialogService {
 
     const active = {
       key, matchClass, app: null, element: null, blocked: new Map(), released: false, containKeyboard, attentionFeedback,
-      backdrop: this.#backdrop(visualBackdrop), renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false,
+      backdrop: visualBackdrop ? this.#backdrop(true) : null, renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false,
       attentionTimer: null, lastAttentionAt: 0
     };
     this.#active = active;
-    document.body.append(active.backdrop);
+    if (active.backdrop) document.body.append(active.backdrop);
     document.body.classList.add("ic-protected-active");
 
     active.pointerHandler = event => {
@@ -72,6 +72,68 @@ export class ProtectedTransactionDialogService {
 
     try {
       return Boolean(await DialogV2.confirm(dialogOptions));
+    } finally {
+      this.#release(active);
+    }
+  }
+
+  static async runProtectedApplication({ key, matchClass, operation, containKeyboard = false, attentionFeedback = false } = {}) {
+    if (!key || !matchClass || !(operation instanceof Function)) {
+      throw new Error("Protected application requires key, matchClass, and operation.");
+    }
+    if (this.#active) {
+      this.#attention(this.#active);
+      this.#sync(this.#active, true);
+      return false;
+    }
+
+    const active = {
+      key, matchClass, app: null, element: null, blocked: new Map(), released: false, containKeyboard, attentionFeedback,
+      backdrop: null, renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false,
+      attentionTimer: null, lastAttentionAt: 0
+    };
+    this.#active = active;
+    document.body.classList.add("ic-protected-active");
+
+    active.pointerHandler = event => {
+      if (active.released || active.element?.contains?.(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.#attention(active);
+      this.#sync(active, true);
+    };
+    active.focusHandler = event => {
+      if (active.released || active.element?.contains?.(event.target)) return;
+      event.stopImmediatePropagation();
+      this.#attention(active);
+      this.#sync(active, true);
+    };
+    active.keyHandler = event => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.#attention(active);
+      this.#sync(active, true);
+    };
+    document.addEventListener("pointerdown", active.pointerHandler, true);
+    document.addEventListener("click", active.pointerHandler, true);
+    document.addEventListener("focusin", active.focusHandler, true);
+    document.addEventListener("keydown", active.keyHandler, true);
+
+    active.renderHook = Hooks.on("renderApplicationV2", app => {
+      if (app?.element?.classList?.contains(matchClass)) {
+        active.app = app;
+        active.element = app.element;
+        this.#unblock(active, active.element);
+        if (active.containKeyboard) active.element.addEventListener("keydown", event => event.stopPropagation());
+        this.#sync(active, true);
+      }
+      this.#block(active);
+    });
+    this.#block(active);
+
+    try {
+      return Boolean(await operation());
     } finally {
       this.#release(active);
     }
@@ -209,7 +271,7 @@ export class ProtectedTransactionDialogService {
       const z = Number.parseInt(element.style.zIndex || getComputedStyle(element).zIndex, 10);
       if (Number.isFinite(z)) max = Math.max(max, z);
     }
-    active.backdrop.style.zIndex = String(max + 1);
+    if (active.backdrop) active.backdrop.style.zIndex = String(max + 1);
     active.element.style.zIndex = String(max + 2);
     if (focus) (active.element.querySelector("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])") ?? active.element).focus?.({ preventScroll: true });
   }
@@ -239,7 +301,7 @@ export class ProtectedTransactionDialogService {
     document.removeEventListener("click", active.pointerHandler, true);
     document.removeEventListener("focusin", active.focusHandler, true);
     document.removeEventListener("keydown", active.keyHandler, true);
-    active.backdrop.remove();
+    active.backdrop?.remove();
     for (const [element, inert] of active.blocked) if (element.isConnected) {
       element.inert = inert;
       element.classList.remove("ic-protected-blocked");
