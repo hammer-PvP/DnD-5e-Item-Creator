@@ -1,21 +1,24 @@
 # Changelog
 
-## 0.5.0k — Shared Decision UX and GM Resolution Audit
-- ApplicationV2 blur correction: post-roll Use/Keep decisions no longer use DialogV2, eliminating the native modal visual layer while preserving functional blocking and attention feedback.
+## 0.5.0l — Rebuilt No-Blur Post-Roll Decision Window
 
-### Privacy-neutral decision window
+### Stable rebuild from 0.5.0j
 
-- Fixed the consumable `DialogV2` configuration so `modal: false` is applied at the dialog configuration level rather than being ignored inside `window`. Post-roll Item Creator decisions therefore use no native modal blur or dark visual backdrop.
-- The decision remains functionally modal through Item Creator's transparent interaction shield: the map, chat, sheets, and other windows remain fully visible, but clicks and focus cannot pass through until **Use** or **Keep** resolves the pending roll decision.
-- Added a short attention pulse when the player clicks or focuses outside the protected decision (or presses Escape). The blocked action is still discarded; the pulse only points the player back to the pending choice.
-- Aligned the compact post-roll presentation with the Character Builder decision language: roll type and current total at the top, effect/source context, available modifier, and equal **Use <die> / Keep** controls. The window remains draggable and close controls remain suppressed.
+- Rebuilt this patch directly from the known-good `0.5.0j` code line. The experimental `0.5.0k` dialog attempts were not used as the mechanical base.
+- Preserved the `0.5.0j` Triggered Effect eligibility, Character Builder roll-resolution queue, duration/consumption lifecycle, Active Effect cleanup, Supplier, Materialization Core, and Item schema unchanged.
 
-### Public result vs GM adjudication
+### Lightweight protected decision UI
 
-- The public Item Creator consumption notice remains privacy-neutral and reports only the modifier, updated roll total, source effect, and remaining uses. It never publishes hidden AC/DC or success/failure.
-- When a numeric target is available internally, Item Creator now creates a separate **GM Resolution — <effect>** whisper for GM users containing the updated total, target number, and Success/Failure, matching the Character Builder's two-layer chat treatment.
-- Hidden target and adjudication data are stored only on the GM-only resolution message; the public consumption message remains free of those fields.
-- No Triggered Effect lifecycle, duration-or-consumption rule, roll queue, Character Builder protocol, Supplier, Materialization Core, or Item schema changed.
+- Replaced the post-roll consumable `DialogV2` with a dedicated non-modal `ApplicationV2` window. No visual backdrop is created for this decision, so the canvas, chat, sheets, and other Foundry surfaces remain fully visible and unblurred.
+- The rest of Foundry remains functionally blocked while the choice is pending through `inert` state plus captured pointer, focus, and Escape events. The decision window stays draggable and on top.
+- Clicking or focusing outside the protected decision does not pass through; instead, the window receives the short attention pulse introduced during the `0.5.0k` experiments.
+- Fixed the custom Handlebars part to use one HTML root element, preserving Foundry V14 `HandlebarsApplicationMixin` rendering requirements.
+- The post-roll layout follows the compact Character Builder presentation: roll type and current total, source effect, available modifier, remaining uses, and explicit **Use / Keep** buttons.
+
+### Public/private roll reporting
+
+- Player-visible consumption notices remain privacy-neutral: modifier, updated total, and remaining uses only. They never expose AC/DC or Success/Failure.
+- When a numeric target is available, Item Creator also creates a separate **GM Resolution — <effect>** whisper containing the adjudication for GMs only.
 
 ## 0.5.0j — Privacy-Neutral Post-Roll Decisions
 

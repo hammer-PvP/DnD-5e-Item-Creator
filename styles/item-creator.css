@@ -2019,9 +2019,8 @@
 .ic-protected-backdrop { z-index: 999998; }
 
 .ic-protected-backdrop.ic-protected-backdrop-transparent {
-  background: transparent !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  background: transparent;
+  backdrop-filter: none;
 }
 
 .ic-triggered-consumption-dialog {

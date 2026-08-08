@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0k Beta Candidate
+**Version:** 0.5.0l Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -104,7 +104,7 @@ Normal numeric effects may be flat, based on Proficiency Bonus or an ability mod
 
 **Remove When Consumed** is an additional lifetime condition and never replaces the configured duration. The GM chooses a number of uses, an eligible roll type (Attack Roll, Ability Check, Saving Throw, any D20 Test, Damage Roll, or Healing Roll), a decision mode, and **Ask / Use Timing**. The managed effect therefore lasts until its normal duration ends **or** its use counter reaches zero, whichever happens first. A configuration such as `10 Effect Recipient Turns / 1 use` expires after ten recipient turns if unused or immediately after its confirmed use. A new matching Trigger activation reapplies the effect and restores its configured use pool.
 
-The recipient immediately receives an enabled, visible Item Creator Active Effect showing the benefit and its remaining uses. Roll-changing payload documents are kept dormant between uses so an optional bonus cannot affect unrelated rolls. **Before the Roll** asks or activates before the native roll, enables the payload only for that roll, consumes one use only after a completed roll, and preserves the use when the roll is cancelled. **After the Roll** is privacy-neutral: every eligible Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw offers the available effect regardless of hidden AC/DC or success/failure. The player sees only the current roll total, the available modifier, and **Use / Keep**. The compact decision window has no blur or dark visual backdrop; the rest of Foundry remains visible but functionally blocked until the choice is resolved, and an outside click produces a short attention pulse instead of passing through. If used, Item Creator rolls the modifier, applies it to the existing total without rerolling the d20, and reports only the new total publicly. When a numeric target exists, a separate GM-only resolution whisper records the target and Success/Failure. Damage and Healing Rolls continue to use pre-roll timing. Declining always preserves the effect.
+The recipient immediately receives an enabled, visible Item Creator Active Effect showing the benefit and its remaining uses. Roll-changing payload documents are kept dormant between uses so an optional bonus cannot affect unrelated rolls. **Before the Roll** asks or activates before the native roll, enables the payload only for that roll, consumes one use only after a completed roll, and preserves the use when the roll is cancelled. **After the Roll** is privacy-neutral: every eligible Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw offers the available effect regardless of hidden AC/DC or success/failure. The player sees only the current roll total, the available modifier, and **Use / Keep**. If used, Item Creator rolls the modifier, applies it to the existing total without rerolling the d20, and reports only the new total. Damage and Healing Rolls continue to use pre-roll timing. Declining always preserves the effect.
 
 Application, refresh, and confirmed consumption generate one chat notice for the managed Trigger application, including recipient, source Item, lifetime, uses, and the public roll-total adjustment when applicable. Item Creator never publishes hidden AC/DC, Success, Failure, or equivalent adjudication in its player-facing consumption prompt or chat notice. Multiple Active Effects copied from one Spell remain one managed application and consume only one use together.
 
@@ -301,4 +301,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.5.0k/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.5.0l/item-creator.zip`
