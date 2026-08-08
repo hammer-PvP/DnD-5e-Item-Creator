@@ -3,9 +3,10 @@ import { MODULE_ID } from "../constants.mjs";
 export class ProtectedTransactionDialogService {
   static #active = null;
 
-  static async confirm({ key, matchClass, dialogOptions, visualBackdrop = true, containKeyboard = false } = {}) {
+  static async confirm({ key, matchClass, dialogOptions, visualBackdrop = true, containKeyboard = false, attentionFeedback = false } = {}) {
     if (!key || !matchClass || !dialogOptions) throw new Error("Protected confirmation requires key, matchClass, and dialogOptions.");
     if (this.#active) {
+      this.#attention(this.#active);
       this.#sync(this.#active, true);
       return false;
     }
@@ -13,8 +14,9 @@ export class ProtectedTransactionDialogService {
     if (!DialogV2?.confirm) return false;
 
     const active = {
-      key, matchClass, app: null, element: null, blocked: new Map(), released: false, containKeyboard,
-      backdrop: this.#backdrop(visualBackdrop), renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false
+      key, matchClass, app: null, element: null, blocked: new Map(), released: false, containKeyboard, attentionFeedback,
+      backdrop: this.#backdrop(visualBackdrop), renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false,
+      attentionTimer: null, lastAttentionAt: 0
     };
     this.#active = active;
     document.body.append(active.backdrop);
@@ -24,11 +26,13 @@ export class ProtectedTransactionDialogService {
       if (active.released || active.element?.contains?.(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      this.#attention(active);
       this.#sync(active, true);
     };
     active.focusHandler = event => {
       if (active.released || active.element?.contains?.(event.target)) return;
       event.stopImmediatePropagation();
+      this.#attention(active);
       this.#sync(active, true);
     };
     document.addEventListener("pointerdown", active.pointerHandler, true);
@@ -38,6 +42,7 @@ export class ProtectedTransactionDialogService {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      this.#attention(active);
       this.#sync(active, true);
     };
     document.addEventListener("keydown", active.keyHandler, true);
@@ -209,9 +214,26 @@ export class ProtectedTransactionDialogService {
     if (focus) (active.element.querySelector("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled])") ?? active.element).focus?.({ preventScroll: true });
   }
 
+  static #attention(active) {
+    if (!active?.attentionFeedback || active.released || !active.element?.isConnected) return;
+    const now = Date.now();
+    if (now - Number(active.lastAttentionAt || 0) < 120) return;
+    active.lastAttentionAt = now;
+    if (active.attentionTimer) clearTimeout(active.attentionTimer);
+    active.element.classList.remove("ic-protected-attention");
+    void active.element.offsetWidth;
+    active.element.classList.add("ic-protected-attention");
+    active.attentionTimer = setTimeout(() => {
+      active.element?.classList?.remove("ic-protected-attention");
+      active.attentionTimer = null;
+    }, 240);
+  }
+
   static #release(active) {
     if (!active || active.released) return;
     active.released = true;
+    if (active.attentionTimer) clearTimeout(active.attentionTimer);
+    active.element?.classList?.remove("ic-protected-attention");
     if (active.renderHook !== null) Hooks.off("renderApplicationV2", active.renderHook);
     document.removeEventListener("pointerdown", active.pointerHandler, true);
     document.removeEventListener("click", active.pointerHandler, true);

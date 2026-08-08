@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0k — Shared Decision UX and GM Resolution Audit
+
+### Privacy-neutral decision window
+
+- Fixed the consumable `DialogV2` configuration so `modal: false` is applied at the dialog configuration level rather than being ignored inside `window`. Post-roll Item Creator decisions therefore use no native modal blur or dark visual backdrop.
+- The decision remains functionally modal through Item Creator's transparent interaction shield: the map, chat, sheets, and other windows remain fully visible, but clicks and focus cannot pass through until **Use** or **Keep** resolves the pending roll decision.
+- Added a short attention pulse when the player clicks or focuses outside the protected decision (or presses Escape). The blocked action is still discarded; the pulse only points the player back to the pending choice.
+- Aligned the compact post-roll presentation with the Character Builder decision language: roll type and current total at the top, effect/source context, available modifier, and equal **Use <die> / Keep** controls. The window remains draggable and close controls remain suppressed.
+
+### Public result vs GM adjudication
+
+- The public Item Creator consumption notice remains privacy-neutral and reports only the modifier, updated roll total, source effect, and remaining uses. It never publishes hidden AC/DC or success/failure.
+- When a numeric target is available internally, Item Creator now creates a separate **GM Resolution — <effect>** whisper for GM users containing the updated total, target number, and Success/Failure, matching the Character Builder's two-layer chat treatment.
+- Hidden target and adjudication data are stored only on the GM-only resolution message; the public consumption message remains free of those fields.
+- No Triggered Effect lifecycle, duration-or-consumption rule, roll queue, Character Builder protocol, Supplier, Materialization Core, or Item schema changed.
+
 ## 0.5.0j — Privacy-Neutral Post-Roll Decisions
 
 ### No success/failure UI leakage

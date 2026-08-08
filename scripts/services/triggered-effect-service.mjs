@@ -1109,6 +1109,40 @@ export class ItemCreatorTriggeredEffectService {
           } : null
         } }
       });
+
+      if (details.mode === "afterRoll") {
+        const targetValue = details.target;
+        const target = targetValue === null || targetValue === undefined || targetValue === "" ? Number.NaN : Number(targetValue);
+        const currentTotal = Number(details.originalTotal);
+        const newTotal = Number(details.newTotal);
+        const modifierTotal = Number(details.bonusTotal) || 0;
+        const gmIds = valuesOf(game.users).filter(user => user?.isGM).map(user => user.id);
+        if (gmIds.length && Number.isFinite(target) && Number.isFinite(currentTotal) && Number.isFinite(newTotal)) {
+          const operation = modifierTotal >= 0 ? `+ ${modifierTotal}` : `- ${Math.abs(modifierTotal)}`;
+          const adjudication = newTotal >= target ? "Success" : "Failure";
+          await ChatMessage.create({
+            speaker: ChatMessage.getSpeaker({ actor: recipient }),
+            whisper: gmIds,
+            content: `<section class="item-creator-triggered-message item-creator-gm-resolution"><p><strong>GM Resolution — ${effectName}</strong></p><p>${actorName}: ${currentTotal} ${operation} = ${newTotal}<br>Target: ${target}<br><strong>${adjudication}</strong></p></section>`,
+            flags: { [MODULE_ID]: {
+              triggeredEffectNotice: true,
+              noticeType: "gmResolution",
+              sourceActorUuid: result.sourceActorUuid,
+              entryKey: result.entryKey,
+              recipientActorUuid: recipient.uuid,
+              rollResolution: {
+                rollKey: details.rollKey ?? "",
+                originalMessageId: details.originalMessageId ?? "",
+                originalTotal: currentTotal,
+                currentTotal: newTotal,
+                target,
+                succeeded: newTotal >= target,
+                finalized: true
+              }
+            } }
+          });
+        }
+      }
     } catch (error) {
       console.warn(`${MODULE_ID} | Could not post Triggered Effect consumption message.`, error);
     }
@@ -1121,26 +1155,35 @@ export class ItemCreatorTriggeredEffectService {
     const total = Number(context.total);
     const formula = displayRollFormula(context.formula);
     const afterRoll = candidate.timing === "afterRoll";
+    const rollTypeLabel = ({
+      attackRoll: "Attack Roll",
+      abilityCheck: "Ability Check",
+      savingThrow: "Saving Throw",
+      damageRoll: "Damage Roll",
+      healingRoll: "Healing Roll"
+    })[String(context.rollType ?? "")] ?? "D20 Test";
     const rollInfo = afterRoll && Number.isFinite(total)
-      ? `<div class="ic-triggered-consumption-stat"><span>Current Roll</span><strong>${total}</strong></div>`
+      ? `<div class="ic-triggered-consumption-roll"><span>${this.#escapeHtml(rollTypeLabel)}</span><strong>${total}</strong></div>`
       : "";
     const modifierInfo = afterRoll
-      ? `<div class="ic-triggered-consumption-stat"><span>Available Modifier</span><strong>${this.#escapeHtml(formula)}</strong></div>`
+      ? `<p class="ic-triggered-consumption-modifier">Available modifier: <strong>${this.#escapeHtml(formula)}</strong></p>`
       : "";
     const timing = afterRoll
-      ? `<div class="ic-triggered-consumption-stats">${rollInfo}${modifierInfo}</div><p>Use applies the configured modifier to this existing roll. Keep preserves the effect for a later eligible roll.</p>`
-      : "<p>The managed payload will be enabled only for this native roll. Cancelling the roll preserves the effect.</p>";
+      ? `${rollInfo}<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${modifierInfo}<p>Wait for the GM's ruling, then use the modifier if you need it or keep it for a later eligible roll.</p>`
+      : `<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p><p>The managed payload will be enabled only for this native roll. Cancelling the roll preserves the effect.</p>`;
     return Boolean(await ProtectedTransactionDialogService.confirm({
       key: `triggered-consumption-${actor.uuid}-${candidate.sourceActorUuid}-${candidate.entryKey}`,
       matchClass: "ic-triggered-consumption-dialog",
       visualBackdrop: false,
       containKeyboard: true,
+      attentionFeedback: true,
       dialogOptions: {
         classes: ["ic-triggered-consumption-dialog"],
-        window: { title: `Use ${effectName}?`, modal: false },
-        content: `<section class="ic-triggered-consumption-content"><p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${timing}<p class="ic-triggered-consumption-uses">${candidate.usesRemaining}/${candidate.usesMaximum} use(s) remain.</p></section>`,
-        yes: { label: "Use", icon: "fa-solid fa-dice-d20" },
-        no: { label: "Keep", icon: "fa-solid fa-hourglass-half" }
+        modal: false,
+        window: { title: effectName },
+        content: `<section class="ic-triggered-consumption-content">${timing}<p class="ic-triggered-consumption-uses">${candidate.usesRemaining}/${candidate.usesMaximum} use(s) remain.</p></section>`,
+        yes: { label: afterRoll && formula ? `Use ${formula}` : "Use", icon: "fa-solid fa-dice-d20" },
+        no: { label: "Keep", icon: "fa-solid fa-shield-halved" }
       }
     }));
   }
@@ -1713,6 +1756,7 @@ export class ItemCreatorTriggeredEffectService {
         bonusTotal,
         originalTotal: previousTotal,
         newTotal: runningTotal,
+        target: resolution.target,
         rollType,
         rollKey: resolution.rollKey || context.rollKey || "",
         originalMessageId: resolution.originalMessageId || rollMessageId(roll)
