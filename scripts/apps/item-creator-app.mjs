@@ -11,7 +11,8 @@ import {
 } from "../services/resource-modification-registry.mjs";
 import {
   ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, CONSUMPTION_DECISIONS, CONSUMPTION_EVENTS, CONSUMPTION_TIMINGS,
-  DURATION_UNITS, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS,
+  CONTEXTUAL_OPERATIONS, CONTEXTUAL_RELATIONSHIPS, CONTEXTUAL_ROLL_TYPES, DURATION_UNITS,
+  EFFECT_APPLICATION_MODES, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS, SAVE_DC_MODES,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
   defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
@@ -1516,6 +1517,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const effectRows = row.effects.map((effectSource, effectIndex) => {
         const effect = normalizeTriggeredEffectPayload(effectSource);
         const isRollDiceModifier = isRollDiceTriggeredEffect(effect.type);
+        const isContextualModifier = effect.type === "contextualRollModifier";
+        const contextualDiceOperation = ["addDice", "subtractDice"].includes(effect.contextualOperation);
+        const contextualFlatOperation = ["addFlat", "subtractFlat"].includes(effect.contextualOperation);
         return {
           ...effect,
           index: effectIndex + 1,
@@ -1542,7 +1546,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isRollDiceModifier,
           isAddRollDice: effect.type === "addDiceToEligibleRoll",
           isSubtractRollDice: effect.type === "subtractDiceFromEligibleRoll",
-          showScaling: effect.type !== "selectedSpellEffects" && !isRollDiceModifier,
+          isContextualModifier,
+          contextualRollTypeOptions: fixedOptions(CONTEXTUAL_ROLL_TYPES, effect.contextualRollType),
+          contextualRelationshipOptions: fixedOptions(CONTEXTUAL_RELATIONSHIPS.filter(([relationship]) =>
+            relationship !== "againstRecipient" || effect.contextualRollType === "attackRoll"), effect.contextualRelationship),
+          contextualOperationOptions: fixedOptions(CONTEXTUAL_OPERATIONS, effect.contextualOperation),
+          contextualDiceOperation,
+          contextualFlatOperation,
+          showScaling: effect.type !== "selectedSpellEffects" && !isRollDiceModifier && !isContextualModifier,
           selectedSpellEffectCount: Array.isArray(effect.spellEffects) ? effect.spellEffects.length : 0,
           isDamageEffect: isDamageTriggeredEffect(effect.type),
           isTrait: isTraitTriggeredEffect(effect.type)
@@ -1550,6 +1561,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       });
       const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
       const hasRollDiceModifier = effectRows.some(effect => effect.isRollDiceModifier);
+      const hasContextualModifier = effectRows.some(effect => effect.isContextualModifier);
+      const effectApplication = row.effectApplication;
+      const isSaveGated = effectApplication?.mode === "saveGated";
+      const consumptionBlocked = isSaveGated || hasContextualModifier;
       const allowedConsumptionEvents = hasRollDiceModifier
         ? CONSUMPTION_EVENTS.filter(([value]) => ["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(value))
         : CONSUMPTION_EVENTS;
@@ -1583,6 +1598,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
         countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
         applicationModeOptions: fixedOptions(APPLICATION_MODES, application.mode),
+        effectApplicationModeOptions: fixedOptions(EFFECT_APPLICATION_MODES, effectApplication?.mode ?? "immediate"),
+        saveAbilityOptions: configOptions(CONFIG.DND5E.abilities, effectApplication?.saveAbility ?? "wis"),
+        saveDcModeOptions: fixedOptions(SAVE_DC_MODES, effectApplication?.saveDcMode ?? "fixed"),
+        isSaveGated,
+        hasContextualModifier,
+        consumptionBlocked,
         singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
         consumptionEventOptions: fixedOptions(allowedConsumptionEvents, consumption.event),
@@ -3766,6 +3787,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     if (scope === "trigger") row.trigger[part] = value;
     else if (scope === "application") row.application[part] = value;
+    else if (scope === "effectApplication") {
+      row.effectApplication ??= {};
+      row.effectApplication[part] = value;
+    }
     else if (scope === "stacks") row.stacks[part] = value;
     else if (scope === "consumption") {
       row.consumption ??= {};
@@ -3791,6 +3816,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.application.retrigger ||= "refresh";
     }
     if (scope === "application" && part === "expiration") row.application.expirationExplicit = true;
+    if (scope === "effectApplication" && part === "mode" && value === "saveGated") {
+      row.effectApplication.saveAbility ||= "wis";
+      row.effectApplication.saveDcMode ||= "fixed";
+      row.effectApplication.saveDc ||= 15;
+      for (const payload of row.effects ?? []) payload.recipient = "target";
+      row.consumption ??= {};
+      row.consumption.enabled = false;
+    }
 
     const singleAttackEligible = row.trigger.category === "attack"
       && ["attackHit", "criticalHit", "natural20"].includes(row.trigger.event);
@@ -3821,7 +3854,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const row = this.triggeredEffects.find(entry => entry.id === event.currentTarget.dataset.triggerId);
     if (!row) return;
     row.effects ??= [];
-    row.effects.push(defaultTriggeredEffectPayload("spellAttackBonus"));
+    const payload = defaultTriggeredEffectPayload("spellAttackBonus");
+    if (row.effectApplication?.mode === "saveGated") payload.recipient = "target";
+    row.effects.push(payload);
     this.#renderPreservingScroll();
   }
 
@@ -3849,6 +3884,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     payload[part] = value;
     if (!commit) return;
     if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
+    if (part === "type" && value === "contextualRollModifier") {
+      payload.scaling = "fixed";
+      payload.contextualRollType = "attackRoll";
+      payload.contextualRelationship = "againstRecipient";
+      payload.contextualOperation = "subtractDice";
+      payload.diceNumber = Math.max(1, Number(payload.diceNumber) || 1);
+      payload.die = [4, 6, 8, 10, 12, 20].includes(Number(payload.die)) ? Number(payload.die) : 4;
+      row.consumption ??= {};
+      row.consumption.enabled = false;
+    }
     if (part === "type" && ["addDiceToEligibleRoll", "subtractDiceFromEligibleRoll"].includes(value)) {
       payload.calculation = "dice";
       payload.scaling = "fixed";
@@ -3856,6 +3901,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.consumption.enabled = true;
       if (!["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(row.consumption.event)) row.consumption.event = "d20Test";
     }
+    if (part === "contextualRollType" && value !== "attackRoll" && payload.contextualRelationship === "againstRecipient") {
+      payload.contextualRelationship = "byRecipient";
+    }
+    if (row.effectApplication?.mode === "saveGated") payload.recipient = "target";
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
     if (part === "type") Object.assign(row, normalizeTriggeredEffect(row));
     if (part === "recipient") {

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0m — Contextual Roll Modifiers and Native Save-Gated Application
+
+### Contextual Roll Modifiers
+
+- Added a generic **Contextual Roll Modifier** Applied Effect. The effect stores a declaration on its recipient and injects the modifier only when the matching native D&D5e roll occurs; it does not permanently rewrite the roller Actor.
+- Initial roll types are Attack Roll, Saving Throw, and Ability Check. Initial relationships are **Roll Made by Effect Recipient** and **Attack Made Against Effect Recipient**.
+- Added Add Dice, Subtract Dice, Add Flat, and Subtract Flat operations. Attack-against-recipient modifiers are evaluated only when that Actor is the attacker's single current target, avoiding accidental combination across multi-target attack state.
+- Contextual modifiers participate in the existing Triggered Effect duration/stack lifecycle. They do not use the consumable-roll subsystem in this first implementation. No Item, Spell, Blade Ward, or other named-rule special case was added.
+
+### Native Save-Gated Effect Application
+
+- Added **Saving Throw → GM Applies Effect** as an Effect Application mode alongside the existing Immediate behavior. The GM configures a Saving Throw ability and either a fixed DC or a D&D5e formula.
+- A matched Trigger now creates a synthetic native D&D5e Save Activity chat workflow for the trigger target. The Item Creator does not decide from hidden success/failure whether to apply the effect; the GM uses the native D&D5e Effects tray to apply the configured effect to the appropriate target.
+- Effects applied from that native tray carry Item Creator provenance and are adopted into the source Triggered Effect ledger. Their lifetime then uses the existing Item Creator duration, stack, recipient-turn, refresh, and Combat cleanup rules.
+- The synthetic Save Activity is explicitly non-concentration and is ignored by Item Creator's normal Item-use trigger capture, preventing recursive `Any Item Used` / `This Item Activity Used` events.
+- Native tray application may temporarily add a D&D5e source dependency; Item Creator removes that synthetic dependency when it adopts a normal Item-controlled effect. Concentration is not inferred from a selected Spell and no parallel Item Creator concentration subsystem was introduced.
+- Save-Gated application requires Trigger Target recipients and does not combine with Remove When Consumed in this first implementation.
+
+### Compatibility and scope
+
+- Existing Items default to **Immediate** Effect Application and keep their current behavior.
+- Increased the Item Creator document schema to 14.
+- The `0.5.0l` post-roll queue, no-blur protected decision window, Character Builder integration, Supplier, Materialization Core, Resource Modifications, and existing Active Effect cleanup paths are otherwise unchanged.
+
 ## 0.5.0l — Rebuilt No-Blur Post-Roll Decision Window
 
 ### Stable rebuild from 0.5.0j

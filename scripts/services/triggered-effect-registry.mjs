@@ -96,6 +96,34 @@ export const EFFECT_RECIPIENTS = Object.freeze([
   ["target", "Trigger Target(s)"]
 ]);
 
+export const EFFECT_APPLICATION_MODES = Object.freeze([
+  ["immediate", "Immediate"],
+  ["saveGated", "Saving Throw → GM Applies Effect"]
+]);
+
+export const SAVE_DC_MODES = Object.freeze([
+  ["fixed", "Fixed DC"],
+  ["formula", "Formula"]
+]);
+
+export const CONTEXTUAL_ROLL_TYPES = Object.freeze([
+  ["attackRoll", "Attack Roll"],
+  ["savingThrow", "Saving Throw"],
+  ["abilityCheck", "Ability Check"]
+]);
+
+export const CONTEXTUAL_RELATIONSHIPS = Object.freeze([
+  ["byRecipient", "Roll Made by Effect Recipient"],
+  ["againstRecipient", "Attack Made Against Effect Recipient"]
+]);
+
+export const CONTEXTUAL_OPERATIONS = Object.freeze([
+  ["addDice", "Add Dice"],
+  ["subtractDice", "Subtract Dice"],
+  ["addFlat", "Add Flat"],
+  ["subtractFlat", "Subtract Flat"]
+]);
+
 export const RETRIGGER_BEHAVIORS = Object.freeze([
   ["refresh", "Refresh Duration"],
   ["ignore", "Ignore While Active"]
@@ -175,7 +203,8 @@ export const TRIGGER_EFFECT_TYPES = Object.freeze([
   ["actorCriticalThreshold", "Actor Critical Threshold"],
   ["selectedSpellEffects", "Apply Effects from Selected Spell"],
   ["addDiceToEligibleRoll", "Add Dice to Eligible Roll"],
-  ["subtractDiceFromEligibleRoll", "Subtract Dice from Eligible Roll"]
+  ["subtractDiceFromEligibleRoll", "Subtract Dice from Eligible Roll"],
+  ["contextualRollModifier", "Contextual Roll Modifier"]
 ]);
 
 export const VALUE_CALCULATIONS = Object.freeze([
@@ -236,7 +265,10 @@ export function defaultTriggeredEffectPayload(type = "spellAttackBonus") {
     spellUuid: "",
     spellName: "",
     spellImg: "",
-    spellEffects: []
+    spellEffects: [],
+    contextualRollType: "attackRoll",
+    contextualRelationship: "againstRecipient",
+    contextualOperation: "subtractDice"
   };
 }
 
@@ -273,6 +305,13 @@ export function defaultTriggeredEffect() {
       expiration: "ownerTurnEndCurrent",
       expirationExplicit: false,
       retrigger: "refresh"
+    },
+    effectApplication: {
+      mode: "immediate",
+      saveAbility: "wis",
+      saveDcMode: "fixed",
+      saveDc: 15,
+      saveDcFormula: ""
     },
     consumption: {
       enabled: false,
@@ -333,7 +372,10 @@ export function normalizeTriggeredEffectPayload(value = {}) {
     spellUuid: String(value.spellUuid ?? "").trim(),
     spellName: String(value.spellName ?? "").trim(),
     spellImg: String(value.spellImg ?? "").trim(),
-    spellEffects: Array.isArray(value.spellEffects) ? clone(value.spellEffects) : []
+    spellEffects: Array.isArray(value.spellEffects) ? clone(value.spellEffects) : [],
+    contextualRollType: validChoice(CONTEXTUAL_ROLL_TYPES, value.contextualRollType, fallback.contextualRollType),
+    contextualRelationship: validChoice(CONTEXTUAL_RELATIONSHIPS, value.contextualRelationship, fallback.contextualRelationship),
+    contextualOperation: validChoice(CONTEXTUAL_OPERATIONS, value.contextualOperation, fallback.contextualOperation)
   };
 }
 
@@ -390,6 +432,8 @@ export function normalizeTriggeredEffect(value = {}) {
   if (consumptionTiming === "afterRoll" && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) {
     consumptionTiming = "beforeRoll";
   }
+  const effectApplicationMode = validChoice(EFFECT_APPLICATION_MODES, value.effectApplication?.mode, fallback.effectApplication.mode);
+  const saveDcMode = validChoice(SAVE_DC_MODES, value.effectApplication?.saveDcMode, fallback.effectApplication.saveDcMode);
 
   return {
     ...fallback,
@@ -420,6 +464,16 @@ export function normalizeTriggeredEffect(value = {}) {
       expiration,
       expirationExplicit,
       retrigger
+    },
+    effectApplication: {
+      ...fallback.effectApplication,
+      ...(clone(value.effectApplication ?? {})),
+      mode: effectApplicationMode,
+      saveAbility: Object.hasOwn(CONFIG.DND5E.abilities ?? {}, value.effectApplication?.saveAbility)
+        ? value.effectApplication.saveAbility : fallback.effectApplication.saveAbility,
+      saveDcMode,
+      saveDc: Math.clamp(Number(value.effectApplication?.saveDc) || fallback.effectApplication.saveDc, 1, 99),
+      saveDcFormula: String(value.effectApplication?.saveDcFormula ?? "").trim()
     },
     consumption: {
       ...fallback.consumption,
@@ -469,6 +523,15 @@ export function validateTriggeredEffectPayload(value) {
   if (!EFFECT_RECIPIENTS.some(([recipient]) => recipient === row.recipient)) return false;
   if (row.type === "selectedSpellEffects"
     && !String(row.spellUuid ?? "").trim() && !row.spellEffects.length) return false;
+  if (row.type === "contextualRollModifier") {
+    if (!CONTEXTUAL_ROLL_TYPES.some(([type]) => type === row.contextualRollType)) return false;
+    if (!CONTEXTUAL_RELATIONSHIPS.some(([relationship]) => relationship === row.contextualRelationship)) return false;
+    if (!CONTEXTUAL_OPERATIONS.some(([operation]) => operation === row.contextualOperation)) return false;
+    if (row.contextualRelationship === "againstRecipient" && row.contextualRollType !== "attackRoll") return false;
+    if (["addDice", "subtractDice"].includes(row.contextualOperation)
+      && (!(row.diceNumber > 0) || ![4, 6, 8, 10, 12, 20].includes(Number(row.die)))) return false;
+    if (["addFlat", "subtractFlat"].includes(row.contextualOperation) && !Number.isFinite(Number(row.amount))) return false;
+  }
   return true;
 }
 
@@ -487,6 +550,19 @@ export function validateTriggeredEffect(value) {
   if (!APPLICATION_MODES.some(([entry]) => entry === setting.application.mode)) return false;
   if (!SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
   if (!RETRIGGER_BEHAVIORS.some(([entry]) => entry === setting.application.retrigger)) return false;
+  const contextualEffects = setting.effects.filter(effect => effect.type === "contextualRollModifier");
+  if (contextualEffects.length && setting.consumption?.enabled) return false;
+  if (!EFFECT_APPLICATION_MODES.some(([entry]) => entry === setting.effectApplication?.mode)) return false;
+  if (setting.effectApplication?.mode === "saveGated") {
+    if (setting.consumption?.enabled) return false;
+    if (!(setting.effects ?? []).every(effect => normalizeTriggeredEffectPayload(effect).recipient === "target")) return false;
+    if (!Object.hasOwn(CONFIG.DND5E.abilities ?? {}, setting.effectApplication.saveAbility)) return false;
+    if (!SAVE_DC_MODES.some(([entry]) => entry === setting.effectApplication.saveDcMode)) return false;
+    if (setting.effectApplication.saveDcMode === "fixed"
+      && !(Number(setting.effectApplication.saveDc) >= 1 && Number(setting.effectApplication.saveDc) <= 99)) return false;
+    if (setting.effectApplication.saveDcMode === "formula"
+      && !String(setting.effectApplication.saveDcFormula ?? "").trim()) return false;
+  }
   const rollDiceEffects = setting.effects.filter(effect => ROLL_DICE_EFFECTS.has(effect.type));
   if (rollDiceEffects.length) {
     if (!setting.consumption.enabled) return false;
@@ -568,7 +644,7 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
       const multiplier = row.scaling === "perStack" ? Math.max(1, Number(stacks) || 1) : 1;
       value = String((Number(highestSpellcasting) || 0) * multiplier);
     }
-    if (row.type === "selectedSpellEffects") continue;
+    if (["selectedSpellEffects", "contextualRollModifier"].includes(row.type)) continue;
     switch (row.type) {
       case "addDiceToEligibleRoll":
         addEligibleRollChanges(changes, setting.consumption?.event ?? "d20Test", add, value);
@@ -744,6 +820,15 @@ function payloadSummary(source, setting) {
     const event = optionLabel(CONSUMPTION_EVENTS, setting.consumption?.event, setting.consumption?.event || "eligible roll");
     return toRecipient(`${operation} ${calculationSummary(row)} ${operation === "add" ? "to" : "from"} the next eligible ${event}`);
   }
+  if (row.type === "contextualRollModifier") {
+    const roll = optionLabel(CONTEXTUAL_ROLL_TYPES, row.contextualRollType, row.contextualRollType);
+    const relationship = optionLabel(CONTEXTUAL_RELATIONSHIPS, row.contextualRelationship, row.contextualRelationship);
+    const operation = optionLabel(CONTEXTUAL_OPERATIONS, row.contextualOperation, row.contextualOperation);
+    const value = ["addDice", "subtractDice"].includes(row.contextualOperation)
+      ? `${Math.max(1, Number(row.diceNumber) || 1)}d${Number(row.die) || 6}`
+      : String(Math.abs(Number(row.amount) || 0));
+    return toRecipient(`${relationship}; ${operation} ${value} on ${roll}`);
+  }
   if (row.type === "selectedSpellEffects") {
     const spell = row.spellName || "the selected Spell";
     const count = row.spellEffects.length ? `; ${row.spellEffects.length} embedded effect(s)` : "";
@@ -835,7 +920,10 @@ export function triggeredEffectSummary(value) {
   const setting = normalizeTriggeredEffect(value);
   const trigger = triggerSummary(setting);
   const effects = setting.effects.map(effect => payloadSummary(effect, setting)).join("; ");
-  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.${consumptionSummary(setting)}`;
+  const delivery = setting.effectApplication?.mode === "saveGated"
+    ? ` Effect Application: Saving Throw → GM Applies Effect (${localizedConfigLabel(CONFIG.DND5E.abilities, setting.effectApplication.saveAbility, setting.effectApplication.saveAbility)}; DC ${setting.effectApplication.saveDcMode === "formula" ? setting.effectApplication.saveDcFormula : setting.effectApplication.saveDc}). The native D&D5e save/chat Effects tray is used; the Item Creator does not auto-apply based on hidden success/failure.`
+    : "";
+  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.${consumptionSummary(setting)}${delivery}`;
 }
 
 function collectionValues(value) {
@@ -883,6 +971,23 @@ export function extractSelectedSpellEffects(document) {
     });
   }
   return snapshots;
+}
+
+export function contextualRollModifierFormula(source = {}) {
+  const row = normalizeTriggeredEffectPayload(source);
+  if (row.type !== "contextualRollModifier") return "";
+  const operation = row.contextualOperation;
+  if (["addDice", "subtractDice"].includes(operation)) {
+    const formula = `${Math.max(1, Number(row.diceNumber) || 1)}d${Number(row.die) || 6}`;
+    return operation === "subtractDice" ? `-(${formula})` : formula;
+  }
+  const amount = Math.abs(Number(row.amount) || 0);
+  if (!amount) return "";
+  return operation === "subtractFlat" ? `-${amount}` : String(amount);
+}
+
+export function isContextualRollModifier(type) {
+  return type === "contextualRollModifier";
 }
 
 export function isNumericTriggeredEffect(type) {

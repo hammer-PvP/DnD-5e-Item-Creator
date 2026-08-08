@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.5.0l Beta Candidate
+**Version:** 0.5.0m Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -99,6 +99,10 @@ The existing stack behaviors remain available unchanged: refresh a single effect
 Every Applied Effect chooses an **Effect Recipient**: **Item Owner** preserves the original behavior, while **Trigger Target(s)** applies the payload to the Actor targets recorded by the D&D5e Activity or attack. Damage and healing events use the Actor that actually received the change. A missing target skips only target-bound payloads and never falls back to the Item owner. Normal effect formulas are evaluated from the recipient Actor's roll data.
 
 Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, Actor critical threshold, and **Apply Effects from Selected Spell**. Selecting a Spell snapshots its transferable Active Effects and conditions. The Trigger copies those effects directly to the chosen recipient; it does not cast the Spell, spend a slot or action, execute targeting or saving throws, preserve the Spell's original duration, or create concentration. Duration and retrigger behavior remain controlled by the Triggered Effect. Spells without transferable Active Effects are rejected with a clear warning.
+
+**Contextual Roll Modifier** stores a roll declaration on the active effect instead of permanently changing the roller. The first supported roll types are Attack Roll, Saving Throw, and Ability Check. A modifier can affect a roll made by the Effect Recipient, or an Attack Roll made against the Effect Recipient when that Actor is the attacker's single current target. Supported operations are Add Dice, Subtract Dice, Add Flat, and Subtract Flat. The runtime injects the formula only into the matching native D&D5e roll and never identifies a specific Item or Spell by name. Contextual modifiers use the Triggered Effect's normal duration and stack lifecycle; Remove When Consumed is intentionally not combined with them in this first implementation.
+
+**Effect Application** can remain **Immediate** or use **Saving Throw → GM Applies Effect**. Save-Gated application creates a native D&D5e Saving Throw/chat workflow with the configured ability and fixed DC or formula. Item Creator does not inspect a hidden save and auto-apply the debuff. The GM uses the native D&D5e Effects tray to apply the configured target effects to the creatures that should receive them. Once applied, the effect is adopted into the originating Item Creator Triggered Effect ledger and follows that Item's configured duration/stack lifecycle. A copied Spell still does not become a cast Spell and concentration is not inferred from its name or original Spell data. Normal Item Creator save-gated effects are Item Creator-lifecycle effects; native D&D5e/Character Builder concentration remains under the native D&D5e authority. Remove When Consumed is not combined with Save-Gated application in this first implementation.
 
 Normal numeric effects may be flat, based on Proficiency Bonus or an ability modifier, use the recipient Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each normal effect can be fixed while active or multiplied per stack.
 

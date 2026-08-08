@@ -1003,10 +1003,30 @@
                 {{/if}}
                 {{/if}}
 
+                <div class="ic-triggered-consumption-block {{#if isSaveGated}}enabled{{/if}}">
+                  <div class="ic-triggered-grid four-columns">
+                    <label class="ic-triggered-span-two"><span>Effect Application</span><select data-trigger-input="mode" data-trigger-scope="effectApplication" data-trigger-id="{{id}}">{{#each effectApplicationModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if isSaveGated}}
+                    <label><span>Saving Throw</span><select data-trigger-input="saveAbility" data-trigger-scope="effectApplication" data-trigger-id="{{id}}">{{#each saveAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label><span>Save DC</span><select data-trigger-input="saveDcMode" data-trigger-scope="effectApplication" data-trigger-id="{{id}}">{{#each saveDcModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if (eq effectApplication.saveDcMode "formula")}}
+                    <label class="ic-triggered-span-two"><span>DC Formula</span><input type="text" value="{{effectApplication.saveDcFormula}}" placeholder="8 + @prof + @abilities.cha.mod" data-trigger-input="saveDcFormula" data-trigger-scope="effectApplication" data-trigger-id="{{id}}"></label>
+                    {{else}}
+                    <label><span>Fixed DC</span><input type="number" min="1" max="99" step="1" value="{{effectApplication.saveDc}}" data-trigger-input="saveDc" data-trigger-scope="effectApplication" data-trigger-id="{{id}}" data-value-type="number"></label>
+                    {{/if}}
+                    {{/if}}
+                  </div>
+                  {{#if isSaveGated}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-shield-heart"></i><span><strong>Saving Throw → GM Applies Effect</strong> creates a native D&amp;D5e save/chat workflow. The Item Creator does not decide who failed and does not auto-apply from hidden results. The GM uses the native Effects tray to apply the configured target effects. Their duration remains controlled by this Triggered Effect; concentration is not inferred from a copied Spell.</span></aside>
+                  {{else}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-bolt"></i><span><strong>Immediate</strong> keeps the current behavior: the configured effect is applied as soon as this trigger resolves.</span></aside>
+                  {{/if}}
+                </div>
+
                 <div class="ic-triggered-consumption-block {{#if consumptionEnabled}}enabled{{/if}}">
                   <label class="ic-checkbox-line ic-triggered-consumption-toggle">
-                    <input type="checkbox" data-trigger-input="enabled" data-trigger-scope="consumption" data-trigger-id="{{id}}" {{#if consumptionEnabled}}checked{{/if}} {{#if hasRollDiceModifier}}disabled{{/if}}>
-                    <span><strong>Remove When Consumed</strong><small>{{#if hasRollDiceModifier}}Required by Add/Subtract Dice; change or remove that Applied Effect to disable consumption.{{else}}Add an early-removal condition without replacing the duration above.{{/if}}</small></span>
+                    <input type="checkbox" data-trigger-input="enabled" data-trigger-scope="consumption" data-trigger-id="{{id}}" {{#if consumptionEnabled}}checked{{/if}} {{#if consumptionBlocked}}disabled{{else if hasRollDiceModifier}}disabled{{/if}}>
+                    <span><strong>Remove When Consumed</strong><small>{{#if isSaveGated}}Not used by the native Save-Gated workflow in this version.{{else if hasContextualModifier}}Contextual Roll Modifiers use the Triggered Effect's normal duration/stacks in this version.{{else if hasRollDiceModifier}}Required by Add/Subtract Dice; change or remove that Applied Effect to disable consumption.{{else}}Add an early-removal condition without replacing the duration above.{{/if}}</small></span>
                   </label>
                   {{#if consumptionEnabled}}
                   <div class="ic-triggered-grid four-columns">
@@ -1042,6 +1062,17 @@
                       {{#if isSelectedSpellEffects}}
                       <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
                       <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. For target effects, choose <strong>Effect Recipient Turns</strong> in Application &amp; Duration to count the affected Actor's own turns.</span></aside>
+                      {{else if isContextualModifier}}
+                      <label><span>Roll Type</span><select data-trigger-payload-input="contextualRollType" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each contextualRollTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <label><span>Relationship</span><select data-trigger-payload-input="contextualRelationship" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each contextualRelationshipOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      <label><span>Operation</span><select data-trigger-payload-input="contextualOperation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each contextualOperationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if contextualDiceOperation}}
+                      <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      <label><span>Die</span><select data-trigger-payload-input="die" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{else if contextualFlatOperation}}
+                      <label><span>Amount</span><input type="number" min="0" step="1" value="{{amount}}" data-trigger-payload-input="amount" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      {{/if}}
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-arrows-left-right-to-line"></i><span>This Active Effect stores a contextual declaration instead of permanently changing the roller. <strong>Roll Made by Effect Recipient</strong> modifies that Actor's eligible rolls. <strong>Attack Made Against Effect Recipient</strong> modifies an attack only when this Actor is the attacker's single current target.</span></aside>
                       {{else if isRollDiceModifier}}
                       <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
                       <label><span>Die</span><select data-trigger-payload-input="die" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>

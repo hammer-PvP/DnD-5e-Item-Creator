@@ -4,7 +4,7 @@ import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-ope
 import { ProtectedTransactionDialogService } from "./protected-transaction-dialog-service.mjs";
 import { TriggeredConsumptionDecisionApp } from "../apps/triggered-consumption-decision-app.mjs";
 import {
-  buildTriggeredEffectChanges, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
+  buildTriggeredEffectChanges, contextualRollModifierFormula, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
 } from "./triggered-effect-registry.mjs";
 
@@ -427,6 +427,8 @@ function normalizeEntry(value = {}, ownerActor = null) {
     usesRemaining: Math.max(0, Number(value.usesRemaining) || 0),
     recentConsumptionKeys: Array.isArray(value.recentConsumptionKeys)
       ? value.recentConsumptionKeys.map(String).filter(Boolean).slice(-MAX_RECENT_KEYS) : [],
+    nativeSaveGated: Boolean(value.nativeSaveGated),
+    saveGateId: String(value.saveGateId ?? ""),
     activeConsumptionKey: String(value.activeConsumptionKey ?? ""),
     activeConsumptionRollType: String(value.activeConsumptionRollType ?? ""),
     activeConsumptionUserId: String(value.activeConsumptionUserId ?? ""),
@@ -814,7 +816,9 @@ function effectFlags(entry, slot, setting = null, item = null, { marker = false,
     consumptionTiming: consumable ? setting.consumption.timing : "",
     consumptionActive: consumable ? Boolean(entry.activeConsumptionKey) : false,
     managedEffectName: String(setting?.name ?? ""),
-    sourceItemName: String(item?.name ?? "")
+    sourceItemName: String(item?.name ?? ""),
+    nativeSaveGated: Boolean(entry.nativeSaveGated),
+    saveGateId: String(entry.saveGateId ?? "")
   };
 }
 
@@ -920,6 +924,12 @@ export class ItemCreatorTriggeredEffectService {
     };
     Hooks.on("updateActiveEffect", reconcileRuntimeEffect);
     Hooks.on("deleteActiveEffect", reconcileRuntimeEffect);
+    const adoptSaveGatedEffect = (effect, options = {}) => {
+      if (options?.itemCreatorRuntime || !effect?.getFlag?.(MODULE_ID, "saveGatedSeed") || !isAuthoritativeGM()) return;
+      setTimeout(() => void this.#adoptSaveGatedEffect(effect), 0);
+    };
+    Hooks.on("createActiveEffect", (effect, options) => adoptSaveGatedEffect(effect, options));
+    Hooks.on("updateActiveEffect", (effect, _changes, options) => adoptSaveGatedEffect(effect, options));
     Hooks.on("deleteActor", actor => {
       this.#queues.delete(actor.uuid);
       if (isAuthoritativeGM()) void this.#cleanupDeletedSourceActor(actor);
@@ -1765,12 +1775,71 @@ export class ItemCreatorTriggeredEffectService {
     }
   }
 
+  static #activeContextualModifiers(actor, rollType, relationship) {
+    if (actor?.documentName !== "Actor") return [];
+    const modifiers = [];
+    for (const effect of actor.effects ?? []) {
+      if (effect.disabled || !effect.getFlag?.(MODULE_ID, "triggeredRuntime")) continue;
+      const modifier = clone(effect.getFlag(MODULE_ID, "contextualModifier") ?? null);
+      if (!modifier || modifier.rollType !== rollType || modifier.relationship !== relationship) continue;
+      const formula = String(modifier.formula ?? "").trim();
+      if (!formula) continue;
+      modifiers.push({
+        formula,
+        operation: String(modifier.operation ?? ""),
+        effectName: effect.name,
+        effectUuid: effect.uuid,
+        recipientActorUuid: actor.uuid,
+        sourceActorUuid: String(effect.getFlag(MODULE_ID, "sourceActorUuid") ?? ""),
+        sourceItemId: String(effect.getFlag(MODULE_ID, "sourceItemId") ?? ""),
+        triggerId: String(effect.getFlag(MODULE_ID, "triggerId") ?? "")
+      });
+    }
+    return modifiers;
+  }
+
+  static #contextualModifiersForRoll(actor, rollType) {
+    const modifiers = [...this.#activeContextualModifiers(actor, rollType, "byRecipient")];
+    if (rollType === "attackRoll") {
+      const targets = [...(game.user?.targets ?? [])].map(token => token?.actor).filter(actor => actor?.documentName === "Actor");
+      const unique = new Map(targets.map(target => [target.uuid, target]));
+      if (unique.size === 1) {
+        const [target] = unique.values();
+        modifiers.push(...this.#activeContextualModifiers(target, rollType, "againstRecipient"));
+      }
+    }
+    return modifiers;
+  }
+
+  static #injectContextualRollModifiers(actor, rollType, args) {
+    if (!["attackRoll", "savingThrow", "abilityCheck"].includes(rollType)) return args;
+    const modifiers = this.#contextualModifiersForRoll(actor, rollType);
+    if (!modifiers.length) return args;
+
+    const config = { ...(args[0] ?? {}) };
+    const rolls = Array.isArray(config.rolls) ? [...config.rolls] : [];
+    const primary = { ...(rolls[0] ?? {}) };
+    primary.parts = [...(primary.parts ?? []), ...modifiers.map(modifier => modifier.formula)];
+    primary.options = { ...(primary.options ?? {}) };
+    primary.options[MODULE_ID] = {
+      ...(primary.options[MODULE_ID] ?? {}),
+      contextualModifiers: modifiers.map(modifier => ({
+        formula: modifier.formula, effectName: modifier.effectName, effectUuid: modifier.effectUuid
+      }))
+    };
+    rolls[0] = primary;
+    config.rolls = rolls;
+    args[0] = config;
+    return args;
+  }
+
   static #patchRollMethod(prototype, method, rollType, family) {
     const original = prototype?.[method];
     if (!(original instanceof Function) || original[ROLL_PATCH_FLAG]) return;
     const service = this;
     const wrapped = async function(...args) {
       const actor = this?.documentName === "Actor" ? this : this?.actor;
+      service.#injectContextualRollModifiers(actor, rollType, args);
       return service.#runConsumableRoll(actor, rollType, family, () => original.apply(this, args));
     };
     Object.defineProperty(wrapped, ROLL_PATCH_FLAG, { value: true });
@@ -2037,7 +2106,7 @@ export class ItemCreatorTriggeredEffectService {
   static #onActivityUsed(activity, usageConfig = {}, results = {}) {
     const actor = activity?.actor;
     const item = activity?.item;
-    if (!actor || !item) return;
+    if (!actor || !item || item.getFlag?.(MODULE_ID, "saveGatedSynthetic")) return;
     const combat = currentCombatForActor(actor);
     if (!combat) return;
     const messageId = results?.message?.id ?? "";
@@ -2247,6 +2316,237 @@ export class ItemCreatorTriggeredEffectService {
     });
   }
 
+  static #saveGateDcFormula(setting) {
+    const config = setting.effectApplication ?? {};
+    return config.saveDcMode === "formula"
+      ? String(config.saveDcFormula ?? "").trim()
+      : String(Math.max(1, Number(config.saveDc) || 15));
+  }
+
+  static async #postSaveGatedApplication(sourceActor, item, setting, group, event, combat) {
+    const target = group.actor;
+    if (target?.documentName !== "Actor") return false;
+    const gateId = foundry.utils.randomID();
+    const key = `${item.id}:${setting.id}:${target.uuid}`;
+    const existing = readLedger(sourceActor).entries.get(key) ?? null;
+    const preview = normalizeEntry(existing ? clone(existing) : {
+      key,
+      sourceActorUuid: sourceActor.uuid,
+      sourceActorId: sourceActor.id,
+      sourceItemId: item.id,
+      triggerId: setting.id,
+      combatId: combat.id,
+      recipientActorUuid: target.uuid,
+      recipientActorId: target.id,
+      payloadIds: group.payloadIds,
+      payloadBindings: group.payloadBindings
+    }, sourceActor);
+    preview.key = key;
+    preview.sourceActorUuid = sourceActor.uuid;
+    preview.sourceActorId = sourceActor.id;
+    preview.sourceItemId = item.id;
+    preview.triggerId = setting.id;
+    preview.combatId = combat.id;
+    preview.recipientActorUuid = target.uuid;
+    preview.recipientActorId = target.id;
+    preview.payloadIds = [...group.payloadIds];
+    preview.payloadBindings = clone(group.payloadBindings);
+    applyActivation(preview, setting, combat, event);
+
+    const descriptors = await this.#effectDescriptors(item, setting, preview, target);
+    if (!descriptors.length) {
+      console.warn(`${MODULE_ID} | Save-Gated Triggered Effect "${setting.name}" has no applicable effect descriptors.`);
+      return false;
+    }
+
+    const itemData = item.toObject();
+    const syntheticItemId = foundry.utils.randomID();
+    const activityId = foundry.utils.randomID();
+    const effectIds = descriptors.map(() => foundry.utils.randomID());
+    itemData._id = syntheticItemId;
+    itemData.name = `${setting.name} — Saving Throw`;
+    itemData.flags ??= {};
+    itemData.flags[MODULE_ID] = {
+      ...(itemData.flags[MODULE_ID] ?? {}),
+      saveGatedSynthetic: true,
+      saveGatedSourceItemId: item.id,
+      saveGatedTriggerId: setting.id,
+      saveGateId: gateId
+    };
+
+    itemData.effects = descriptors.map((descriptor, index) => {
+      const seed = {
+        gateId,
+        slot: descriptor.slot,
+        sourceActorUuid: sourceActor.uuid,
+        sourceActorId: sourceActor.id,
+        sourceItemId: item.id,
+        triggerId: setting.id,
+        combatId: combat.id,
+        recipientHintUuid: target.uuid,
+        recipientHintId: target.id,
+        payloadIds: [...group.payloadIds],
+        payloadBindings: clone(group.payloadBindings),
+        eventId: String(event.id ?? "")
+      };
+      const flags = foundry.utils.mergeObject(clone(descriptor.flags ?? {}), {
+        [MODULE_ID]: { saveGatedSeed: seed }
+      }, { inplace: false, recursive: true, overwrite: true });
+      return {
+        _id: effectIds[index],
+        name: descriptor.name,
+        img: descriptor.img,
+        transfer: false,
+        disabled: false,
+        duration: {},
+        statuses: descriptor.statuses,
+        system: { changes: descriptor.changes },
+        flags
+      };
+    });
+
+    itemData.system ??= {};
+    itemData.system.activities = {
+      [activityId]: {
+        _id: activityId,
+        type: "save",
+        name: setting.name,
+        img: item.img ?? "",
+        description: {
+          chatFlavor: `${setting.name} — ${CONFIG.DND5E.abilities?.[setting.effectApplication.saveAbility]?.label
+            ? game.i18n.localize(CONFIG.DND5E.abilities[setting.effectApplication.saveAbility].label)
+            : setting.effectApplication.saveAbility} Saving Throw`
+        },
+        damage: { onSave: "none", parts: [] },
+        effects: effectIds.map(effectId => ({ _id: effectId, onSave: false })),
+        save: {
+          ability: [setting.effectApplication.saveAbility],
+          dc: { calculation: "", formula: this.#saveGateDcFormula(setting) }
+        },
+        duration: { concentration: false, override: true },
+        target: { override: true, prompt: false }
+      }
+    };
+
+    try {
+      const SyntheticItem = Item.implementation ?? CONFIG.Item?.documentClass;
+      if (!SyntheticItem) throw new Error("D&D5e Item document class is unavailable.");
+      const syntheticItem = new SyntheticItem(itemData, { parent: sourceActor });
+      const activity = syntheticItem.system?.activities?.get?.(activityId);
+      if (!activity?.use) throw new Error("D&D5e Save Activity could not be created.");
+      const storedData = syntheticItem.toObject();
+      const results = await activity.use({ subsequentActions: false }, { configure: false }, {
+        data: {
+          flags: {
+            dnd5e: {
+              item: { data: storedData },
+              targets: [{ uuid: target.uuid, name: target.name, img: target.img ?? "" }]
+            },
+            [MODULE_ID]: {
+              saveGatedApplication: true,
+              gateId,
+              sourceActorUuid: sourceActor.uuid,
+              sourceItemId: item.id,
+              triggerId: setting.id,
+              recipientActorUuid: target.uuid
+            }
+          }
+        }
+      });
+      return Boolean(results?.message ?? results);
+    } catch (error) {
+      console.error(`${MODULE_ID} | Could not create native Save-Gated workflow for "${setting.name}".`, error);
+      ui.notifications?.error?.(`Item Creator could not create the saving throw workflow for ${setting.name}.`);
+      return false;
+    }
+  }
+
+  static async #adoptSaveGatedEffect(effect) {
+    if (!isAuthoritativeGM() || effect?.parent?.documentName !== "Actor") return;
+    const seed = clone(effect.getFlag?.(MODULE_ID, "saveGatedSeed") ?? null);
+    if (!seed?.gateId || !seed.sourceActorUuid || !seed.sourceItemId || !seed.triggerId || !seed.slot) return;
+    const sourceActor = resolveActorDocument(seed.sourceActorUuid, seed.sourceActorId);
+    const recipient = effect.parent;
+    if (!sourceActor) return;
+
+    await this.#enqueue(sourceActor.uuid, async () => {
+      const { item, setting } = findConfig(sourceActor, seed.sourceItemId, seed.triggerId);
+      if (!item || !setting || setting.effectApplication?.mode !== "saveGated") return;
+      const combat = game.combats?.get(seed.combatId) ?? currentCombatForActor(sourceActor);
+      if (!combat?.started || combat.id !== seed.combatId) return;
+
+      const ledger = readLedger(sourceActor);
+      const key = `${item.id}:${setting.id}:${recipient.uuid}`;
+      let entry = ledger.entries.get(key) ?? null;
+      const newGate = !entry || entry.saveGateId !== seed.gateId || !entry.nativeSaveGated;
+      const wasActive = Boolean(entry?.stacks > 0 && entry?.combatId === combat.id);
+
+      if (entry?.combatId && entry.combatId !== combat.id) {
+        await this.#removeEntryEffects(entry);
+        ledger.entries.delete(key);
+        entry = null;
+      }
+      if (entry && !entry.nativeSaveGated) {
+        await this.#removeEntryEffects(entry);
+        ledger.entries.delete(key);
+        entry = null;
+      }
+      entry ??= normalizeEntry({
+        key,
+        sourceActorUuid: sourceActor.uuid,
+        sourceActorId: sourceActor.id,
+        sourceItemId: item.id,
+        triggerId: setting.id,
+        combatId: combat.id,
+        recipientActorUuid: recipient.uuid,
+        recipientActorId: recipient.id,
+        payloadIds: seed.payloadIds,
+        payloadBindings: seed.payloadBindings
+      }, sourceActor);
+
+      if (newGate) {
+        if (entry.effectRefs?.length) await this.#removeEntryEffects(entry);
+        entry.key = key;
+        entry.control = false;
+        entry.sourceActorUuid = sourceActor.uuid;
+        entry.sourceActorId = sourceActor.id;
+        entry.sourceItemId = item.id;
+        entry.triggerId = setting.id;
+        entry.combatId = combat.id;
+        entry.recipientActorUuid = recipient.uuid;
+        entry.recipientActorId = recipient.id;
+        entry.payloadIds = Array.isArray(seed.payloadIds) ? seed.payloadIds.map(String).filter(Boolean) : [];
+        entry.payloadBindings = Array.isArray(seed.payloadBindings) ? clone(seed.payloadBindings) : [];
+        applyActivation(entry, setting, combat, { id: `save-gated:${seed.gateId}` });
+        entry.effectRefs = [];
+      }
+      entry.nativeSaveGated = true;
+      entry.saveGateId = seed.gateId;
+
+      const oldForSlot = (entry.effectRefs ?? []).filter(ref => ref.slot === seed.slot && ref.id !== effect.id);
+      if (oldForSlot.length) {
+        await safeDeleteActiveEffects(recipient, oldForSlot.map(ref => ref.id), { itemCreatorRuntime: true, render: true });
+      }
+      entry.effectRefs = (entry.effectRefs ?? []).filter(ref => ref.slot !== seed.slot || ref.id === effect.id);
+      if (!entry.effectRefs.some(ref => ref.id === effect.id)) entry.effectRefs.push({ slot: seed.slot, id: effect.id });
+
+      const runtimeFlags = effectFlags(entry, seed.slot, setting, item);
+      const nextModuleFlags = foundry.utils.mergeObject(clone(effect.flags?.[MODULE_ID] ?? {}), runtimeFlags, {
+        inplace: false, recursive: true, overwrite: true
+      });
+      const update = {
+        _id: effect.id,
+        [`flags.${MODULE_ID}`]: nextModuleFlags
+      };
+      if (effect.getFlag("dnd5e", "dependentOn")) update["flags.dnd5e.-=dependentOn"] = null;
+      await safeUpdateActiveEffects(recipient, [update], { itemCreatorRuntime: true, render: true });
+
+      ledger.entries.set(key, entry);
+      await this.#writeLedger(sourceActor, ledger.entries);
+      if (newGate) await this.#announceApplication(sourceActor, item, setting, entry, recipient, { refreshed: wasActive });
+    });
+  }
+
   static async #processEvent(event) {
     if (!isAuthoritativeGM()) return;
     const actor = resolveActorDocument(event.actorUuid, event.actorId);
@@ -2299,7 +2599,12 @@ export class ItemCreatorTriggeredEffectService {
             if (!eligible.length) continue;
             if (!withinActivationLimits(control, setting, combat)) continue;
 
+            let resolvedAny = false;
             for (const group of eligible) {
+              if (setting.effectApplication?.mode === "saveGated") {
+                if (await this.#postSaveGatedApplication(actor, item, setting, group, event, combat)) resolvedAny = true;
+                continue;
+              }
               let entry = group.existing;
               const wasActive = Boolean(entry?.combatId === combat.id && entry?.stacks > 0);
               if (entry?.combatId && entry.combatId !== combat.id) {
@@ -2334,8 +2639,10 @@ export class ItemCreatorTriggeredEffectService {
               ledger.entries.set(group.key, entry);
               await this.#syncEntryEffects(actor, item, setting, entry);
               await this.#announceApplication(actor, item, setting, entry, group.actor, { refreshed: wasActive });
+              resolvedAny = true;
             }
 
+            if (!resolvedAny) continue;
             control.recentActivationKeys.push(cycle.activationKey);
             control.recentActivationKeys = control.recentActivationKeys.slice(-MAX_RECENT_KEYS);
             control.lastEventId = String(event.id ?? "");
@@ -2400,7 +2707,7 @@ export class ItemCreatorTriggeredEffectService {
         consumptionPayload: false
       });
     }
-    const directPayloads = payloads.filter(payload => payload.type !== "selectedSpellEffects");
+    const directPayloads = payloads.filter(payload => !["selectedSpellEffects", "contextualRollModifier"].includes(payload.type));
     const directChanges = buildTriggeredEffectChanges(setting, entry.stacks, recipient, { payloads: directPayloads });
     if (directChanges.length) {
       descriptors.push({
@@ -2412,6 +2719,29 @@ export class ItemCreatorTriggeredEffectService {
         flags: {},
         consumptionMarker: false,
         consumptionPayload: consumable
+      });
+    }
+
+    for (const payload of payloads.filter(row => row.type === "contextualRollModifier")) {
+      descriptors.push({
+        slot: `contextual:${payload.id}`,
+        name: `Item Creator — ${setting.name}: Contextual Roll Modifier`,
+        img: item.img || "icons/svg/aura.svg",
+        changes: [],
+        statuses: [],
+        flags: {
+          [MODULE_ID]: {
+            contextualModifier: {
+              payloadId: payload.id,
+              rollType: payload.contextualRollType,
+              relationship: payload.contextualRelationship,
+              operation: payload.contextualOperation,
+              formula: contextualRollModifierFormula(payload)
+            }
+          }
+        },
+        consumptionMarker: false,
+        consumptionPayload: false
       });
     }
 
@@ -2456,6 +2786,46 @@ export class ItemCreatorTriggeredEffectService {
     entry.sourceActorId = sourceActor.id;
     entry.recipientActorUuid = recipient.uuid;
     entry.recipientActorId = recipient.id;
+
+    if (entry.nativeSaveGated) {
+      const descriptors = await this.#effectDescriptors(item, setting, entry, recipient);
+      const bySlot = new Map(descriptors.map(descriptor => [descriptor.slot, descriptor]));
+      const nextRefs = [];
+      let changed = false;
+      for (const ref of entry.effectRefs ?? []) {
+        const effect = recipient.effects?.get(ref.id);
+        const descriptor = bySlot.get(ref.slot);
+        if (!effect || !descriptor) {
+          changed = true;
+          continue;
+        }
+        nextRefs.push({ slot: ref.slot, id: effect.id });
+        const runtimeFlags = effectFlags(entry, ref.slot, setting, item);
+        const nextModuleFlags = foundry.utils.mergeObject(clone(effect.flags?.[MODULE_ID] ?? {}), runtimeFlags, {
+          inplace: false, recursive: true, overwrite: true
+        });
+        const currentChanges = effect.system?.changes ?? effect.changes ?? [];
+        const currentStatuses = valuesOf(effect.statuses).map(String).filter(Boolean);
+        if (effect.name !== descriptor.name || effect.img !== descriptor.img
+          || JSON.stringify(currentChanges) !== JSON.stringify(descriptor.changes)
+          || JSON.stringify(currentStatuses) !== JSON.stringify(descriptor.statuses)
+          || JSON.stringify(effect.flags?.[MODULE_ID] ?? {}) !== JSON.stringify(nextModuleFlags)) {
+          await safeUpdateActiveEffects(recipient, [{
+            _id: effect.id,
+            name: descriptor.name,
+            img: descriptor.img,
+            statuses: descriptor.statuses,
+            "system.changes": descriptor.changes,
+            [`flags.${MODULE_ID}`]: nextModuleFlags
+          }], { itemCreatorRuntime: true, render: true });
+          changed = true;
+        }
+      }
+      if (nextRefs.length !== (entry.effectRefs ?? []).length) changed = true;
+      entry.effectRefs = nextRefs;
+      if (!nextRefs.length) entry.stacks = 0;
+      return changed;
+    }
 
     const descriptors = await this.#effectDescriptors(item, setting, entry, recipient);
     const desiredSlots = new Set(descriptors.map(descriptor => descriptor.slot));
