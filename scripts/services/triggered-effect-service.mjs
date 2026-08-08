@@ -891,6 +891,7 @@ export class ItemCreatorTriggeredEffectService {
     Hooks.on("dnd5e.rollToolCheck", (rolls, data = {}) => this.#onD20TestRolls("abilityCheck", rolls, data));
     Hooks.on("dnd5e.rollDamage", (rolls, { subject } = {}) => this.#onDamageRolled(rolls, subject));
     Hooks.on("dnd5e.postUseActivity", (activity, usageConfig, results) => this.#onActivityUsed(activity, usageConfig, results));
+    Hooks.on("dnd5e.preCreateUsageMessage", (activity, messageConfig) => this.#prepareSaveGatedUsageMessage(activity, messageConfig));
     Hooks.on("dnd5e.applyDamage", (actor, amount, options) => this.#onDamageApplied(actor, amount, options));
 
     Hooks.on("preUpdateCombat", combat => {
@@ -2323,6 +2324,23 @@ export class ItemCreatorTriggeredEffectService {
       : String(Math.max(1, Number(config.saveDc) || 15));
   }
 
+  static #prepareSaveGatedUsageMessage(activity, messageConfig) {
+    const syntheticItem = activity?.item;
+    if (!syntheticItem?.getFlag?.(MODULE_ID, "saveGatedSynthetic")) return;
+
+    // UsageMessageData explicitly supports 16-character effect IDs by resolving them through
+    // message.getAssociatedItem().effects. This is the robust path for a synthetic Item whose
+    // document data is stored on the chat message rather than embedded in the Actor collection.
+    const effectIds = [...(syntheticItem.effects ?? [])]
+      .filter(effect => effect?.getFlag?.(MODULE_ID, "saveGatedSeed"))
+      .map(effect => String(effect.id ?? ""))
+      .filter(Boolean);
+    if (!effectIds.length) return;
+
+    foundry.utils.setProperty(messageConfig, "data.system.effects", effectIds);
+    foundry.utils.setProperty(messageConfig, "data.flags.dnd5e.item.data", syntheticItem.toObject());
+  }
+
   static async #postSaveGatedApplication(sourceActor, item, setting, group, event, combat) {
     const target = group.actor;
     if (target?.documentName !== "Actor") return false;
@@ -2394,6 +2412,7 @@ export class ItemCreatorTriggeredEffectService {
       }, { inplace: false, recursive: true, overwrite: true });
       return {
         _id: effectIds[index],
+        type: "base",
         name: descriptor.name,
         img: descriptor.img,
         transfer: false,
@@ -2435,22 +2454,8 @@ export class ItemCreatorTriggeredEffectService {
       const activity = syntheticItem.system?.activities?.get?.(activityId);
       if (!activity?.use) throw new Error("D&D5e Save Activity could not be created.");
       const storedData = syntheticItem.toObject();
-      const effectReferences = effectIds.map(effectId => `.ActiveEffect.${effectId}`);
-      const applicableEffectIds = (activity.applicableEffects ?? []).map(effect => effect?.id).filter(Boolean);
-      if (applicableEffectIds.length !== effectIds.length) {
-        console.warn(`${MODULE_ID} | Save-Gated activity for "${setting.name}" did not resolve every configured effect through activity.applicableEffects. Supplying the Usage Message effect references explicitly.`, {
-          expected: effectIds,
-          resolved: applicableEffectIds
-        });
-      }
-
       const results = await activity.use({ subsequentActions: false }, { configure: false }, {
         data: {
-          system: {
-            // Do not rely solely on BaseActivity.applicableEffects for synthetic Items. The native Effects tray
-            // renders from ChatMessage.system.effects and resolves these relative UUIDs against flags.dnd5e.item.data.
-            effects: effectReferences
-          },
           flags: {
             dnd5e: {
               item: { data: storedData },
@@ -2470,22 +2475,24 @@ export class ItemCreatorTriggeredEffectService {
 
       const message = results?.message ?? null;
       if (message?.documentName === "ChatMessage") {
+        // The preCreateUsageMessage hook above should already have converted the native relative
+        // UUIDs into local effect IDs. Keep a defensive repair here because the Effects tray is
+        // essential to Save-Gated adjudication and must never silently disappear.
         const currentEffects = Array.from(message.system?.effects ?? []).map(String);
-        const missingEffects = effectReferences.filter(ref => !currentEffects.includes(ref));
-        if (missingEffects.length) {
-          // Some D&D5e activity paths can finalize a synthetic Usage Message without carrying forward
-          // the inferred effects. Repair the message explicitly so the native <effect-application> tray
-          // is rendered while keeping D&D5e as the authority for target selection and application.
-          await message.update({ "system.effects": effectReferences }, { itemCreatorRuntime: true, render: true });
+        const hasEveryEffect = effectIds.every(effectId => currentEffects.includes(effectId));
+        if (!hasEveryEffect || currentEffects.length !== effectIds.length) {
+          await message.update({ "system.effects": effectIds }, { itemCreatorRuntime: true, render: true });
         }
 
         const associatedItem = message.getAssociatedItem?.();
         const unresolved = effectIds.filter(effectId => !associatedItem?.effects?.get?.(effectId));
         if (unresolved.length) {
-          console.warn(`${MODULE_ID} | Save-Gated Usage Message for "${setting.name}" could not resolve configured Active Effects from its stored synthetic Item.`, {
+          console.error(`${MODULE_ID} | Save-Gated Usage Message for "${setting.name}" cannot resolve configured effects from its stored synthetic Item.`, {
             messageId: message.id,
-            effectIds: unresolved
+            unresolvedEffectIds: unresolved
           });
+          ui.notifications?.error?.(`Item Creator could not expose the configured effects for ${setting.name}.`);
+          return false;
         }
       }
       return Boolean(message ?? results);
@@ -2571,6 +2578,7 @@ export class ItemCreatorTriggeredEffectService {
       });
       const update = {
         _id: effect.id,
+        origin: item.uuid,
         [`flags.${MODULE_ID}`]: nextModuleFlags
       };
       if (effect.getFlag("dnd5e", "dependentOn")) update["flags.dnd5e.-=dependentOn"] = null;

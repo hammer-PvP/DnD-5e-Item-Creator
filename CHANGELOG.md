@@ -1,14 +1,14 @@
 # Changelog
 
-## 0.5.0m — Save-Gated Effects Tray Hotfix
-
-- Fixed the second stage of `Saving Throw → GM Applies Effect`: native D&D5e Usage Messages now receive the configured effect references explicitly, so the native Effects tray can render after the Saving Throw workflow is created.
-- Added a post-create repair guard for synthetic save cards if D&D5e finalization drops `system.effects`.
-- Added diagnostics when the synthetic stored Item cannot resolve one or more configured Active Effects.
-- This hotfix is generic for every configured target effect; it contains no Bane-specific logic.
-- No changes to concentration, Triggered Effect lifecycle semantics, Supplier, Materialization Core, or Item schema.
-
 ## 0.5.0m — Contextual Roll Modifiers and Native Save-Gated Application
+
+### Clean rebuild from 0.5.0l
+
+- Rebuilt `0.5.0m` directly from the validated `0.5.0l` package after the first Save-Gated implementation failed to expose its configured effects in the native D&D5e Effects tray. The failed `0.5.0m` hotfix line was not used as the mechanical base.
+- Reapplied only the approved Contextual Roll Modifier, Save-Gated configuration/UI, schema, and runtime additions. Supplier, Materialization Core, post-roll decision UI, consumption queue, and existing lifecycle code remain inherited from `0.5.0l`.
+- Save-Gated Usage Messages now prepare their configured effects before ChatMessage creation through `dnd5e.preCreateUsageMessage`. Synthetic Item effects are stored on the message and referenced by their local 16-character Active Effect IDs, using the D&D5e UsageMessage path that resolves stored Item effects directly rather than relying on relative UUID resolution for a non-world synthetic Item.
+- Added a defensive post-create validation: if a native Usage Message loses those local references, Item Creator repairs only `system.effects`; if the stored synthetic Item still cannot resolve an effect, the GM receives an explicit error instead of a silently missing Effects tray.
+- Native tray-applied effects are adopted into the Item Creator ledger, have the synthetic D&D5e dependency removed, and have their origin normalized back to the real source Item before the normal Item Creator lifecycle takes over.
 
 ### Contextual Roll Modifiers
 
