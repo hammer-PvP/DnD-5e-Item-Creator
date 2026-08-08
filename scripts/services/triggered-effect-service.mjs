@@ -2435,8 +2435,22 @@ export class ItemCreatorTriggeredEffectService {
       const activity = syntheticItem.system?.activities?.get?.(activityId);
       if (!activity?.use) throw new Error("D&D5e Save Activity could not be created.");
       const storedData = syntheticItem.toObject();
+      const effectReferences = effectIds.map(effectId => `.ActiveEffect.${effectId}`);
+      const applicableEffectIds = (activity.applicableEffects ?? []).map(effect => effect?.id).filter(Boolean);
+      if (applicableEffectIds.length !== effectIds.length) {
+        console.warn(`${MODULE_ID} | Save-Gated activity for "${setting.name}" did not resolve every configured effect through activity.applicableEffects. Supplying the Usage Message effect references explicitly.`, {
+          expected: effectIds,
+          resolved: applicableEffectIds
+        });
+      }
+
       const results = await activity.use({ subsequentActions: false }, { configure: false }, {
         data: {
+          system: {
+            // Do not rely solely on BaseActivity.applicableEffects for synthetic Items. The native Effects tray
+            // renders from ChatMessage.system.effects and resolves these relative UUIDs against flags.dnd5e.item.data.
+            effects: effectReferences
+          },
           flags: {
             dnd5e: {
               item: { data: storedData },
@@ -2453,7 +2467,28 @@ export class ItemCreatorTriggeredEffectService {
           }
         }
       });
-      return Boolean(results?.message ?? results);
+
+      const message = results?.message ?? null;
+      if (message?.documentName === "ChatMessage") {
+        const currentEffects = Array.from(message.system?.effects ?? []).map(String);
+        const missingEffects = effectReferences.filter(ref => !currentEffects.includes(ref));
+        if (missingEffects.length) {
+          // Some D&D5e activity paths can finalize a synthetic Usage Message without carrying forward
+          // the inferred effects. Repair the message explicitly so the native <effect-application> tray
+          // is rendered while keeping D&D5e as the authority for target selection and application.
+          await message.update({ "system.effects": effectReferences }, { itemCreatorRuntime: true, render: true });
+        }
+
+        const associatedItem = message.getAssociatedItem?.();
+        const unresolved = effectIds.filter(effectId => !associatedItem?.effects?.get?.(effectId));
+        if (unresolved.length) {
+          console.warn(`${MODULE_ID} | Save-Gated Usage Message for "${setting.name}" could not resolve configured Active Effects from its stored synthetic Item.`, {
+            messageId: message.id,
+            effectIds: unresolved
+          });
+        }
+      }
+      return Boolean(message ?? results);
     } catch (error) {
       console.error(`${MODULE_ID} | Could not create native Save-Gated workflow for "${setting.name}".`, error);
       ui.notifications?.error?.(`Item Creator could not create the saving throw workflow for ${setting.name}.`);

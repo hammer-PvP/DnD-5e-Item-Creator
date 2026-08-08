@@ -306,3 +306,8 @@ Every GitHub Release publishes exactly:
 The current package URL is:
 
 `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.5.0l/item-creator.zip`
+
+
+### v0.5.0m Save-Gated Effects Tray hotfix
+
+Synthetic Save-Gated workflows explicitly persist their configured Active Effect references into the native D&D5e Usage Message. This allows the native Effects tray to offer those effects to the GM after targets resolve their saves. The Item Creator does not auto-apply based on hidden results; effects applied through the tray are adopted into the existing Triggered Effect lifecycle.

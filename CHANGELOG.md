@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0m — Save-Gated Effects Tray Hotfix
+
+- Fixed the second stage of `Saving Throw → GM Applies Effect`: native D&D5e Usage Messages now receive the configured effect references explicitly, so the native Effects tray can render after the Saving Throw workflow is created.
+- Added a post-create repair guard for synthetic save cards if D&D5e finalization drops `system.effects`.
+- Added diagnostics when the synthetic stored Item cannot resolve one or more configured Active Effects.
+- This hotfix is generic for every configured target effect; it contains no Bane-specific logic.
+- No changes to concentration, Triggered Effect lifecycle semantics, Supplier, Materialization Core, or Item schema.
+
 ## 0.5.0m — Contextual Roll Modifiers and Native Save-Gated Application
 
 ### Contextual Roll Modifiers
