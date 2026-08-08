@@ -1550,12 +1550,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       });
       const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
       const hasRollDiceModifier = effectRows.some(effect => effect.isRollDiceModifier);
-      const hasSubtractRollDiceModifier = effectRows.some(effect => effect.isSubtractRollDice);
       const allowedConsumptionEvents = hasRollDiceModifier
         ? CONSUMPTION_EVENTS.filter(([value]) => ["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(value))
         : CONSUMPTION_EVENTS;
-      const allowedConsumptionTimings = CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterFailure"
-        || (!hasSubtractRollDiceModifier && !["damageRoll", "healingRoll"].includes(consumption.event)));
+      const allowedConsumptionTimings = CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterRoll"
+        || !["damageRoll", "healingRoll"].includes(consumption.event));
       const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration)
         .find(option => option.selected)?.label ?? application.expiration;
       const timingLabel = fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming)
@@ -1590,9 +1589,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, consumption.decision),
         consumptionTimingOptions: fixedOptions(allowedConsumptionTimings, consumption.timing),
         hasRollDiceModifier,
-        hasSubtractRollDiceModifier,
         consumptionEnabled: consumption.enabled,
-        consumptionAfterFailure: consumption.timing === "afterFailure",
+        consumptionAfterRoll: consumption.timing === "afterRoll",
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
           || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
         durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
@@ -3857,7 +3855,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.consumption ??= {};
       row.consumption.enabled = true;
       if (!["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(row.consumption.event)) row.consumption.event = "d20Test";
-      if (value === "subtractDiceFromEligibleRoll") row.consumption.timing = "beforeRoll";
     }
     Object.assign(payload, normalizeTriggeredEffectPayload(payload));
     if (part === "type") Object.assign(row, normalizeTriggeredEffect(row));

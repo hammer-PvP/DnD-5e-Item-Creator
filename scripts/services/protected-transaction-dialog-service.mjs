@@ -3,7 +3,7 @@ import { MODULE_ID } from "../constants.mjs";
 export class ProtectedTransactionDialogService {
   static #active = null;
 
-  static async confirm({ key, matchClass, dialogOptions } = {}) {
+  static async confirm({ key, matchClass, dialogOptions, visualBackdrop = true, containKeyboard = false } = {}) {
     if (!key || !matchClass || !dialogOptions) throw new Error("Protected confirmation requires key, matchClass, and dialogOptions.");
     if (this.#active) {
       this.#sync(this.#active, true);
@@ -13,8 +13,8 @@ export class ProtectedTransactionDialogService {
     if (!DialogV2?.confirm) return false;
 
     const active = {
-      key, matchClass, app: null, element: null, blocked: new Map(), released: false,
-      backdrop: this.#backdrop(), renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false
+      key, matchClass, app: null, element: null, blocked: new Map(), released: false, containKeyboard,
+      backdrop: this.#backdrop(visualBackdrop), renderHook: null, pointerHandler: null, focusHandler: null, keyHandler: null, submitting: false
     };
     this.#active = active;
     document.body.append(active.backdrop);
@@ -47,6 +47,7 @@ export class ProtectedTransactionDialogService {
         active.app = app;
         active.element = app.element;
         this.#unblock(active, active.element);
+        if (active.containKeyboard) active.element.addEventListener("keydown", event => event.stopPropagation());
         active.element.addEventListener("click", event => {
           const button = event.target?.closest?.("footer button, .form-footer button");
           if (!button) return;
@@ -169,9 +170,9 @@ export class ProtectedTransactionDialogService {
     }
   }
 
-  static #backdrop() {
+  static #backdrop(visual = true) {
     const element = document.createElement("div");
-    element.className = "ic-protected-backdrop";
+    element.className = `ic-protected-backdrop${visual ? "" : " ic-protected-backdrop-transparent"}`;
     element.dataset.moduleId = MODULE_ID;
     return element;
   }

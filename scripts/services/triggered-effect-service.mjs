@@ -1,6 +1,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
+import { ProtectedTransactionDialogService } from "./protected-transaction-dialog-service.mjs";
 import {
   buildTriggeredEffectChanges, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
@@ -13,8 +14,8 @@ const MAX_RECENT_KEYS = 120;
 const CONSUMPTION_PREPARE_TIMEOUT_MS = 15000;
 const CONSUMPTION_STALE_MS = 5 * 60 * 1000;
 const ROLL_PATCH_FLAG = Symbol.for(`${MODULE_ID}.consumableRollPatch`);
-const POST_FAILURE_DELAY_MS = 100;
-const POST_FAILURE_RECENT_LIMIT = 240;
+const POST_ROLL_DELAY_MS = 100;
+const POST_ROLL_RECENT_LIMIT = 240;
 const PRIORITY_PROMPT_APPEAR_MS = 900;
 const PRIORITY_PROMPT_TIMEOUT_MS = 30000;
 const PRIORITY_PROMPT_QUIET_MS = 350;
@@ -661,6 +662,15 @@ function managedBonusFormula(effects, sourceActorUuid, entryKey, context = {}) {
   return formulas.join(" + ");
 }
 
+function displayRollFormula(value) {
+  const formula = String(value ?? "").trim();
+  if (!formula) return "configured modifier";
+  const negativeWrapped = formula.match(/^\(-\(([^()]*)\)\)$/) ?? formula.match(/^-\(([^()]*)\)$/);
+  if (negativeWrapped) return `-${negativeWrapped[1].trim()}`;
+  const wrapped = formula.match(/^\(([^()]*)\)$/);
+  return wrapped ? wrapped[1].trim() : formula;
+}
+
 function withinActivationLimits(entry, setting, combat) {
   const turnKey = `${combat.id}:${combat.round}:${combat.turn}`;
   const roundKey = `${combat.id}:${combat.round}`;
@@ -850,8 +860,8 @@ export class ItemCreatorTriggeredEffectService {
   static #pendingSocketRequests = new Map();
   static #activeRollContexts = new Set();
   static #rollPatches = [];
-  static #recentPostFailureKeys = [];
-  static #pendingPostFailureKeys = new Set();
+  static #recentPostRollKeys = [];
+  static #pendingPostRollKeys = new Set();
   static #reportedRollResolutions = new Map();
   static #priorityResolutionEvents = [];
 
@@ -995,7 +1005,8 @@ export class ItemCreatorTriggeredEffectService {
     for (const effect of actor.effects ?? []) {
       const flags = effect.flags?.[MODULE_ID] ?? {};
       if (!flags.triggeredRuntime || !flags.consumable || !flags.consumptionMarker || effect.disabled) continue;
-      if (flags.combatId !== combat.id || flags.consumptionTiming !== timing) continue;
+      const effectTiming = flags.consumptionTiming === "afterFailure" ? "afterRoll" : flags.consumptionTiming;
+      if (flags.combatId !== combat.id || effectTiming !== timing) continue;
       if (!consumptionEventMatches(flags.consumptionEvent, rollType)) continue;
       if (Number(flags.usesRemaining) <= 0 || flags.consumptionActive) continue;
       const entryKey = String(flags.entryKey ?? "");
@@ -1013,7 +1024,7 @@ export class ItemCreatorTriggeredEffectService {
         usesMaximum: Math.max(1, Number(flags.usesMaximum) || 1),
         usesRemaining: Math.max(0, Number(flags.usesRemaining) || 0),
         decision: String(flags.consumptionDecision || "prompt"),
-        timing: String(flags.consumptionTiming || "beforeRoll")
+        timing: String(effectTiming || "beforeRoll")
       });
     }
     return [...groups.values()];
@@ -1068,20 +1079,13 @@ export class ItemCreatorTriggeredEffectService {
     const effectName = this.#escapeHtml(result.effectName);
     const itemName = this.#escapeHtml(result.sourceItemName);
     let resolution = "";
-    if (details.mode === "afterFailure") {
-      const targetLabel = details.rollType === "attackRoll" ? "AC" : "DC";
-      const nativeTotal = Number(details.originalRollTotal);
-      const currentTotal = Number(details.originalTotal) || 0;
-      const prior = normalizedAdjustments(details.priorAdjustments);
-      const priorText = prior.length
-        ? prior.map(entry => `${this.#escapeHtml(entry.source)} ${Number(entry.bonus) >= 0 ? "+" : ""}${Number(entry.bonus) || 0}`).join(", ")
-        : "";
-      const current = Number.isFinite(nativeTotal) && nativeTotal !== currentTotal
-        ? `<p><strong>Current result after higher-priority effects:</strong> ${currentTotal} (native ${nativeTotal}${priorText ? `; ${priorText}` : ""}).</p>`
-        : "";
-      resolution = current + `<p><strong>Bonus:</strong> ${this.#escapeHtml(details.formula)} = ${Number(details.bonusTotal) || 0}. `
-        + `<strong>Result:</strong> ${currentTotal} → ${Number(details.newTotal) || 0} against ${targetLabel} ${Number(details.target) || 0} — `
-        + `<strong>${details.succeeded ? "success" : "still a failure"}</strong>.</p>`;
+    if (details.mode === "afterRoll") {
+      const currentTotal = Number(details.originalTotal);
+      const newTotal = Number(details.newTotal);
+      const modifier = displayRollFormula(details.formula);
+      const modifierTotal = Number(details.bonusTotal) || 0;
+      resolution = `<p><strong>Modifier:</strong> ${this.#escapeHtml(modifier)} = ${modifierTotal >= 0 ? "+" : ""}${modifierTotal}. `
+        + `<strong>Roll Total:</strong> ${Number.isFinite(currentTotal) ? currentTotal : 0} → ${Number.isFinite(newTotal) ? newTotal : 0}.</p>`;
     }
     const remaining = result.removed
       ? "The effect has no uses remaining and was removed."
@@ -1096,13 +1100,11 @@ export class ItemCreatorTriggeredEffectService {
           sourceActorUuid: result.sourceActorUuid,
           entryKey: result.entryKey,
           recipientActorUuid: recipient.uuid,
-          rollResolution: details.mode === "afterFailure" ? {
+          rollResolution: details.mode === "afterRoll" ? {
             rollKey: details.rollKey ?? "",
             originalMessageId: details.originalMessageId ?? "",
-            originalTotal: details.originalRollTotal ?? details.originalTotal,
+            originalTotal: details.originalTotal,
             currentTotal: details.newTotal,
-            target: details.target,
-            succeeded: Boolean(details.succeeded),
             finalized: true
           } : null
         } }
@@ -1113,23 +1115,33 @@ export class ItemCreatorTriggeredEffectService {
   }
 
   static async #promptConsumableUse(actor, candidate, context = {}) {
-    const DialogV2 = foundry.applications.api.DialogV2;
     const effectName = this.#escapeHtml(candidate.name);
     const actorName = this.#escapeHtml(actor.name);
     const itemName = this.#escapeHtml(candidate.sourceItemName);
-    const target = Number(context.target);
     const total = Number(context.total);
-    const failure = Number.isFinite(target) && Number.isFinite(total)
-      ? `<p>The current result is <strong>${total}</strong> against ${context.rollType === "attackRoll" ? "AC" : "DC"} <strong>${target}</strong>.</p>`
+    const formula = displayRollFormula(context.formula);
+    const afterRoll = candidate.timing === "afterRoll";
+    const rollInfo = afterRoll && Number.isFinite(total)
+      ? `<div class="ic-triggered-consumption-stat"><span>Current Roll</span><strong>${total}</strong></div>`
       : "";
-    const timing = candidate.timing === "afterFailure"
-      ? `${failure}<p>The configured bonus will be rolled and added to this existing result. The original roll will not be repeated.</p>`
-      : "<p>The managed payload will be enabled only for this native roll.</p>";
-    return Boolean(await DialogV2.confirm({
-      window: { title: `Use ${effectName}?`, modal: true },
-      content: `<p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${timing}<p>${candidate.usesRemaining} of ${candidate.usesMaximum} use(s) remain. Choosing No preserves the effect and all remaining uses.</p>`,
-      yes: { label: "Use", icon: "fa-solid fa-dice-d20" },
-      no: { label: "Keep for Later", icon: "fa-solid fa-hourglass-half" }
+    const modifierInfo = afterRoll
+      ? `<div class="ic-triggered-consumption-stat"><span>Available Modifier</span><strong>${this.#escapeHtml(formula)}</strong></div>`
+      : "";
+    const timing = afterRoll
+      ? `<div class="ic-triggered-consumption-stats">${rollInfo}${modifierInfo}</div><p>Use applies the configured modifier to this existing roll. Keep preserves the effect for a later eligible roll.</p>`
+      : "<p>The managed payload will be enabled only for this native roll. Cancelling the roll preserves the effect.</p>";
+    return Boolean(await ProtectedTransactionDialogService.confirm({
+      key: `triggered-consumption-${actor.uuid}-${candidate.sourceActorUuid}-${candidate.entryKey}`,
+      matchClass: "ic-triggered-consumption-dialog",
+      visualBackdrop: false,
+      containKeyboard: true,
+      dialogOptions: {
+        classes: ["ic-triggered-consumption-dialog"],
+        window: { title: `Use ${effectName}?`, modal: false },
+        content: `<section class="ic-triggered-consumption-content"><p><strong>${actorName}</strong> can use <strong>${effectName}</strong> from <strong>${itemName}</strong>.</p>${timing}<p class="ic-triggered-consumption-uses">${candidate.usesRemaining}/${candidate.usesMaximum} use(s) remain.</p></section>`,
+        yes: { label: "Use", icon: "fa-solid fa-dice-d20" },
+        no: { label: "Keep", icon: "fa-solid fa-hourglass-half" }
+      }
     }));
   }
 
@@ -1318,7 +1330,7 @@ export class ItemCreatorTriggeredEffectService {
     const actor = data.subject?.documentName === "Actor" ? data.subject : data.subject?.actor;
     if (!actor || !currentCombatForActor(actor)) return;
     for (const [index, roll] of valuesOf(rolls).entries()) {
-      this.#scheduleAfterFailureRoll(actor, rollType, roll, {
+      this.#scheduleAfterRoll(actor, rollType, roll, {
         ability: data.ability ?? "",
         skill: data.skill ?? "",
         tool: data.tool ?? "",
@@ -1327,21 +1339,20 @@ export class ItemCreatorTriggeredEffectService {
     }
   }
 
-  static #postFailureRollKey(actor, rollType, roll, context = {}) {
+  static #postRollKey(actor, rollType, roll, context = {}) {
     const messageId = roll?.parent?.id ?? roll?.options?.messageId ?? "";
     return `${actor.uuid}:${rollType}:${messageId || context.index || 0}:${Number(roll?.total) || 0}:${activeD20Result(roll)}`;
   }
 
-  static #rememberPostFailureKey(key) {
-    this.#recentPostFailureKeys.push(key);
-    this.#recentPostFailureKeys = this.#recentPostFailureKeys.slice(-POST_FAILURE_RECENT_LIMIT);
+  static #rememberPostRollKey(key) {
+    this.#recentPostRollKeys.push(key);
+    this.#recentPostRollKeys = this.#recentPostRollKeys.slice(-POST_ROLL_RECENT_LIMIT);
   }
 
-  static #scheduleAfterFailureRoll(actor, rollType, roll, context = {}) {
-    if (!rollResultIsFailure(roll, rollType)) return;
-    const key = this.#postFailureRollKey(actor, rollType, roll, context);
-    if (this.#pendingPostFailureKeys.has(key) || this.#recentPostFailureKeys.includes(key)) return;
-    this.#pendingPostFailureKeys.add(key);
+  static #scheduleAfterRoll(actor, rollType, roll, context = {}) {
+    const key = this.#postRollKey(actor, rollType, roll, context);
+    if (this.#pendingPostRollKeys.has(key) || this.#recentPostRollKeys.includes(key)) return;
+    this.#pendingPostRollKeys.add(key);
     const priorityContext = {
       actor,
       actorUuid: actor.uuid,
@@ -1358,14 +1369,14 @@ export class ItemCreatorTriggeredEffectService {
       try {
         const resolution = await this.#waitForHigherPriorityAutomation(priorityContext);
         if (!resolution?.finalized) return;
-        await this.#resolveAfterFailureRoll(actor, rollType, roll, context, resolution);
+        await this.#resolveAfterRoll(actor, rollType, roll, context, resolution);
       } catch (error) {
-        console.error(`${MODULE_ID} | Failed to resolve a post-result consumable effect.`, error);
+        console.error(`${MODULE_ID} | Failed to resolve a post-roll consumable effect.`, error);
       } finally {
-        this.#pendingPostFailureKeys.delete(key);
-        this.#rememberPostFailureKey(key);
+        this.#pendingPostRollKeys.delete(key);
+        this.#rememberPostRollKey(key);
       }
-    })(), POST_FAILURE_DELAY_MS);
+    })(), POST_ROLL_DELAY_MS);
   }
 
   static reportRollResolution(value = {}) {
@@ -1450,14 +1461,17 @@ export class ItemCreatorTriggeredEffectService {
       pending = this.#findPriorityResolutionEvent(correlationContext, "pending");
     }
 
-    if (!pending) return null;
+    // A Character Builder queue may be present even when that module has no eligible
+    // higher-priority resource for this roll. Absence of a pending resolution is therefore
+    // not a success/failure signal and must not suppress Item Creator's own eligible offer.
+    if (!pending) return { pendingSeen: false, resolution: null };
 
     const finalizedContext = {
       ...correlationContext,
       requiredRollKey: pending.rollKey || ""
     };
     let finalized = this.#findPriorityResolutionEvent(finalizedContext, "finalized");
-    if (finalized?.finalized) return finalized;
+    if (finalized?.finalized) return { pendingSeen: true, resolution: finalized };
 
     const queues = this.#characterBuilderResolutionQueues();
     const queue = queues[0] ?? null;
@@ -1471,7 +1485,7 @@ export class ItemCreatorTriggeredEffectService {
         const normalizedImmediate = normalizePriorityResolution(immediate, context);
         if (normalizedImmediate?.finalized) {
           this.reportRollResolution(normalizedImmediate);
-          return normalizedImmediate;
+          return { pendingSeen: true, resolution: normalizedImmediate };
         }
       } catch (error) {
         console.debug(`${MODULE_ID} | Character Builder getResolution() was not available for this roll yet.`, error);
@@ -1489,13 +1503,13 @@ export class ItemCreatorTriggeredEffectService {
 
     const deadline = Date.now() + PRIORITY_CONTRACT_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      if (apiResolution?.finalized) return apiResolution;
+      if (apiResolution?.finalized) return { pendingSeen: true, resolution: apiResolution };
       finalized = this.#findPriorityResolutionEvent(finalizedContext, "finalized");
-      if (finalized?.finalized) return finalized;
+      if (finalized?.finalized) return { pendingSeen: true, resolution: finalized };
       if (apiFinished && !queue) break;
       await sleep(50);
     }
-    return null;
+    return { pendingSeen: true, resolution: null };
   }
 
   static #takeReportedRollResolution(context = {}) {
@@ -1531,18 +1545,50 @@ export class ItemCreatorTriggeredEffectService {
     const structuredQueues = this.#characterBuilderResolutionQueues();
 
     if (characterBuilderActive && structuredQueues.length) {
-      const structured = await this.#waitForStructuredCharacterBuilderResolution(context);
-      if (!structured?.finalized) {
-        console.warn(`${MODULE_ID} | Character Builder marked a higher-priority resolution path, but no finalized result was received. Item Creator cancelled its post-failure offer for safety.`, {
-          actorUuid: context.actorUuid,
-          rollType: context.rollType,
-          originalTotal: context.originalTotal,
-          target: context.target
-        });
-        return null;
+      const structuredState = await this.#waitForStructuredCharacterBuilderResolution(context);
+      if (structuredState.pendingSeen) {
+        const structured = structuredState.resolution;
+        if (!structured?.finalized) {
+          console.warn(`${MODULE_ID} | Character Builder marked a higher-priority resolution path, but no finalized result was received. Item Creator cancelled its post-roll offer for safety.`, {
+            actorUuid: context.actorUuid,
+            rollType: context.rollType,
+            originalTotal: context.originalTotal
+          });
+          return null;
+        }
+        Hooks.callAll(`${MODULE_ID}.beforePostRollConsumption`, { ...context, resolution: structured });
+        // Legacy hook retained for integrations that subscribed before v0.5.0j.
+        Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: structured });
+        return structured;
       }
-      Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: structured });
-      return structured;
+
+      // No higher-priority decision was registered for this roll. If a legacy/late Character
+      // Builder prompt is nevertheless visible, keep the UI queue serialized before falling back.
+      if (priorityPromptOpen()) {
+        const deadline = Date.now() + PRIORITY_PROMPT_TIMEOUT_MS;
+        let quietSince = 0;
+        while (Date.now() < deadline) {
+          const reported = this.#takeReportedRollResolution(context);
+          if (reported?.finalized) {
+            Hooks.callAll(`${MODULE_ID}.beforePostRollConsumption`, { ...context, resolution: reported });
+            Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: reported });
+            return reported;
+          }
+          if (priorityPromptOpen()) quietSince = 0;
+          else {
+            quietSince ||= Date.now();
+            if (Date.now() - quietSince >= PRIORITY_PROMPT_QUIET_MS) break;
+          }
+          await sleep(50);
+        }
+      }
+
+      // Continue from the native total instead of treating the absence of a Character Builder
+      // prompt as success. Prompt presence is never a success/failure gate.
+      const nativeResolution = { ...defaultRollResolution(context), finalized: true };
+      Hooks.callAll(`${MODULE_ID}.beforePostRollConsumption`, { ...context, resolution: nativeResolution });
+      Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: nativeResolution });
+      return nativeResolution;
     }
 
     let resolution = defaultRollResolution(context);
@@ -1609,33 +1655,28 @@ export class ItemCreatorTriggeredEffectService {
     if (messageResolution && (!resolution.finalized || messageResolution.currentTotal !== resolution.currentTotal)) {
       resolution = messageResolution;
     }
-    Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution });
-    return { ...resolution, finalized: true };
+    const finalizedResolution = { ...resolution, finalized: true };
+    Hooks.callAll(`${MODULE_ID}.beforePostRollConsumption`, { ...context, resolution: finalizedResolution });
+    Hooks.callAll(`${MODULE_ID}.beforePostFailureConsumption`, { ...context, resolution: finalizedResolution });
+    return finalizedResolution;
   }
 
-  static async #resolveAfterFailureRoll(actor, rollType, roll, context = {}, priorityResolution = null) {
+  static async #resolveAfterRoll(actor, rollType, roll, context = {}, priorityResolution = null) {
     const resolution = normalizePriorityResolution(priorityResolution, { actor, rollType, roll, ...context }, { allowFallback: true })
       ?? defaultRollResolution({ actor, rollType, roll, ...context });
-    const target = firstFinite(resolution.target, rollTargetNumber(roll));
-    if (target === null) return;
     let runningTotal = firstFinite(resolution.currentTotal, roll?.total) ?? 0;
-    if (resolution.succeeded === true || runningTotal >= target) return;
-    const candidates = this.#consumableCandidates(actor, rollType, "afterFailure");
+    const candidates = this.#consumableCandidates(actor, rollType, "afterRoll");
     if (!candidates.length) return;
 
-    const nativeTotal = Number(roll?.total) || 0;
-    const priorAdjustments = normalizedAdjustments(resolution.adjustments);
     for (const candidate of candidates) {
-      if (rollType === "attackRoll" && (roll?.isFumble || activeD20Result(roll) === 1)) break;
-      if (runningTotal >= target) break;
       const rollContext = { ...context, rollType, activity: context.activity ?? null };
       const formula = managedBonusFormula(actor.effects, candidate.sourceActorUuid, candidate.entryKey, rollContext);
       if (!formula) {
-        console.warn(`${MODULE_ID} | ${candidate.name} has no additive ${rollType} change that can be applied after a failed result.`);
+        console.warn(`${MODULE_ID} | ${candidate.name} has no additive ${rollType} change that can be applied after the roll.`);
         continue;
       }
       const use = candidate.decision === "automatic" || await this.#promptConsumableUse(actor, candidate, {
-        rollType, total: runningTotal, target
+        rollType, total: runningTotal, formula
       });
       if (!use) continue;
 
@@ -1643,7 +1684,7 @@ export class ItemCreatorTriggeredEffectService {
       const response = await this.#requestAuthoritativeGM("prepareConsumableRoll", {
         recipientActorUuid: actor.uuid,
         rollType,
-        timing: "afterFailure",
+        timing: "afterRoll",
         selections: [{
           sourceActorUuid: candidate.sourceActorUuid,
           entryKey: candidate.entryKey,
@@ -1659,29 +1700,23 @@ export class ItemCreatorTriggeredEffectService {
         bonusRoll = await (new Roll(formula, actor.getRollData?.() ?? {})).evaluate();
       } catch (error) {
         await this.#finalizeConsumableRoll(actor, rollType, prepared, false);
-        ui.notifications?.warn?.(`${candidate.name} could not roll its post-failure bonus.`);
-        console.warn(`${MODULE_ID} | Invalid post-failure bonus formula: ${formula}`, error);
+        ui.notifications?.warn?.(`${candidate.name} could not roll its post-roll modifier.`);
+        console.warn(`${MODULE_ID} | Invalid post-roll modifier formula: ${formula}`, error);
         continue;
       }
       const bonusTotal = Number(bonusRoll?.total) || 0;
       const previousTotal = runningTotal;
       runningTotal += bonusTotal;
-      const succeeded = runningTotal >= target;
       await this.#finalizeConsumableRoll(actor, rollType, prepared, true, {
-        mode: "afterFailure",
+        mode: "afterRoll",
         formula,
         bonusTotal,
-        originalRollTotal: nativeTotal,
         originalTotal: previousTotal,
-        priorAdjustments,
         newTotal: runningTotal,
-        target,
-        succeeded,
         rollType,
         rollKey: resolution.rollKey || context.rollKey || "",
         originalMessageId: resolution.originalMessageId || rollMessageId(roll)
       });
-      priorAdjustments.push({ source: candidate.name, bonus: bonusTotal });
     }
   }
 
@@ -1950,7 +1985,7 @@ export class ItemCreatorTriggeredEffectService {
       if (hit) this.#emit({ ...base, id: eventId("attackHit", base.rollKey), type: "attackHit" });
       if (critical) this.#emit({ ...base, id: eventId("criticalHit", base.rollKey), type: "criticalHit" });
       if (natural === 20) this.#emit({ ...base, id: eventId("natural20", base.rollKey), type: "natural20" });
-      this.#scheduleAfterFailureRoll(actor, "attackRoll", roll, { activity, index, messageId });
+      this.#scheduleAfterRoll(actor, "attackRoll", roll, { activity, index, messageId });
     }
   }
 
@@ -2520,6 +2555,7 @@ export const __triggeredEffectTest = Object.freeze({
   resolutionKeys,
   changeAppliesToRoll,
   managedBonusFormula,
+  displayRollFormula,
   tickEntry,
   matchingTick,
   singleAttackResolutionMatches,

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0j — Privacy-Neutral Post-Roll Decisions
+
+### No success/failure UI leakage
+
+- Replaced **After a Failed Result** with **After the Roll** for consumable D20 effects. Existing Items saved with `afterFailure` migrate automatically to `afterRoll`.
+- Item Creator now offers every available post-roll effect on **every eligible roll**, independent of hidden AC/DC and independent of whether the current result is internally a success or failure.
+- Higher-priority bonuses no longer suppress later eligible Item Creator choices after they produce a success. Chained effects continue from the structured `currentTotal` returned by Character Builder, preserving the order `D&D5e → Character Builder → Item Creator` without turning prompt presence into a metagame signal.
+- A Character Builder queue that has no pending decision for a roll no longer suppresses Item Creator. A genuinely pending Character Builder resolution is still awaited and must finalize before Item Creator proceeds.
+- Add Dice and Subtract Dice can both use post-roll timing for supported D20 rolls. Damage and Healing Rolls remain pre-roll only.
+
+### Private player-facing presentation
+
+- Post-roll prompts now show only the effect, source Item, current roll total, available modifier, remaining uses, and **Use / Keep**. AC, DC, Success, Failure, and equivalent adjudication are not displayed.
+- Consumption chat notices now report only the applied modifier and updated roll total. Hidden target numbers and success/failure are not written into the player-visible Item Creator message or its roll-resolution flags.
+- Consumable decision windows now use a compact, draggable Item Creator dialog with no blur or dark visual backdrop. The rest of the Foundry UI remains functionally blocked until **Use** or **Keep** resolves the decision, preventing overlapping actions, target changes, duplicate submits, and roll-queue races.
+- The existing structured Character Builder protocol, Active Effect lifecycle, duration-or-consumption behavior, serialized cleanup, Supplier, and Materialization Core are preserved.
+- Increased the Item Creator document schema to 13.
+
 ## 0.5.0i — Supplier Synthetic Enhancement Recipe Guard
 
 ### Blacksmith stock generation

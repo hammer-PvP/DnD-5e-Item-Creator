@@ -1019,8 +1019,8 @@
                   {{#if hasRollDiceModifier}}
                   <aside class="ic-triggered-note"><i class="fa-solid fa-dice"></i><span><strong>Add/Subtract Dice</strong> uses the Eligible Roll, timing, decision, and use count above. It does not create a second Damage Roll layer. Choose Attack Roll, Ability Check, Saving Throw, or Any D20 Test; the configured dice are applied only to the confirmed eligible roll.</span></aside>
                   {{/if}}
-                  {{#if consumptionAfterFailure}}
-                  <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span><strong>After a Failed Result</strong> waits for the native roll and only offers the effect when the roll has a known AC/DC and is still a failure. The configured bonus is rolled and added to the existing result; the original roll is not repeated. Results without a verifiable target number are left unchanged.</span></aside>
+                  {{#if consumptionAfterRoll}}
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-shield-halved"></i><span><strong>After the Roll</strong> offers <strong>Use / Keep</strong> after every eligible roll while the effect is available. The offer never depends on hidden AC/DC or success/failure. The player sees only the current roll total and the available bonus; adjudication remains with the native D&D5e workflow and the GM.</span></aside>
                   {{else}}
                   <aside class="ic-triggered-note"><i class="fa-solid fa-dice-d20"></i><span><strong>Before the Roll</strong> enables the managed payload only for the confirmed native roll. Cancelling the roll preserves every use.</span></aside>
                   {{/if}}

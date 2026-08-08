@@ -2017,6 +2017,39 @@
   backdrop-filter: blur(2px);
 }
 .ic-protected-backdrop { z-index: 999998; }
+
+.ic-protected-backdrop.ic-protected-backdrop-transparent {
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.ic-triggered-consumption-dialog {
+  z-index: 999999 !important;
+  width: min(360px, calc(100vw - 28px)) !important;
+  min-width: 0 !important;
+}
+.ic-triggered-consumption-dialog .window-content { padding: 10px 12px; }
+.ic-triggered-consumption-dialog .window-header button.close,
+.ic-triggered-consumption-dialog .window-header [data-action="close"],
+.ic-triggered-consumption-dialog .window-header .header-control.close { display: none !important; }
+.ic-triggered-consumption-content { display: grid; gap: 8px; }
+.ic-triggered-consumption-content p { margin: 0; }
+.ic-triggered-consumption-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ic-triggered-consumption-stat {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 1px solid rgba(209, 176, 107, .26);
+  border-radius: 5px;
+  background: rgba(70, 50, 85, .12);
+}
+.ic-triggered-consumption-stat span { font-size: 10px; opacity: .68; }
+.ic-triggered-consumption-stat strong { font-size: 16px; }
+.ic-triggered-consumption-uses { font-size: 11px; opacity: .72; }
 .ic-processing-overlay {
   z-index: 1000000;
   display: grid;
