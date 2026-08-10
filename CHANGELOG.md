@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.6.0 — Character Builder-First Automation Coordination
+
+### Shared Roll Resolution Queue v3
+
+- Promoted Character Builder's shared roll-resolution contract to the canonical cross-module automation order: **D&D5e native → Character Builder → Item Creator → lifecycle**. Item Creator remains standalone-capable, but no longer attempts to own global roll finalization when a conforming Character Builder queue is present.
+- Added a strict compatibility gate for Character Builder Queue v3: `version >= 3`, `discoveryBarrier === true`, and `dynamicPriorityDrain === true`. Builds that report v3 without those capabilities do not receive a timing workaround.
+- Item Creator now claims post-roll discovery synchronously from the native D&D5e roll hook, before the first asynchronous continuation. Eligible Item modifiers enqueue in phase `items` / priority `300`, then release the discovery claim immediately. The queued provider Promise remains pending for the complete neutral `Use / Keep` decision.
+- Item providers return only their updated `currentTotal` and structured `adjustments`. They do not call `finalize()` or `requestFinalization()` and do not rerun Character Builder/native providers.
+- Existing sequential Item Creator modifiers remain one ordered Item-phase provider: each eligible managed effect starts from the latest queue `currentTotal`, and every accepted modifier is returned to the shared queue as an adjustment.
+- Concentration Saves remain mechanically eligible as Saving Throws inside Item Creator while preserving the shared queue's `concentration` roll identity when Character Builder has opened a lifecycle gate. This allows Item modifiers to finish before Character Builder decides whether native concentration ends.
+- Preserved the privacy rule: Item Creator eligibility and player-facing prompts never depend on hidden AC/DC/Success/Failure.
+- Kept the pre-v3 Character Builder/report-hook path as a compatibility fallback when no conforming Queue v3 API is available.
+
+### Resource Events v1
+
+- Added integration with Character Builder's `dnd5e-resource-events` v1 API. When available, it becomes the sole authority for **Resource Consumed** semantics; the legacy Item Creator inference from `postUseActivity/results.updates` is not run in parallel.
+- Resource consumption now preserves the protocol distinction between **resource** (the pool/slot/use that actually changed) and **cause** (the Item/Activity that caused the change). `Specific Resource Spent` matches the protocol resource; `Specific Feature Used` remains a separate Activity/Feature event. No named special cases were added for Bardic Inspiration, Cutting Words, Lay on Hands, or any custom Item.
+- Correlates Character Builder resource events with the following native `postUseActivity` context so Triggered Effects retain the Usage Message targets. This preserves target-recipient Item automation while no longer using the target/cause to guess which resource was spent. A short failsafe emits the semantic resource event without targets if the native usage context never arrives.
+- Re-emits the existing generic Item Creator resource trigger family (`resourceSpent`, `specificResourceSpent`, depleted/last-use, feature/item charges, Spell Slots, and Pact Slots) from the semantic resource payload, preserving existing Item declarations.
+- When Character Builder Resource Events v1 is unavailable, the existing Item Creator standalone detector remains unchanged as fallback.
+
+### Scope and compatibility
+
+- No Item schema migration is required and existing Triggered Effect declarations remain valid. Items that used `Specific Resource Spent` as a workaround for what is semantically a specific Feature use may need configuration review, not recreation.
+- Save-Gated native application, Contextual Roll Modifiers, duration/stack/recipient-turn lifecycle, protected post-roll UI, Supplier, Resource Modifications, and Materialization Core are intentionally unchanged outside the coordination adapters above.
+- Added formal integration documentation so future Item Creator changes consume Character Builder's published automation contracts instead of creating a parallel queue/lifecycle implementation.
+
 ## 0.5.0m — Contextual Roll Modifiers and Native Save-Gated Application
 
 ### Clean rebuild from 0.5.0l

@@ -26,6 +26,12 @@ const PRIORITY_CONTRACT_APPEAR_MS = 2500;
 const PRIORITY_CONTRACT_TIMEOUT_MS = 35000;
 const PRIORITY_EVENT_TTL_MS = 120000;
 const SHARED_ROLL_RESOLUTION_QUEUE = Symbol.for("dnd5e.roll-resolution-queue.v1");
+const RESOURCE_EVENT_PROTOCOL = "dnd5e-resource-events";
+const RESOURCE_EVENT_VERSION = 1;
+const RESOURCE_EVENT_TARGET_WAIT_MS = 3000;
+const RESOURCE_EVENT_MATCH_WINDOW_MS = 10000;
+const ITEM_ROLL_PROVIDER_ID = `${MODULE_ID}:post-roll-items`;
+const ITEM_ROLL_DISCOVERY_PROVIDER_ID = `${MODULE_ID}:post-roll-discovery`;
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -869,10 +875,226 @@ export class ItemCreatorTriggeredEffectService {
   static #pendingPostRollKeys = new Set();
   static #reportedRollResolutions = new Map();
   static #priorityResolutionEvents = [];
+  static #resourceEventUnsubscribe = null;
+  static #resourceEventsAuthority = false;
+  static #pendingResourceEvents = [];
+  static #resourceEventSequence = 0;
+
+  static #initializeCharacterBuilderIntegrations() {
+    if (this.#resourceEventUnsubscribe) return;
+    const module = game.modules?.get("dnd5e-character-builder");
+    const api = module?.active ? module.api?.resourceEvents : null;
+    const compatible = api?.protocol === RESOURCE_EVENT_PROTOCOL
+      && Number(api?.version) >= RESOURCE_EVENT_VERSION
+      && api?.subscribe instanceof Function;
+    if (!compatible) {
+      this.#resourceEventsAuthority = false;
+      return;
+    }
+
+    this.#resourceEventUnsubscribe = api.subscribe(payload => this.#receiveResourceConsumption(payload));
+    this.#resourceEventsAuthority = true;
+    console.info(`${MODULE_ID} | Character Builder Resource Events v${api.version} is authoritative for Resource Consumed triggers.`);
+  }
+
+  static #receiveResourceConsumption(payload = {}) {
+    if (!this.#resourceEventsAuthority) return;
+    if (payload?.type !== "resource-consumed" || Number(payload?.schema) < RESOURCE_EVENT_VERSION) return;
+    const actor = resolveActorDocument(payload.actorUuid);
+    if (!actor || !currentCombatForActor(actor)) return;
+
+    const id = `resource-event:${Date.now()}:${this.#resourceEventSequence++}`;
+    const entry = {
+      id,
+      payload: clone(payload),
+      receivedAt: Date.now(),
+      timeout: null
+    };
+    entry.timeout = setTimeout(() => {
+      void this.#flushPendingResourceConsumption(id);
+    }, RESOURCE_EVENT_TARGET_WAIT_MS);
+    this.#pendingResourceEvents.push(entry);
+  }
+
+  static #resourceEventMatchesActivity(entry, activity) {
+    if (!entry?.payload || !activity) return false;
+    const payload = entry.payload;
+    const cause = payload.cause ?? {};
+    const actorUuid = String(activity.actor?.uuid ?? "");
+    if (payload.actorUuid && actorUuid && String(payload.actorUuid) !== actorUuid) return false;
+
+    const activityValues = new Set([activity.uuid, activity.id]
+      .map(value => String(value ?? "").trim()).filter(Boolean));
+    const causeActivityValues = [cause.activityUuid, cause.activityId, cause.linkedActivity]
+      .map(value => String(value ?? "").trim()).filter(Boolean);
+    if (causeActivityValues.length && !causeActivityValues.some(value => activityValues.has(value))) return false;
+
+    const itemValues = new Set([activity.item?.uuid, activity.item?.id]
+      .map(value => String(value ?? "").trim()).filter(Boolean));
+    const causeItemValues = [cause.itemUuid, cause.itemId]
+      .map(value => String(value ?? "").trim()).filter(Boolean);
+    if (causeItemValues.length && !causeItemValues.some(value => itemValues.has(value))) return false;
+
+    return Date.now() - Number(entry.receivedAt || 0) <= RESOURCE_EVENT_MATCH_WINDOW_MS;
+  }
+
+  static #takeResourceConsumptionsForActivity(activity) {
+    const matched = [];
+    const kept = [];
+    for (const entry of this.#pendingResourceEvents) {
+      if (this.#resourceEventMatchesActivity(entry, activity)) {
+        if (entry.timeout) clearTimeout(entry.timeout);
+        matched.push(entry);
+      } else kept.push(entry);
+    }
+    this.#pendingResourceEvents = kept;
+    return matched;
+  }
+
+  static async #flushPendingResourceConsumption(id) {
+    const index = this.#pendingResourceEvents.findIndex(entry => entry.id === id);
+    if (index < 0) return;
+    const [entry] = this.#pendingResourceEvents.splice(index, 1);
+    if (entry?.timeout) clearTimeout(entry.timeout);
+    const base = this.#resourceCauseBase(entry?.payload);
+    if (base) this.#emitResourceConsumptionEvents(entry.payload, base);
+  }
+
+  static #resourceCauseBase(payload = {}) {
+    const actor = resolveActorDocument(payload.actorUuid);
+    const combat = currentCombatForActor(actor);
+    if (!actor || !combat) return null;
+    const cause = payload.cause ?? {};
+    const item = cause.itemUuid ? fromUuidSync(cause.itemUuid, { strict: false }) : actor.items?.get(cause.itemId);
+    const activityUuid = String(cause.activityUuid ?? cause.linkedActivity ?? "");
+    return {
+      actorUuid: actor.uuid,
+      actorId: actor.id,
+      combatId: combat.id,
+      round: combat.round,
+      turn: combat.turn,
+      itemUuid: String(cause.itemUuid ?? item?.uuid ?? ""),
+      itemId: String(cause.itemId ?? item?.id ?? ""),
+      itemName: String(cause.itemName ?? item?.name ?? ""),
+      itemIdentifier: String(cause.itemIdentifier ?? item?.system?.identifier ?? ""),
+      activityUuid,
+      activityId: String(cause.activityId ?? ""),
+      activityType: String(cause.activityType ?? ""),
+      activityUseId: `${activityUuid || cause.itemUuid || actor.uuid}:${Number(payload.at) || Date.now()}`,
+      messageId: "",
+      targetActorUuids: [],
+      targetActorUuid: "",
+      timestamp: Number(payload.at) || Date.now()
+    };
+  }
+
+  static #resourceState(actor, resource = {}) {
+    const kind = String(resource.kind ?? "");
+    const keyPath = String(resource.keyPath ?? "");
+    let holder = actor;
+    let uses = null;
+
+    if (["itemUses", "activityUses"].includes(kind)) {
+      const item = resource.itemUuid
+        ? fromUuidSync(resource.itemUuid, { strict: false })
+        : actor?.items?.get(resource.itemId);
+      if (kind === "activityUses") {
+        const activity = item?.system?.activities?.get?.(resource.activityId);
+        uses = activity?.uses ?? null;
+      } else uses = item?.system?.uses ?? null;
+    }
+
+    if (uses) {
+      const maximum = Number(uses.max) || 0;
+      const spent = Number(uses.spent) || 0;
+      const value = Number(uses.value);
+      const remaining = Number.isFinite(value) ? Math.max(0, value) : Math.max(0, maximum - spent);
+      return { remaining, maximum };
+    }
+
+    if (holder && keyPath) {
+      const current = Number(foundry.utils.getProperty(holder, keyPath));
+      const parentPath = keyPath.replace(/\.(?:value|spent)$/, "");
+      const parent = foundry.utils.getProperty(holder, parentPath) ?? {};
+      const maximum = Number(parent.max) || 0;
+      if (keyPath.endsWith(".spent")) {
+        return { remaining: Math.max(0, maximum - (Number.isFinite(current) ? current : 0)), maximum };
+      }
+      if (keyPath.endsWith(".value")) {
+        return { remaining: Math.max(0, Number.isFinite(current) ? current : 0), maximum };
+      }
+    }
+
+    return { remaining: 0, maximum: 0 };
+  }
+
+  static #emitResourceConsumptionEvents(payload = {}, activityBase = null) {
+    if (!this.#resourceEventsAuthority) return;
+    const actor = resolveActorDocument(payload.actorUuid);
+    const combat = currentCombatForActor(actor);
+    if (!actor || !combat) return;
+    const base = activityBase ?? this.#resourceCauseBase(payload);
+    if (!base) return;
+
+    const resource = payload.resource ?? {};
+    const cause = payload.cause ?? {};
+    const { remaining, maximum } = this.#resourceState(actor, resource);
+    const resourceItem = resource.itemUuid
+      ? fromUuidSync(resource.itemUuid, { strict: false })
+      : actor.items?.get(resource.itemId);
+    const resourceIdentity = String(resource.identifier ?? resource.itemId ?? resource.keyPath ?? slug(resource.name));
+    const resourceBase = {
+      ...base,
+      resourceUuid: String(resource.itemUuid ?? resource.documentUuid ?? ""),
+      resourceDocumentUuid: String(resource.documentUuid ?? ""),
+      resourceName: String(resource.name ?? resourceItem?.name ?? resourceIdentity),
+      resourceIdentifier: resourceIdentity,
+      resourceId: resourceIdentity || slug(resource.name),
+      resourceKind: String(resource.kind ?? ""),
+      resourceKeyPath: String(resource.keyPath ?? ""),
+      resourceAmount: Number(payload.amount) || 1,
+      remainingUses: remaining,
+      maximumUses: maximum,
+      cause: clone(cause)
+    };
+    const activityUseId = base.activityUseId || `${base.activityUuid}:${Number(payload.at) || Date.now()}`;
+
+    this.#emit({ ...resourceBase, id: eventId("resourceSpent", activityUseId), type: "resourceSpent" });
+    this.#emit({ ...resourceBase, id: eventId("specificResourceSpent", activityUseId), type: "specificResourceSpent" });
+    if (remaining === 0 && maximum > 0) {
+      this.#emit({ ...resourceBase, id: eventId("resourceReducedToZero", activityUseId), type: "resourceReducedToZero" });
+      this.#emit({ ...resourceBase, id: eventId("lastUseSpent", activityUseId), type: "lastUseSpent" });
+    }
+
+    if (resourceItem?.type === "feat") {
+      this.#emit({ ...resourceBase, id: eventId("featureUseSpent", activityUseId), type: "featureUseSpent" });
+    }
+    if (["weapon", "equipment", "tool", "consumable"].includes(resourceItem?.type)) {
+      this.#emit({ ...resourceBase, id: eventId("itemChargeSpent", activityUseId), type: "itemChargeSpent" });
+    }
+
+    if (resource.kind === "spellSlot") {
+      const slotKey = resource.keyPath?.match(/^system\.spells\.([^.]+)\.value$/)?.[1] ?? "";
+      if (slotKey) {
+        const spellSlotLevel = slotKey === "pact"
+          ? Number(actor.system?.spells?.pact?.level) || 0
+          : Number(String(slotKey).replace("spell", "")) || 0;
+        const type = slotKey === "pact" ? "pactSlotSpent" : "spellSlotSpent";
+        this.#emit({
+          ...resourceBase,
+          spellSlotKey: slotKey,
+          spellSlotLevel,
+          id: eventId(type, activityUseId),
+          type
+        });
+      }
+    }
+  }
 
   static registerHooks() {
     Hooks.once("ready", () => {
       game.socket?.on(SOCKET_CHANNEL, payload => this.#onSocketPayload(payload));
+      this.#initializeCharacterBuilderIntegrations();
       this.#installConsumableRollPatches();
       if (isAuthoritativeGM()) {
         for (const actor of game.actors ?? []) void this.syncActor(actor);
@@ -1407,6 +1629,13 @@ export class ItemCreatorTriggeredEffectService {
   static #scheduleAfterRoll(actor, rollType, roll, context = {}) {
     const key = this.#postRollKey(actor, rollType, roll, context);
     if (this.#pendingPostRollKeys.has(key) || this.#recentPostRollKeys.includes(key)) return;
+
+    const queue = this.#compatibleCharacterBuilderRollQueue();
+    if (queue) {
+      this.#scheduleAfterRollV3(queue, actor, rollType, roll, context, key);
+      return;
+    }
+
     this.#pendingPostRollKeys.add(key);
     const priorityContext = {
       actor,
@@ -1432,6 +1661,97 @@ export class ItemCreatorTriggeredEffectService {
         this.#rememberPostRollKey(key);
       }
     })(), POST_ROLL_DELAY_MS);
+  }
+
+  static #compatibleCharacterBuilderRollQueue() {
+    const module = game.modules?.get("dnd5e-character-builder");
+    const queue = module?.active ? module.api?.rollResolutionQueue : null;
+    if (!queue || Number(queue.version) < 3) return null;
+    if (queue.capabilities?.discoveryBarrier !== true) return null;
+    if (queue.capabilities?.dynamicPriorityDrain !== true) return null;
+    if (!(queue.claim instanceof Function) || !(queue.enqueue instanceof Function)) return null;
+    return queue;
+  }
+
+  static #scheduleAfterRollV3(queue, actor, rollType, roll, context, key) {
+    this.#pendingPostRollKeys.add(key);
+    const originalTotal = Number(roll?.total) || 0;
+    const existing = queue.getResolution instanceof Function
+      ? queue.getResolution({ roll })
+      : null;
+    // Concentration is mechanically eligible as a Saving Throw inside Item Creator,
+    // but its shared queue identity must remain `concentration` for Character Builder lifecycle.
+    const queueRollType = String(existing?.rollType || rollType);
+    let claim = null;
+    try {
+      claim = queue.claim({
+        roll,
+        providerId: ITEM_ROLL_DISCOVERY_PROVIDER_ID,
+        reason: "eligible-item-modifiers",
+        actorUuid: actor.uuid,
+        rollType: queueRollType,
+        originalTotal,
+        currentTotal: originalTotal
+      });
+    } catch (error) {
+      this.#pendingPostRollKeys.delete(key);
+      this.#rememberPostRollKey(key);
+      console.warn(`${MODULE_ID} | Could not claim Shared Roll Queue v3 discovery.`, error);
+      return;
+    }
+
+    if (!claim?.active || !claim.rollKey) {
+      this.#pendingPostRollKeys.delete(key);
+      this.#rememberPostRollKey(key);
+      return;
+    }
+
+    // The claim above is deliberately synchronous and precedes the first await.
+    // This async continuation performs discovery only after every hook listener had
+    // an opportunity to claim the same native roll.
+    void (async () => {
+      let released = false;
+      try {
+        const discovered = this.#consumableCandidates(actor, rollType, "afterRoll");
+        if (!discovered.length) return;
+
+        const task = queue.enqueue({
+          roll,
+          rollKey: claim.rollKey,
+          phase: "items",
+          priority: 300,
+          providerId: ITEM_ROLL_PROVIDER_ID,
+          actorUuid: actor.uuid,
+          rollType: queueRollType,
+          originalTotal,
+          currentTotal: originalTotal,
+          execute: async queueContext => {
+            const resolution = {
+              actorUuid: String(queueContext?.actorUuid ?? actor.uuid),
+              rollType: String(queueContext?.rollType ?? queueRollType),
+              rollKey: String(queueContext?.rollKey ?? claim.rollKey),
+              originalMessageId: String(queueContext?.originalMessageId ?? rollMessageId(roll)),
+              originalTotal: firstFinite(queueContext?.originalTotal, originalTotal) ?? originalTotal,
+              currentTotal: firstFinite(queueContext?.currentTotal, originalTotal) ?? originalTotal,
+              target: firstFinite(queueContext?.target),
+              finalized: false,
+              adjustments: normalizedAdjustments(queueContext?.adjustments)
+            };
+            return this.#resolveAfterRoll(actor, rollType, roll, context, resolution);
+          }
+        });
+
+        claim.release();
+        released = true;
+        await task;
+      } catch (error) {
+        console.error(`${MODULE_ID} | Shared Roll Queue v3 Item provider failed.`, error);
+      } finally {
+        if (!released) claim?.release?.();
+        this.#pendingPostRollKeys.delete(key);
+        this.#rememberPostRollKey(key);
+      }
+    })();
   }
 
   static reportRollResolution(value = {}) {
@@ -1498,9 +1818,10 @@ export class ItemCreatorTriggeredEffectService {
 
   static #characterBuilderResolutionQueues() {
     const apiQueue = game.modules?.get("dnd5e-character-builder")?.api?.rollResolutionQueue;
-    const sharedQueue = globalThis[SHARED_ROLL_RESOLUTION_QUEUE]
+    const sharedState = globalThis[SHARED_ROLL_RESOLUTION_QUEUE]
       ?? globalThis.game?.[SHARED_ROLL_RESOLUTION_QUEUE]
       ?? null;
+    const sharedQueue = sharedState?.api ?? sharedState;
     return [...new Set([apiQueue, sharedQueue].filter(queue => queue && typeof queue === "object"))];
   }
 
@@ -1720,8 +2041,9 @@ export class ItemCreatorTriggeredEffectService {
     const resolution = normalizePriorityResolution(priorityResolution, { actor, rollType, roll, ...context }, { allowFallback: true })
       ?? defaultRollResolution({ actor, rollType, roll, ...context });
     let runningTotal = firstFinite(resolution.currentTotal, roll?.total) ?? 0;
+    const adjustments = [];
     const candidates = this.#consumableCandidates(actor, rollType, "afterRoll");
-    if (!candidates.length) return;
+    if (!candidates.length) return { currentTotal: runningTotal, adjustments };
 
     for (const candidate of candidates) {
       const rollContext = { ...context, rollType, activity: context.activity ?? null };
@@ -1762,6 +2084,7 @@ export class ItemCreatorTriggeredEffectService {
       const bonusTotal = Number(bonusRoll?.total) || 0;
       const previousTotal = runningTotal;
       runningTotal += bonusTotal;
+      adjustments.push({ source: candidate.name || candidate.sourceItemName || "Item Creator", bonus: bonusTotal });
       await this.#finalizeConsumableRoll(actor, rollType, prepared, true, {
         mode: "afterRoll",
         formula,
@@ -1774,6 +2097,7 @@ export class ItemCreatorTriggeredEffectService {
         originalMessageId: resolution.originalMessageId || rollMessageId(roll)
       });
     }
+    return { currentTotal: runningTotal, adjustments };
   }
 
   static #activeContextualModifiers(actor, rollType, relationship) {
@@ -2150,6 +2474,15 @@ export class ItemCreatorTriggeredEffectService {
     }
     if (anyItem) this.#emit({ ...base, id: eventId("anyItemUsed", activityUseId), type: "anyItemUsed" });
     if (isManagedItem(item)) this.#emit({ ...base, id: eventId("thisItemActivityUsed", activityUseId), type: "thisItemActivityUsed" });
+
+    // Character Builder Resource Events v1 is authoritative for what resource
+    // actually changed. postUseActivity remains the source of target/message
+    // context only; it must not run the legacy resource inference in parallel.
+    if (this.#resourceEventsAuthority) {
+      const consumptions = this.#takeResourceConsumptionsForActivity(activity);
+      for (const entry of consumptions) this.#emitResourceConsumptionEvents(entry.payload, base);
+      return;
+    }
 
     const updates = results?.updates ?? {};
     const consumed = Boolean(usageConfig?.hasConsumption
