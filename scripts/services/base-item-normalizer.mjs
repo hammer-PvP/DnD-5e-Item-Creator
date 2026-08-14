@@ -346,6 +346,10 @@ export function normalizeBaseItemMechanics(item, {
       activitySummaries.push(`Primary ${activity?.type ?? "Attack"} Activity translated to native Item data`);
       continue;
     }
+    if (activity?.type === "attack") {
+      activitySummaries.push(`${activity?.name || "Alternative Attack"}: translated to editable Attack Activity`);
+      continue;
+    }
     if (activity?.type === "cast" && activity?.spell?.uuid) {
       castActivities.push(activity);
       activitySummaries.push(`${activity?.name || "Cast"}: translated to Granted Spellcasting`);

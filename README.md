@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.6.0 Beta Candidate
+**Version:** 0.6.1 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -36,7 +36,17 @@ Base Items may come from enabled compendiums, existing World Items, or custom da
 
 #### Weapon
 
-Supports native weapon data, Base Weapon inheritance, Attack Activity construction, damage, range, properties, Mastery, weapon enchantment, additional damage, Granted Effects, Granted Spellcasting, and character-level progression.
+Supports native weapon data, Base Weapon inheritance, multiple editable Attack Activities, damage, range, properties, Mastery, weapon enchantment, additional damage, Granted Effects, Granted Spellcasting, and character-level progression.
+
+##### Multiple Attack Activities
+
+Weapons may contain more than one native D&D5e **Attack Activity**. The first Activity is the **Primary** attack and defaults to the name **Attack** when the source has no custom name. Additional Activities default to **Alternative Attack** and may be renamed, duplicated, removed, expanded, or collapsed in the Base Item step.
+
+Each Activity independently controls whether it includes the Item's normal base weapon damage and which typed damage parts belong only to that Activity. An Alternative Activity can either inherit the Primary attack configuration or keep its own native attack type, ability, attack bonus, critical threshold, and extra critical-damage formula. Existing native Attack Activities imported from World Items or templates are promoted into this editable model instead of remaining opaque Custom Imported Activities; native Activity fields outside the explicitly managed attack/damage controls are preserved as source passthrough data.
+
+Item Creator does **not** automatically select an Activity from target creature type or hidden adjudication. When D&D5e presents multiple Activities, the player/GM chooses the appropriate attack normally. Versatile one-handed/two-handed weapon damage remains the native weapon's Versatile behavior and is not represented as a separate Activity unless the GM deliberately creates one.
+
+Primary Activity additional-damage progression remains compatible with existing Item Creator Items. The v0.6.1 document schema stores managed Attack Activity identities so weapon-local Attack Bonus and Critical progression can remain synchronized with Activities that inherit the Primary attack configuration.
 
 #### Equipment
 
@@ -61,7 +71,7 @@ When a Base Item contains native Active Effects or Activities, Item Creator tran
 
 A combined Effect can be separated into independent properties. For example, a single native Effect granting `+1 Armor Class` and `+1 to all Saving Throws` becomes two editable Creator fields. The original embedded document is not copied alongside the normalized result, preventing invisible duplication.
 
-Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. Activity-to-Effect references are remapped to fresh IDs when the normalized Item is created.
+Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. Secondary native Weapon Attack Activities are no longer treated as unknown: v0.6.1 promotes them into the editable Attack Activity list. Activity-to-Effect references are remapped when the normalized Item is created.
 
 ## Granted Effects
 

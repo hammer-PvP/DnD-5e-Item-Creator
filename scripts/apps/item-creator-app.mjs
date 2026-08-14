@@ -104,6 +104,49 @@ function rawActivityDamageParts(activity) {
   return valuesOf(rawActivitySource(activity)?.damage?.parts);
 }
 
+function attackActivityDamageRow(part) {
+  return {
+    id: foundry.utils.randomID(),
+    number: Number(part?.number) || 0,
+    denomination: Number(part?.denomination) || 0,
+    damageType: valuesOf(part?.types)[0] ?? "",
+    useAbilityModifier: false,
+    ability: "",
+    bonus: String(part?.bonus ?? ""),
+    unlockOnLevel: false,
+    unlockLevel: 1,
+    progressionGroupId: foundry.utils.randomID(),
+    tiers: []
+  };
+}
+
+function attackActivityDraft(activity, { primary = false } = {}) {
+  const source = clone(rawActivitySource(activity) ?? {});
+  const id = activity?.id ?? activity?._id ?? source?._id ?? null;
+  delete source._index;
+  return {
+    id: foundry.utils.randomID(),
+    sourceId: id,
+    primary,
+    name: String(activity?.name ?? source?.name ?? (primary ? "Attack" : "Alternative Attack")) || (primary ? "Attack" : "Alternative Attack"),
+    includeBase: source?.damage?.includeBase !== false,
+    inheritPrimaryAttack: primary ? true : false,
+    attackType: String(source?.attack?.type?.value ?? ""),
+    attackAbility: String(source?.attack?.ability ?? ""),
+    attackBonus: String(source?.attack?.bonus ?? ""),
+    criticalThreshold: source?.attack?.critical?.threshold ?? "",
+    criticalBonus: String(source?.damage?.critical?.bonus ?? ""),
+    damageParts: rawActivityDamageParts(activity).map(attackActivityDamageRow),
+    expanded: primary,
+    sourceData: source
+  };
+}
+
+function attackActivityDrafts(document) {
+  const attacks = valuesOf(document?.system?.activities).filter(activity => activity?.type === "attack");
+  return attacks.map((activity, index) => attackActivityDraft(activity, { primary: index === 0 }));
+}
+
 function damageRowMatchesBase(row, baseDamage, damageType) {
   if (!row || !baseDamage) return false;
   return Number(row.number) === Number(baseDamage.number)
@@ -896,6 +939,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.managedActivityIds = [];
     this.managedPrimaryAttackId = null;
     this.preserveAdditionalAttackActivities = false;
+    this.attackActivities = [];
+    this.attackActivitiesDirty = false;
     this.managedEffectIds = [];
     this.customImportedEffects = [];
     this.customImportedActivities = [];
@@ -947,6 +992,101 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   static PARTS = {
     main: { template: `modules/${MODULE_ID}/templates/item-creator.hbs` }
   };
+
+  #hydrateAttackActivities(document, savedDraft = null) {
+    if (this.selectedType !== "weapon") {
+      this.attackActivities = [];
+      return;
+    }
+
+    let rows = Array.isArray(savedDraft?.attackActivities) && savedDraft.attackActivities.length
+      ? clone(savedDraft.attackActivities)
+      : attackActivityDrafts(document);
+
+    // v0.6.0 and earlier preserved secondary Attack Activities as opaque custom
+    // imports. Promote those entries into the editable v0.6.1 Attack Activity model.
+    const legacyAttackImports = this.customImportedActivities.filter(entry => entry?.type === "attack" || entry?.data?.type === "attack");
+    const knownSources = new Set(rows.map(row => row.sourceId).filter(Boolean));
+    for (const entry of legacyAttackImports) {
+      if (entry.sourceId && knownSources.has(entry.sourceId)) continue;
+      const source = clone(entry.data ?? {});
+      source._id = entry.sourceId ?? source._id ?? foundry.utils.randomID();
+      source.type = "attack";
+      source.name = entry.name || source.name || "Alternative Attack";
+      const promoted = attackActivityDraft(source, { primary: false });
+      promoted.sourceId = entry.sourceId ?? promoted.sourceId;
+      rows.push(promoted);
+    }
+    this.customImportedActivities = this.customImportedActivities.filter(entry => !(entry?.type === "attack" || entry?.data?.type === "attack"));
+
+    if (!rows.length) {
+      const primary = attackActivity(document);
+      rows = [attackActivityDraft(primary ?? { type: "attack", name: "Attack", damage: { includeBase: true, parts: [] } }, { primary: true })];
+    }
+
+    rows = rows.map((row, index) => ({
+      id: row.id || foundry.utils.randomID(),
+      sourceId: row.sourceId ?? null,
+      primary: index === 0,
+      name: String(row.name ?? (index === 0 ? "Attack" : "Alternative Attack")) || (index === 0 ? "Attack" : "Alternative Attack"),
+      includeBase: row.includeBase !== false,
+      inheritPrimaryAttack: index === 0 ? true : row.inheritPrimaryAttack !== false,
+      attackType: String(row.attackType ?? ""),
+      attackAbility: String(row.attackAbility ?? ""),
+      attackBonus: String(row.attackBonus ?? ""),
+      criticalThreshold: row.criticalThreshold ?? "",
+      criticalBonus: String(row.criticalBonus ?? ""),
+      damageParts: valuesOf(row.damageParts).map(part => ({
+        id: part.id || foundry.utils.randomID(),
+        number: Number(part.number) || 0,
+        denomination: Number(part.denomination) || 0,
+        damageType: String(part.damageType ?? ""),
+        useAbilityModifier: Boolean(part.useAbilityModifier),
+        ability: String(part.ability ?? ""),
+        bonus: String(part.bonus ?? ""),
+        unlockOnLevel: Boolean(part.unlockOnLevel),
+        unlockLevel: Number(part.unlockLevel) || 1,
+        progressionGroupId: part.progressionGroupId || foundry.utils.randomID(),
+        tiers: clone(part.tiers ?? [])
+      })),
+      expanded: row.expanded !== false && (index === 0 || Boolean(row.expanded)),
+      sourceData: clone(row.sourceData ?? {})
+    }));
+
+    const primary = rows[0];
+    // Existing Item Creator damage progression remains the canonical storage for
+    // Primary Activity parts. This keeps old Items and level progression intact.
+    if (Array.isArray(savedDraft?.attackActivities)) {
+      if (primary.damageParts.length) {
+        this.customized.additionalDamage = true;
+        this.overrides.additionalDamage = clone(primary.damageParts);
+      } else if (!this.customized.additionalDamage) {
+        delete this.overrides.additionalDamage;
+      }
+    } else if (this.customized.additionalDamage) {
+      primary.damageParts = clone(this.overrides.additionalDamage ?? []);
+    } else if (primary.damageParts.length) {
+      this.customized.additionalDamage = true;
+      this.overrides.additionalDamage = clone(primary.damageParts);
+    }
+
+    this.attackActivities = rows;
+    this.managedPrimaryAttackId = primary.sourceId ?? this.managedPrimaryAttackId;
+    this.managedActivityIds = [...new Set([
+      ...this.managedActivityIds,
+      ...rows.map(row => row.sourceId).filter(Boolean)
+    ])];
+    this.attackActivitiesDirty = false;
+  }
+
+  #attackActivityDraftForSave(effective = this.#effectiveValues()) {
+    const rows = clone(this.attackActivities ?? []);
+    if (!rows.length || this.selectedType !== "weapon") return rows;
+    rows[0].primary = true;
+    rows[0].damageParts = this.customized.additionalDamage ? clone(effective?.additionalDamage ?? []) : [];
+    for (let index = 1; index < rows.length; index += 1) rows[index].primary = false;
+    return rows;
+  }
 
   async #translateDocumentMechanics(document, { merge = false, ignoreGenerated = false } = {}) {
     if (!document) return;
@@ -1208,6 +1348,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.customImportedActivities = clone(savedDraft.customImportedActivities ?? []);
       this.importedBaseSummary = clone(savedDraft.importedBaseSummary ?? []);
       await this.#translateDocumentMechanics(item, { merge: true, ignoreGenerated: true });
+      this.#hydrateAttackActivities(item, savedDraft);
     } else {
       this.selectedWeaponUuid = item.uuid;
       this.selectedWeaponDocument = item;
@@ -1234,6 +1375,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.resourceModifications = [];
       this.triggeredEffects = [];
       await this.#translateDocumentMechanics(item);
+      this.#hydrateAttackActivities(item);
       this.templateDescriptionRaw = rawTemplateDescription(item);
       this.templateDescription = this.templateDescriptionRaw;
       this.descriptionCustomized = true;
@@ -1287,10 +1429,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const effective = source ? this.#effectiveValues(source) : null;
     const additionalDamageValid = !isWeapon || !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row => this.#validateAdditionalDamageRow(row)));
+    const attackActivitiesValid = this.#validateAttackActivities(effective);
     const typeComplete = Boolean(this.selectedType);
     const baseComplete = Boolean(this.selectedWeaponUuid
       && (!isWeapon || this.selectedBaseWeaponUuid)
-      && this.itemName.trim() && additionalDamageValid);
+      && this.itemName.trim() && additionalDamageValid && attackActivitiesValid);
     const enhancementValidation = this.#validateEnhancements();
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
     const grantedEffectValidation = this.#validateGrantedEffects();
@@ -1434,6 +1577,34 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, row.damageType),
       abilityModifierOptions: abilityModifierOptions(row.ability), summary: additionalDamageLabel(row)
     })) : [];
+    const attackActivityRows = isWeapon ? (this.attackActivities ?? []).map((row, index) => {
+      const damageParts = index === 0 ? additionalDamageRows : valuesOf(row.damageParts).map((part, partIndex) => ({
+        ...part,
+        index: partIndex + 1,
+        dieOptions: damageDiceOptions(part.denomination),
+        damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, part.damageType),
+        abilityModifierOptions: abilityModifierOptions(part.ability),
+        summary: additionalDamageLabel(part)
+      }));
+      return {
+        ...row,
+        primary: index === 0,
+        index: index + 1,
+        damageParts,
+        damagePartCount: damageParts.length,
+        attackTypeOptions: [
+          { value: "melee", label: "Melee", selected: row.attackType === "melee" },
+          { value: "ranged", label: "Ranged", selected: row.attackType === "ranged" }
+        ],
+        abilityOptions: configOptions(CONFIG.DND5E.abilities, row.attackAbility, { blankValue: "", blankLabel: "Automatic" }),
+        invalid: !String(row.name ?? "").trim()
+          || damageParts.some(part => !this.#validateAdditionalDamageRow(part))
+          || (index > 0 && row.inheritPrimaryAttack === false && !["melee", "ranged"].includes(String(row.attackType ?? "")))
+          || (index > 0 && row.inheritPrimaryAttack === false && row.criticalThreshold !== ""
+            && row.criticalThreshold !== null && row.criticalThreshold !== undefined
+            && (!Number.isInteger(Number(row.criticalThreshold)) || Number(row.criticalThreshold) < 1 || Number(row.criticalThreshold) > 20))
+      };
+    }) : [];
 
     const grantedSpellRows = (this.enhancementValues.grantedSpellcasting?.spells ?? []).map((row, index) => {
       const level = Number(row.level ?? 0);
@@ -1769,6 +1940,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       propertyOptions, hasVersatile: effective?.properties?.includes("ver") ?? false,
       hasAmmunition: effective?.properties?.includes("amm") ?? false,
       additionalDamageRows, additionalDamageValid, additionalDamageCount: additionalDamageRows.length,
+      attackActivityRows, attackActivitiesValid, attackActivityCount: attackActivityRows.length,
 
       equipmentForm: this.equipmentForm, equipmentFormOptions, equipmentTypeOptions, armorTypeOptions,
       isArmorForm, isShieldForm, hasArmorFields,
@@ -1872,6 +2044,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
       input.addEventListener(eventName, event => this.#updateAdditionalDamage(event));
     });
+    root.querySelector('[data-action="add-attack-activity"]')?.addEventListener("click", event => this.#addAttackActivity(event));
+    root.querySelectorAll('[data-action="duplicate-attack-activity"]').forEach(button => button.addEventListener("click", event => this.#duplicateAttackActivity(event)));
+    root.querySelectorAll('[data-action="remove-attack-activity"]').forEach(button => button.addEventListener("click", event => this.#removeAttackActivity(event)));
+    root.querySelectorAll('[data-attack-activity-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateAttackActivity(event));
+    });
+    root.querySelectorAll('[data-action="add-attack-activity-damage"]').forEach(button => button.addEventListener("click", event => this.#addAttackActivityDamage(event)));
+    root.querySelectorAll('[data-action="remove-attack-activity-damage"]').forEach(button => button.addEventListener("click", event => this.#removeAttackActivityDamage(event)));
+    root.querySelectorAll('[data-attack-activity-damage-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateAttackActivityDamage(event));
+    });
+    root.querySelectorAll('[data-attack-activity-details]').forEach(details => details.addEventListener("toggle", event => this.#rememberAttackActivityExpanded(event)));
     root.querySelectorAll('[data-enhancement-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleEnhancement(event)));
     root.querySelectorAll('[data-enhancement-input]').forEach(input => {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
@@ -2259,6 +2445,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       grantedEffectValues: clone(this.grantedEffectValues),
       resourceModifications: clone(this.resourceModifications),
       triggeredEffects: clone(this.triggeredEffects),
+      attackActivities: this.#attackActivityDraftForSave(effective),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
       descriptionCustomized: this.descriptionCustomized,
       editingSourceUuid: this.editingItem?.uuid ?? null,
@@ -2884,6 +3071,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.#resetEnhancements();
       this.#resetGrantedEffects();
       await this.#translateDocumentMechanics(document);
+      if (!equipment && !tool) this.#hydrateAttackActivities(document);
       this.templateDescriptionRaw = rawTemplateDescription(document);
       this.templateDescription = cleanTemplateDescription(document);
       this.customDescription = this.templateDescriptionRaw;
@@ -2931,6 +3119,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       || Object.values(this.grantedEffects).some(Boolean)
       || this.resourceModifications.length > 0
       || this.triggeredEffects.length > 0
+      || this.attackActivitiesDirty
       || this.descriptionCustomized;
   }
 
@@ -2950,6 +3139,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#resetGrantedEffects();
     this.customImportedEffects = [];
     this.customImportedActivities = [];
+    this.attackActivities = [];
+    this.attackActivitiesDirty = false;
     this.importedBaseSummary = [];
     this.templateDescription = "";
     this.templateDescriptionRaw = "";
@@ -3033,6 +3224,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else if (field === "additionalDamage") {
       if (enabled) this.overrides.additionalDamage = [this.#newAdditionalDamage()];
       else delete this.overrides.additionalDamage;
+      this.attackActivitiesDirty = true;
     } else if (enabled) {
       const source = this.#sourceValues();
       this.overrides[field] = clone(source?.[field]);
@@ -3063,6 +3255,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides[field] ??= {};
       this.overrides[field][part] = value;
     } else this.overrides[field] = value;
+    if (this.selectedType === "weapon" && ["attackType", "attackAbility"].includes(field)) this.attackActivitiesDirty = true;
   }
 
   #updateProperty(event) {
@@ -3216,6 +3409,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!this.customized.additionalDamage) return;
     this.overrides.additionalDamage ??= [];
     this.overrides.additionalDamage.push(this.#newAdditionalDamage());
+    this.attackActivitiesDirty = true;
     this.#renderPreservingScroll();
   }
 
@@ -3225,6 +3419,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const id = event.currentTarget.dataset.damageId;
     this.overrides.additionalDamage = (this.overrides.additionalDamage ?? []).filter(row => row.id !== id);
     if (!this.overrides.additionalDamage.length) this.overrides.additionalDamage.push(this.#newAdditionalDamage());
+    this.attackActivitiesDirty = true;
     this.#renderPreservingScroll();
   }
 
@@ -3240,11 +3435,165 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
     else value = event.currentTarget.value;
     row[part] = value;
+    this.attackActivitiesDirty = true;
 
     if (part === "useAbilityModifier") {
       row.ability = value ? (row.ability || "attack") : "";
       this.#renderPreservingScroll();
     }
+  }
+
+  #attackActivityById(id) {
+    return (this.attackActivities ?? []).find(entry => entry.id === id) ?? null;
+  }
+
+  #newAttackActivity({ source = null, duplicateOf = null } = {}) {
+    const primary = this.attackActivities?.[0] ?? null;
+    const inheritedType = this.#effectiveValues()?.attackType ?? primary?.attackType ?? "melee";
+    const inheritedAbility = this.#effectiveValues()?.attackAbility ?? primary?.attackAbility ?? "";
+    if (duplicateOf) {
+      const copy = clone(duplicateOf);
+      copy.id = foundry.utils.randomID();
+      copy.sourceId = null;
+      copy.primary = false;
+      copy.name = `${String(duplicateOf.name || "Alternative Attack")} Copy`;
+      copy.expanded = true;
+      copy.damageParts = valuesOf(copy.damageParts).map(part => ({
+        ...clone(part),
+        id: foundry.utils.randomID(),
+        progressionGroupId: foundry.utils.randomID(),
+        tiers: clone(part.tiers ?? [])
+      }));
+      copy.sourceData = clone(duplicateOf.sourceData ?? {});
+      delete copy.sourceData._id;
+      return copy;
+    }
+    if (source) {
+      const row = attackActivityDraft(source, { primary: false });
+      row.sourceId = null;
+      row.name = "Alternative Attack";
+      row.expanded = true;
+      row.inheritPrimaryAttack = true;
+      return row;
+    }
+    return {
+      id: foundry.utils.randomID(),
+      sourceId: null,
+      primary: false,
+      name: "Alternative Attack",
+      includeBase: true,
+      inheritPrimaryAttack: true,
+      attackType: inheritedType || "melee",
+      attackAbility: inheritedAbility || "",
+      attackBonus: "",
+      criticalThreshold: "",
+      criticalBonus: "",
+      damageParts: [],
+      expanded: true,
+      sourceData: {}
+    };
+  }
+
+  #addAttackActivity(event) {
+    event.preventDefault();
+    if (this.selectedType !== "weapon") return;
+    this.attackActivities ??= [];
+    if (!this.attackActivities.length) this.#hydrateAttackActivities(this.selectedWeaponDocument ?? this.selectedBaseWeaponDocument);
+    this.attackActivities.push(this.#newAttackActivity());
+    this.attackActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #duplicateAttackActivity(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.attackActivityId;
+    const index = (this.attackActivities ?? []).findIndex(entry => entry.id === id);
+    if (index < 0) return;
+    let source = clone(this.attackActivities[index]);
+    if (index === 0) {
+      source.damageParts = this.customized.additionalDamage
+        ? clone(this.#effectiveValues()?.additionalDamage ?? [])
+        : [];
+      source.inheritPrimaryAttack = true;
+      source.attackType = this.#effectiveValues()?.attackType ?? source.attackType;
+      source.attackAbility = this.#effectiveValues()?.attackAbility ?? source.attackAbility;
+    }
+    this.attackActivities.splice(index + 1, 0, this.#newAttackActivity({ duplicateOf: source }));
+    this.attackActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #removeAttackActivity(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.attackActivityId;
+    const row = this.#attackActivityById(id);
+    if (!row || row.primary) return;
+    this.attackActivities = this.attackActivities.filter(entry => entry.id !== id);
+    this.attackActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #updateAttackActivity(event) {
+    const id = event.currentTarget.dataset.attackActivityId;
+    const part = event.currentTarget.dataset.attackActivityInput;
+    const row = this.#attackActivityById(id);
+    if (!row || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? "" : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    row[part] = value;
+    this.attackActivitiesDirty = true;
+    if (part === "name") {
+      const details = event.currentTarget.closest?.("[data-attack-activity-details]");
+      const summaryName = details?.querySelector?.("summary > strong");
+      if (summaryName) summaryName.textContent = String(value || (row.primary ? "Attack" : "Alternative Attack"));
+      return;
+    }
+    if (part === "inheritPrimaryAttack" || part === "includeBase") this.#renderPreservingScroll();
+  }
+
+  #addAttackActivityDamage(event) {
+    event.preventDefault();
+    const row = this.#attackActivityById(event.currentTarget.dataset.attackActivityId);
+    if (!row || row.primary) return;
+    row.damageParts ??= [];
+    row.damageParts.push(this.#newAdditionalDamage());
+    this.attackActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #removeAttackActivityDamage(event) {
+    event.preventDefault();
+    const row = this.#attackActivityById(event.currentTarget.dataset.attackActivityId);
+    const damageId = event.currentTarget.dataset.damageId;
+    if (!row || row.primary || !damageId) return;
+    row.damageParts = valuesOf(row.damageParts).filter(part => part.id !== damageId);
+    this.attackActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #updateAttackActivityDamage(event) {
+    const row = this.#attackActivityById(event.currentTarget.dataset.attackActivityId);
+    const damageId = event.currentTarget.dataset.damageId;
+    const part = event.currentTarget.dataset.attackActivityDamageInput;
+    const damage = valuesOf(row?.damageParts).find(entry => entry.id === damageId);
+    if (!row || row.primary || !damage || !part) return;
+    let value;
+    if (event.currentTarget.type === "checkbox") value = event.currentTarget.checked;
+    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 0 : Number(event.currentTarget.value);
+    else value = event.currentTarget.value;
+    damage[part] = value;
+    this.attackActivitiesDirty = true;
+    if (part === "useAbilityModifier") {
+      damage.ability = value ? (damage.ability || "attack") : "";
+      this.#renderPreservingScroll();
+    }
+  }
+
+  #rememberAttackActivityExpanded(event) {
+    const row = this.#attackActivityById(event.currentTarget.dataset.attackActivityId);
+    if (row) row.expanded = Boolean(event.currentTarget.open);
   }
 
   #validateProgressionSetting(setting, { tierable = false, tierValidator = null } = {}) {
@@ -3263,13 +3612,37 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       && this.#validateProgressionSetting(row, { tierable: true, tierValidator: validDamage });
   }
 
+  #validateAttackActivities(effective = this.#effectiveValues()) {
+    if (this.selectedType !== "weapon") return true;
+    const rows = this.attackActivities ?? [];
+    if (!rows.length) return false;
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      if (!String(row?.name ?? "").trim()) return false;
+      const parts = index === 0
+        ? (this.customized.additionalDamage ? (effective?.additionalDamage ?? []) : [])
+        : valuesOf(row?.damageParts);
+      if (parts.some(part => !this.#validateAdditionalDamageRow(part))) return false;
+      if (index > 0 && row?.inheritPrimaryAttack === false) {
+        if (!['melee', 'ranged'].includes(String(row.attackType ?? ''))) return false;
+        const threshold = row.criticalThreshold;
+        if (threshold !== '' && threshold !== null && threshold !== undefined) {
+          const numeric = Number(threshold);
+          if (!Number.isInteger(numeric) || numeric < 1 || numeric > 20) return false;
+        }
+      }
+    }
+    return true;
+  }
+
   #isBaseComplete() {
     const effective = this.#effectiveValues();
     const additionalDamageValid = this.selectedType !== "weapon" || !this.customized.additionalDamage
       || (effective?.additionalDamage?.length > 0 && effective.additionalDamage.every(row => this.#validateAdditionalDamageRow(row)));
+    const attackActivitiesValid = this.#validateAttackActivities(effective);
     return Boolean(this.selectedWeaponUuid
       && (this.selectedType !== "weapon" || this.selectedBaseWeaponUuid)
-      && this.itemName.trim() && additionalDamageValid);
+      && this.itemName.trim() && additionalDamageValid && attackActivitiesValid);
   }
 
   #resetEnhancements() {

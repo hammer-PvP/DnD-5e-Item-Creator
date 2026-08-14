@@ -426,18 +426,37 @@ export class ItemCreatorRuntimeEffectService {
         ? appendFormula(base.damageBaseBonus, damageBonus.bonus)
         : String(base.damageBaseBonus ?? "");
 
-      const activityId = config.attackActivityId;
-      const activity = valuesOf(item.system?.activities).find(entry => (entry?.id ?? entry?._id) === activityId);
-      if (activityId && activity) {
-        const desiredAttackBonus = attackBonus ? String(attackBonus.bonus ?? "") : String(base.attackBonus ?? "");
-        const desiredThreshold = criticalThreshold
+      const configuredActivities = Array.isArray(config.attackActivities) && config.attackActivities.length
+        ? config.attackActivities
+        : config.attackActivityId ? [{
+          id: config.attackActivityId,
+          inheritPrimaryAttack: true,
+          base: {
+            attackBonus: base.attackBonus,
+            criticalThreshold: base.criticalThreshold,
+            criticalDamageBonus: base.criticalDamageBonus,
+            additionalDamageParts: base.additionalDamageParts
+          },
+          additionalDamage: config.additionalDamage ?? []
+        }] : [];
+
+      for (const activityConfig of configuredActivities) {
+        const activityId = activityConfig?.id;
+        const activity = valuesOf(item.system?.activities).find(entry => (entry?.id ?? entry?._id) === activityId);
+        if (!activityId || !activity) continue;
+        const activityBase = activityConfig.base ?? {};
+        const inheritsPrimaryAttack = activityConfig.inheritPrimaryAttack !== false;
+        const desiredAttackBonus = inheritsPrimaryAttack && attackBonus
+          ? String(attackBonus.bonus ?? "")
+          : String(activityBase.attackBonus ?? "");
+        const desiredThreshold = inheritsPrimaryAttack && criticalThreshold
           ? Number(criticalThreshold.mode === "custom" ? criticalThreshold.custom : criticalThreshold.mode)
-          : (base.criticalThreshold ?? null);
-        const desiredCriticalBonus = extraCriticalDamage
+          : (activityBase.criticalThreshold ?? null);
+        const desiredCriticalBonus = inheritsPrimaryAttack && extraCriticalDamage
           ? `${Number(extraCriticalDamage.number) || 1}d${Number(extraCriticalDamage.denomination) || 8}[${extraCriticalDamage.damageType}]`
-          : String(base.criticalDamageBonus ?? "");
-        const desiredParts = foundry.utils.deepClone(base.additionalDamageParts ?? []);
-        for (const row of config.additionalDamage ?? []) {
+          : String(activityBase.criticalDamageBonus ?? "");
+        const desiredParts = foundry.utils.deepClone(activityBase.additionalDamageParts ?? []);
+        for (const row of activityConfig.additionalDamage ?? []) {
           const tier = selectProgressionTier(row, actorLevel);
           if (!tier) continue;
           desiredParts.push(damagePart({

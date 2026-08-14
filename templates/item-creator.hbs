@@ -292,44 +292,6 @@
               </div>
             </section>
 
-            <section class="ic-override-card ic-span-two ic-additional-damage-card {{#if custom.additionalDamage}}enabled{{/if}} {{#unless additionalDamageValid}}invalid{{/unless}}">
-              <label class="ic-override-heading">
-                <input type="checkbox" data-override-toggle="additionalDamage" {{#if custom.additionalDamage}}checked{{/if}}>
-                <span><strong>Add Additional Damage</strong><small>Add one or more typed damage parts to the same native Attack Activity.</small></span>
-              </label>
-
-              {{#if custom.additionalDamage}}
-              <div class="ic-additional-damage-list">
-                {{#each additionalDamageRows}}
-                <section class="ic-additional-damage-row">
-                  <header>
-                    <strong>Damage Part {{index}}</strong>
-                    <small>{{summary}}</small>
-                    <button type="button" data-action="remove-additional-damage" data-damage-id="{{id}}" aria-label="Remove damage part"><i class="fa-solid fa-trash"></i></button>
-                  </header>
-                  <div class="ic-additional-damage-fields">
-                    <label><span>Dice</span><input type="number" min="1" max="20" step="1" value="{{number}}" data-extra-damage-input="number" data-damage-id="{{id}}" data-value-type="number"></label>
-                    <label><span>Die</span><select data-extra-damage-input="denomination" data-damage-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                    <label class="ic-grow"><span>Damage Type</span><select data-extra-damage-input="damageType" data-damage-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  </div>
-                  <div class="ic-additional-ability-fields">
-                    <label class="ic-additional-ability-toggle">
-                      <input type="checkbox" data-extra-damage-input="useAbilityModifier" data-damage-id="{{id}}" {{#if useAbilityModifier}}checked{{/if}}>
-                      <span>Add Ability Modifier</span>
-                    </label>
-                    <select data-extra-damage-input="ability" data-damage-id="{{id}}" {{#unless useAbilityModifier}}disabled{{/unless}}>
-                      {{#each abilityModifierOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}
-                    </select>
-                  </div>
-                </section>
-                {{/each}}
-              </div>
-              <button type="button" class="ic-add-damage-button" data-action="add-additional-damage"><i class="fa-solid fa-plus"></i> Add Another Damage Part</button>
-              {{else}}
-              <p class="ic-disabled-feature-hint">Enable this option to configure damage such as 2d6 Fire, 1d4 Radiant, or 2d6 + Charisma Fire.</p>
-              {{/if}}
-            </section>
-
             <section class="ic-override-card {{#if custom.damageType}}enabled{{/if}}">
               <label class="ic-override-heading">
                 <input type="checkbox" data-override-toggle="damageType" {{#if custom.damageType}}checked{{/if}}>
@@ -426,6 +388,116 @@
               <input type="number" min="0" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}>
             </section>
           </div>
+
+          <section class="ic-attack-activities-panel {{#unless attackActivitiesValid}}invalid{{/unless}}">
+            <header class="ic-attack-activities-header">
+              <div>
+                <span class="ic-kicker">Native D&amp;D5e Activities</span>
+                <h3>Attack Activities</h3>
+                <p>Each block becomes a native Attack Activity shown by D&amp;D5e when the weapon is used. The player chooses the appropriate attack; Item Creator does not auto-detect creature types or select an Activity.</p>
+              </div>
+              <button type="button" class="ic-add-activity-button" data-action="add-attack-activity"><i class="fa-solid fa-plus"></i> Add Attack Activity</button>
+            </header>
+
+            <div class="ic-attack-activities-list">
+              {{#each attackActivityRows}}
+              <details class="ic-attack-activity {{#if primary}}primary{{else}}alternative{{/if}} {{#if invalid}}invalid{{/if}}" data-attack-activity-details data-attack-activity-id="{{id}}" {{#if expanded}}open{{/if}}>
+                <summary>
+                  <span class="ic-activity-kind">{{#if primary}}Primary{{else}}Alternative{{/if}}</span>
+                  <strong>{{name}}</strong>
+                  <small>{{#if includeBase}}Base weapon damage{{else}}Own damage only{{/if}}{{#if damagePartCount}} + {{damagePartCount}} damage part(s){{/if}}</small>
+                  <i class="fa-solid fa-chevron-down"></i>
+                </summary>
+                <div class="ic-attack-activity-body">
+                  <div class="ic-attack-activity-actions">
+                    <button type="button" data-action="duplicate-attack-activity" data-attack-activity-id="{{id}}"><i class="fa-solid fa-copy"></i> Duplicate</button>
+                    {{#unless primary}}<button type="button" class="danger" data-action="remove-attack-activity" data-attack-activity-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>{{/unless}}
+                  </div>
+
+                  <div class="ic-attack-activity-grid">
+                    <label class="ic-field ic-span-two"><span>Activity Name</span><input type="text" value="{{name}}" maxlength="120" data-attack-activity-input="name" data-attack-activity-id="{{id}}" placeholder="{{#if primary}}Attack{{else}}Alternative Attack{{/if}}"></label>
+                    <label class="ic-activity-toggle ic-span-two">
+                      <input type="checkbox" data-attack-activity-input="includeBase" data-attack-activity-id="{{id}}" {{#if includeBase}}checked{{/if}}>
+                      <span><strong>Include Base Weapon Damage</strong><small>Uses the Item's normal damage as part of this Activity. Disable it when this Activity should roll only its own damage parts.</small></span>
+                    </label>
+
+                    {{#unless primary}}
+                    <label class="ic-activity-toggle ic-span-two">
+                      <input type="checkbox" data-attack-activity-input="inheritPrimaryAttack" data-attack-activity-id="{{id}}" {{#if inheritPrimaryAttack}}checked{{/if}}>
+                      <span><strong>Inherit Primary Attack Configuration</strong><small>Copies the Primary Activity's attack type, ability, attack bonus, critical configuration, and other native attack fields. Damage parts remain specific to this Activity.</small></span>
+                    </label>
+                    {{#unless inheritPrimaryAttack}}
+                    <label><span>Attack Type</span><select data-attack-activity-input="attackType" data-attack-activity-id="{{id}}">{{#each attackTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label><span>Attack Ability</span><select data-attack-activity-input="attackAbility" data-attack-activity-id="{{id}}">{{#each abilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label><span>Attack Bonus</span><input type="text" value="{{attackBonus}}" data-attack-activity-input="attackBonus" data-attack-activity-id="{{id}}" placeholder="0 or formula"></label>
+                    <label><span>Critical Threshold</span><input type="number" min="1" max="20" step="1" value="{{criticalThreshold}}" data-attack-activity-input="criticalThreshold" data-attack-activity-id="{{id}}" data-value-type="number" placeholder="Default"></label>
+                    <label class="ic-span-two"><span>Extra Critical Damage Formula</span><input type="text" value="{{criticalBonus}}" data-attack-activity-input="criticalBonus" data-attack-activity-id="{{id}}" placeholder="e.g. 1d8[fire]"></label>
+                    {{/unless}}
+                    {{else}}
+                    <div class="ic-activity-inheritance-note ic-span-two"><i class="fa-solid fa-link"></i><span>Attack type and ability come from <strong>Core Weapon Configuration</strong>. Weapon Attack Bonus / Critical Enhancements continue to apply to the Primary Activity.</span></div>
+                    {{/unless}}
+                  </div>
+
+                  {{#if primary}}
+                  <section class="ic-activity-damage-section {{#unless ../additionalDamageValid}}invalid{{/unless}}">
+                    <label class="ic-override-heading">
+                      <input type="checkbox" data-override-toggle="additionalDamage" {{#if ../custom.additionalDamage}}checked{{/if}}>
+                      <span><strong>Activity Damage Parts</strong><small>Add typed damage parts to this Primary Attack Activity in addition to the base weapon damage.</small></span>
+                    </label>
+                    {{#if ../custom.additionalDamage}}
+                    <div class="ic-additional-damage-list">
+                      {{#each damageParts}}
+                      <section class="ic-additional-damage-row">
+                        <header><strong>Damage Part {{index}}</strong><small>{{summary}}</small><button type="button" data-action="remove-additional-damage" data-damage-id="{{id}}" aria-label="Remove damage part"><i class="fa-solid fa-trash"></i></button></header>
+                        <div class="ic-additional-damage-fields">
+                          <label><span>Dice</span><input type="number" min="1" max="20" step="1" value="{{number}}" data-extra-damage-input="number" data-damage-id="{{id}}" data-value-type="number"></label>
+                          <label><span>Die</span><select data-extra-damage-input="denomination" data-damage-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                          <label class="ic-grow"><span>Damage Type</span><select data-extra-damage-input="damageType" data-damage-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                          <label><span>Flat Bonus</span><input type="text" value="{{bonus}}" data-extra-damage-input="bonus" data-damage-id="{{id}}" placeholder="0 or formula"></label>
+                        </div>
+                        <div class="ic-additional-ability-fields">
+                          <label class="ic-additional-ability-toggle"><input type="checkbox" data-extra-damage-input="useAbilityModifier" data-damage-id="{{id}}" {{#if useAbilityModifier}}checked{{/if}}><span>Add Ability Modifier</span></label>
+                          <select data-extra-damage-input="ability" data-damage-id="{{id}}" {{#unless useAbilityModifier}}disabled{{/unless}}>{{#each abilityModifierOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+                        </div>
+                      </section>
+                      {{/each}}
+                    </div>
+                    <button type="button" class="ic-add-damage-button" data-action="add-additional-damage"><i class="fa-solid fa-plus"></i> Add Another Damage Part</button>
+                    {{else}}
+                    <p class="ic-disabled-feature-hint">Enable Activity Damage Parts to add extra damage to the Primary Attack.</p>
+                    {{/if}}
+                  </section>
+                  {{else}}
+                  <section class="ic-activity-damage-section">
+                    <header class="ic-activity-damage-header"><div><strong>Activity Damage Parts</strong><small>These parts belong only to {{name}}.</small></div><button type="button" data-action="add-attack-activity-damage" data-attack-activity-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Damage Part</button></header>
+                    {{#if damageParts.length}}
+                    <div class="ic-additional-damage-list">
+                      {{#each damageParts}}
+                      <section class="ic-additional-damage-row">
+                        <header><strong>Damage Part {{index}}</strong><small>{{summary}}</small><button type="button" data-action="remove-attack-activity-damage" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" aria-label="Remove damage part"><i class="fa-solid fa-trash"></i></button></header>
+                        <div class="ic-additional-damage-fields">
+                          <label><span>Dice</span><input type="number" min="1" max="20" step="1" value="{{number}}" data-attack-activity-damage-input="number" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" data-value-type="number"></label>
+                          <label><span>Die</span><select data-attack-activity-damage-input="denomination" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                          <label class="ic-grow"><span>Damage Type</span><select data-attack-activity-damage-input="damageType" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                          <label><span>Flat Bonus</span><input type="text" value="{{bonus}}" data-attack-activity-damage-input="bonus" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" placeholder="0 or formula"></label>
+                        </div>
+                        <div class="ic-additional-ability-fields">
+                          <label class="ic-additional-ability-toggle"><input type="checkbox" data-attack-activity-damage-input="useAbilityModifier" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" {{#if useAbilityModifier}}checked{{/if}}><span>Add Ability Modifier</span></label>
+                          <select data-attack-activity-damage-input="ability" data-attack-activity-id="{{../id}}" data-damage-id="{{id}}" {{#unless useAbilityModifier}}disabled{{/unless}}>{{#each abilityModifierOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select>
+                        </div>
+                      </section>
+                      {{/each}}
+                    </div>
+                    {{else}}
+                    <p class="ic-disabled-feature-hint">No Activity-specific damage parts. If Base Weapon Damage is enabled, this Activity still rolls the weapon's normal damage.</p>
+                    {{/if}}
+                  </section>
+                  {{/if}}
+                </div>
+              </details>
+              {{/each}}
+            </div>
+          </section>
         </section>
       </div>
       {{else}}

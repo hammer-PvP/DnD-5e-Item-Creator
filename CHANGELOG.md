@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.6.1 — Multiple Native Attack Activities
+
+### Weapon Attack Activity editor
+
+- Added a dedicated **Attack Activities** editor to the Weapon Base Item step. The first native Attack Activity is treated as **Primary** and additional attacks are editable alternatives instead of opaque Custom Imported Activities.
+- The Primary Activity name is editable and defaults to `Attack` when the source has no custom name. New additional Activities default to `Alternative Attack`; every Activity can be expanded/collapsed, duplicated, renamed, and additional Activities can be removed.
+- Each Activity independently controls **Include Base Weapon Damage**. Activity-specific damage parts support dice, damage type, flat formulas, and optional ability modifiers. This permits native patterns such as a normal Longsword attack plus a second `Attacking Undead and Fiends` Activity that includes the base weapon damage and adds Radiant damage.
+- Alternative Activities can **inherit the Primary attack configuration** or keep their own attack type, attack ability, attack bonus, critical threshold, and extra critical-damage formula. Native Activity fields outside the explicitly managed attack/damage controls remain preserved through the imported Activity source data.
+- Duplicating the Primary Attack creates an independent Alternative Activity while retaining its current configured damage parts. Newly created Activities receive independent managed IDs and damage-part progression identities.
+- Item Creator does not inspect target creature type or hidden success/failure to select an Activity. D&D5e remains responsible for presenting the available Activities and the player/GM chooses which one to use. Native Versatile damage remains an Item property rather than being converted into an automatic Activity.
+
+### Import, round-trip, and progression
+
+- Existing World/template Weapons with multiple native `attack` Activities are promoted into the editable Activity model during normalization. v0.6.0-and-earlier secondary Attack Activities that were stored as Custom Imported Activities are migrated into the new list when the Item is reopened.
+- Added Item schema **15** with persisted `draft.attackActivities` metadata and managed Attack Activity IDs. Existing schema-14 Items remain readable and are upgraded naturally when saved with v0.6.1; no Item recreation is required.
+- Structural progression now tracks each managed Attack Activity. Activities that inherit the Primary attack configuration continue to receive Item Creator Weapon Attack Bonus, critical-threshold, and extra-critical-damage progression; Activities configured as independent keep their own attack/critical values. Primary Additional Damage progression remains backward compatible.
+- Preserved native Activity-to-Effect references and passthrough Activity fields during rebuilds. Cast Activities, Granted Spellcasting, and non-Attack Custom Imported Activities remain on their existing paths.
+
+### Scope protection
+
+- Shared Roll Resolution Queue v3, Character Builder integration, Resource Events v1, Triggered Effects, Save-Gated application, Contextual Roll Modifiers, Supplier, and Materialization Core are unchanged by this feature.
+- No workaround was added for the D&D5e/Pact-style spellcasting Attack Activity limitation where native alternative attacks may fail to inherit weapon additional damage. Item Creator only creates and preserves native Activities; it does not replace D&D5e attack resolution.
+
 ## 0.6.0 — Character Builder-First Automation Coordination
 
 ### Shared Roll Resolution Queue v3

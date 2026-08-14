@@ -535,6 +535,72 @@ function primaryAttackData(baseWeapon, template) {
   return source;
 }
 
+function ensureAttackActivitySource(source = {}) {
+  const activity = cleanDocumentSource(source ?? {});
+  activity._id ||= foundry.utils.randomID();
+  activity.type = "attack";
+  activity.name ||= "Attack";
+  activity.attack ??= {};
+  activity.attack.critical ??= {};
+  activity.attack.type ??= {};
+  activity.attack.type.classification = "weapon";
+  activity.damage ??= {};
+  activity.damage.critical ??= {};
+  activity.damage.parts ??= [];
+  activity.damage.includeBase = activity.damage.includeBase !== false;
+  activity.consumption ??= {};
+  activity.consumption.spellSlot = false;
+  activity.consumption.targets = (activity.consumption.targets ?? []).filter(target => target?.type !== "spellSlots");
+  return activity;
+}
+
+function remapActivityEffectReferences(activity, effectIdMap) {
+  activity.effects = valuesOf(activity.effects).map(reference => {
+    const sourceId = reference?._id ?? reference?.id;
+    const mappedId = effectIdMap.get(sourceId);
+    return mappedId ? { ...clone(reference), _id: mappedId } : clone(reference);
+  });
+  return activity;
+}
+
+function buildAlternativeAttackActivity(setting, primaryAttack, importedCustom, index = 1) {
+  const inheritPrimary = setting?.inheritPrimaryAttack !== false;
+  const hasSource = setting?.sourceData && Object.keys(setting.sourceData).length > 0;
+  let activity = inheritPrimary
+    ? clone(primaryAttack)
+    : ensureAttackActivitySource(hasSource ? setting.sourceData : clone(primaryAttack));
+
+  activity = ensureAttackActivitySource(activity);
+  activity._id = setting?.sourceId || setting?.id || foundry.utils.randomID();
+  activity.name = String(setting?.name ?? "Alternative Attack").trim() || "Alternative Attack";
+  const sourceSort = Number(setting?.sourceData?.sort);
+  activity.sort = setting?.sourceId && Number.isFinite(sourceSort) ? sourceSort : index * 100000;
+  activity.damage.includeBase = setting?.includeBase !== false;
+  activity.damage.parts = [];
+
+  if (!inheritPrimary) {
+    activity.attack.type.value = String(setting?.attackType ?? activity.attack.type.value ?? "melee") || "melee";
+    activity.attack.type.classification = "weapon";
+    activity.attack.ability = String(setting?.attackAbility ?? "");
+    activity.attack.bonus = String(setting?.attackBonus ?? "");
+    const threshold = setting?.criticalThreshold;
+    activity.attack.critical.threshold = threshold === "" || threshold === null || threshold === undefined
+      ? null : Number(threshold);
+    activity.damage.critical.bonus = String(setting?.criticalBonus ?? "");
+    remapActivityEffectReferences(activity, importedCustom.effectIdMap);
+  }
+
+  for (const row of setting?.damageParts ?? []) {
+    const tier = selectProgressionTier(row, null);
+    if (!tier) continue;
+    activity.damage.parts.push(damagePart({
+      ...tier,
+      ability: tier.useAbilityModifier ? tier.ability : null
+    }));
+  }
+  return activity;
+}
+
 function recoveryData(spell) {
   if (spell.useLimit !== "limited") return { uses: { spent: 0, max: "", recovery: [] }, targets: [] };
   const period = spell.recovery === "shortRest" ? "sr" : "lr";
@@ -1251,12 +1317,15 @@ export class ItemCreatorItemBuilder {
     }
 
     const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    const activitySettings = valuesOf(draft.attackActivities);
+    const primarySetting = activitySettings[0] ?? null;
     const attack = primaryAttackData(draft.baseWeapon, draft.template);
-    attack.effects = valuesOf(attack.effects).map(reference => {
-      const sourceId = reference?._id ?? reference?.id;
-      const mappedId = importedCustom.effectIdMap.get(sourceId);
-      return mappedId ? { ...clone(reference), _id: mappedId } : clone(reference);
-    });
+    remapActivityEffectReferences(attack, importedCustom.effectIdMap);
+    if (primarySetting) {
+      attack._id = primarySetting.sourceId || primarySetting.id || attack._id;
+      attack.name = String(primarySetting.name ?? "Attack").trim() || "Attack";
+      attack.damage.includeBase = primarySetting.includeBase !== false;
+    }
     attack.attack.ability = effective.attackAbility || "";
     attack.attack.type.value = effective.attackType || "";
     attack.attack.type.classification = "weapon";
@@ -1297,7 +1366,11 @@ export class ItemCreatorItemBuilder {
       }
     }
 
-    const provisionalActivities = [...importedCustom.activities, attack];
+    const managedAttackActivities = [attack];
+    for (const [index, setting] of activitySettings.slice(1).entries()) {
+      managedAttackActivities.push(buildAlternativeAttackActivity(setting, attack, importedCustom, index + 1));
+    }
+    const provisionalActivities = [...importedCustom.activities, ...managedAttackActivities];
     data.system.activities = Object.fromEntries(provisionalActivities.map(activity => [activity._id, activity]));
 
     // Create an isolated provisional parent only when native Cast Activity models are needed.
@@ -1321,7 +1394,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 14,
+      schemaVersion: 15,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1338,6 +1411,24 @@ export class ItemCreatorItemBuilder {
         structuralProgression: plain({
           itemType: "weapon",
           attackActivityId: attack._id,
+          attackActivityIds: managedAttackActivities.map(activity => activity._id),
+          attackActivities: managedAttackActivities.map((activity, index) => {
+            const setting = activitySettings[index] ?? null;
+            const primary = index === 0;
+            return {
+              id: activity._id,
+              inheritPrimaryAttack: primary || setting?.inheritPrimaryAttack !== false,
+              base: {
+                attackBonus: primary ? weaponAttackBase.attackBonus : String((setting?.inheritPrimaryAttack !== false ? weaponAttackBase.attackBonus : setting?.attackBonus) ?? ""),
+                criticalThreshold: primary ? weaponAttackBase.criticalThreshold : (setting?.inheritPrimaryAttack !== false
+                  ? weaponAttackBase.criticalThreshold
+                  : (setting?.criticalThreshold === "" || setting?.criticalThreshold === null || setting?.criticalThreshold === undefined ? null : Number(setting.criticalThreshold))),
+                criticalDamageBonus: primary ? weaponAttackBase.criticalDamageBonus : String((setting?.inheritPrimaryAttack !== false ? weaponAttackBase.criticalDamageBonus : setting?.criticalBonus) ?? ""),
+                additionalDamageParts: primary ? baseAttackDamageParts : []
+              },
+              additionalDamage: primary ? progressionDamageRows : clone(setting?.damageParts ?? [])
+            };
+          }),
           base: { ...weaponStructuralBase, ...weaponAttackBase, additionalDamageParts: baseAttackDamageParts },
           enhancements: {
             magicalWeapon: enhancements.magicalWeapon ? enhancementValues.magicalWeapon : null,
@@ -1360,6 +1451,7 @@ export class ItemCreatorItemBuilder {
         grantedEffectValues: draft.grantedEffectValues,
         resourceModifications: draft.resourceModifications ?? [],
         triggeredEffects: draft.triggeredEffects ?? [],
+        attackActivities: draft.attackActivities ?? [],
         customImportedEffects: draft.customImportedEffects,
         customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
@@ -1473,7 +1565,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 14,
+      schemaVersion: 15,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1630,7 +1722,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 14,
+      schemaVersion: 15,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
