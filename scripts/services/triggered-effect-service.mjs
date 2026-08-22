@@ -26,6 +26,7 @@ const PRIORITY_CONTRACT_APPEAR_MS = 2500;
 const PRIORITY_CONTRACT_TIMEOUT_MS = 35000;
 const PRIORITY_EVENT_TTL_MS = 120000;
 const SHARED_ROLL_RESOLUTION_QUEUE = Symbol.for("dnd5e.roll-resolution-queue.v1");
+const INSTANT_PAYLOAD_TYPES = new Set(["restoreHitPoints"]);
 const RESOURCE_EVENT_PROTOCOL = "dnd5e-resource-events";
 const RESOURCE_EVENT_VERSION = 1;
 const RESOURCE_EVENT_TARGET_WAIT_MS = 3000;
@@ -560,6 +561,70 @@ function recipientGroups(setting, sourceActor, targetActorUuids) {
     } else add(sourceActor, payload);
   }
   return [...groups.values()];
+}
+
+function payloadsForRecipientGroup(setting, group) {
+  const ids = new Set(group?.payloadIds ?? []);
+  const bindings = new Map((group?.payloadBindings ?? []).map(binding => [binding.id, binding.recipient]));
+  return (setting.effects ?? []).map(normalizeTriggeredEffectPayload).filter(payload => {
+    if (!ids.has(payload.id)) return false;
+    const boundRecipient = bindings.get(payload.id);
+    return !boundRecipient || boundRecipient === payload.recipient;
+  });
+}
+
+function eventSourceActor(event, fallbackActor = null) {
+  return resolveActorDocument(event?.sourceActorUuid, event?.sourceActorId)
+    ?? resolveActorDocument(event?.actorUuid, event?.actorId)
+    ?? fallbackActor;
+}
+
+function eventActivity(event) {
+  const uuid = String(event?.activityUuid ?? "").trim();
+  if (!uuid) return null;
+  try {
+    return fromUuidSync(uuid, { strict: false }) ?? null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function sourceSpellcastingModifier(event, fallbackActor = null) {
+  const sourceActor = eventSourceActor(event, fallbackActor);
+  const activity = eventActivity(event);
+  let ability = activity?.spellcastingAbility ?? null;
+  if (!ability) ability = sourceActor?.system?.attributes?.spellcasting ?? null;
+  if (!ability && sourceActor) {
+    const abilities = new Set(Object.values(sourceActor.spellcastingClasses ?? {})
+      .map(entry => entry?.spellcasting?.ability).filter(Boolean));
+    let best = null;
+    let bestMod = -Infinity;
+    for (const candidate of abilities) {
+      const mod = Number(sourceActor.system?.abilities?.[candidate]?.mod);
+      if (Number.isFinite(mod) && mod > bestMod) {
+        best = candidate;
+        bestMod = mod;
+      }
+    }
+    ability = best;
+  }
+  const modifier = Number(sourceActor?.system?.abilities?.[ability]?.mod);
+  return {
+    sourceActor,
+    activity,
+    ability: ability || "",
+    modifier: Number.isFinite(modifier) ? modifier : 0
+  };
+}
+
+function persistentPayloadGroup(setting, group) {
+  const payloads = payloadsForRecipientGroup(setting, group).filter(payload => !INSTANT_PAYLOAD_TYPES.has(payload.type));
+  const ids = new Set(payloads.map(payload => payload.id));
+  return {
+    payloads,
+    payloadIds: (group?.payloadIds ?? []).filter(id => ids.has(id)),
+    payloadBindings: (group?.payloadBindings ?? []).filter(binding => ids.has(binding.id))
+  };
 }
 
 function singleActivationLifetime(setting) {
@@ -1286,6 +1351,82 @@ export class ItemCreatorTriggeredEffectService {
     return setting.consumption?.enabled
       ? `${duration}, or until ${entry.usesMaximum} use(s) are consumed, whichever happens first`
       : duration;
+  }
+
+  static async #instantHealingAmount(sourceActor, payload, event) {
+    const normalized = normalizeTriggeredEffectPayload(payload);
+    const source = sourceSpellcastingModifier(event, sourceActor);
+    if (normalized.calculation === "flat") {
+      const total = Math.max(0, Math.floor(Number(normalized.amount) || 0));
+      return { total, requested: total, label: `${total}`, roll: null, source };
+    }
+    if (normalized.calculation === "spellcasting") {
+      const total = Math.max(0, Math.floor(Number(source.modifier) || 0));
+      const ability = source.ability ? ` (${String(source.ability).toUpperCase()})` : "";
+      return { total, requested: total, label: `Spellcasting Modifier${ability} = ${total >= 0 ? "+" : ""}${total}`, roll: null, source };
+    }
+
+    const formula = String(normalized.formula ?? "").trim() || "1d4";
+    const rollData = source.activity?.getRollData?.() ?? source.sourceActor?.getRollData?.() ?? sourceActor?.getRollData?.() ?? {};
+    try {
+      const roll = await (new Roll(formula, rollData)).evaluate();
+      const raw = Number(roll?.total);
+      const total = Math.max(0, Math.floor(Number.isFinite(raw) ? raw : 0));
+      return { total, requested: total, label: `${formula} = ${total}`, roll, source };
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Invalid Instant Healing formula: ${formula}`, error);
+      ui.notifications?.warn?.(`Instant Healing formula "${formula}" could not be rolled.`);
+      return null;
+    }
+  }
+
+  static async #announceInstantHealing(sourceActor, item, setting, recipient, result) {
+    const actorName = this.#escapeHtml(recipient.name);
+    const effectName = this.#escapeHtml(setting.name);
+    const itemName = this.#escapeHtml(item.name);
+    const formula = this.#escapeHtml(result.label ?? String(result.requested ?? 0));
+    const restored = Math.max(0, Number(result.restored) || 0);
+    const requested = Math.max(0, Number(result.requested) || 0);
+    const cap = restored < requested ? ` <small>(limited by maximum HP; ${requested} generated)</small>` : "";
+    try {
+      await ChatMessage.create({
+        speaker: ChatMessage.getSpeaker({ actor: recipient }),
+        content: `<section class="item-creator-triggered-message"><p><strong>${actorName}</strong> restores <strong>${restored} HP</strong> from <strong>${effectName}</strong> (${itemName}).</p><p><strong>Healing:</strong> ${formula}.${cap}</p></section>`,
+        flags: { [MODULE_ID]: {
+          triggeredEffectNotice: true,
+          noticeType: "instantHealing",
+          sourceActorUuid: sourceActor.uuid,
+          sourceItemId: item.id,
+          triggerId: setting.id,
+          recipientActorUuid: recipient.uuid,
+          healing: { requested, restored, formula: String(result.label ?? "") }
+        } }
+      });
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Could not post Instant Healing message.`, error);
+    }
+  }
+
+  static async #applyInstantHealingPayload(sourceActor, item, setting, payload, recipient, event) {
+    if (recipient?.documentName !== "Actor") return false;
+    const amount = await this.#instantHealingAmount(sourceActor, payload, event);
+    if (!amount) return false;
+    const requested = Math.max(0, Number(amount.total) || 0);
+    const before = Number(recipient.system?.attributes?.hp?.value) || 0;
+    if (requested > 0) {
+      const origin = sourceMessage(event?.messageId) ?? null;
+      await recipient.applyDamage(-requested, {
+        itemCreatorTriggeredHealing: true,
+        itemCreatorRuntime: true,
+        ignore: true,
+        ...(origin ? { origin } : {})
+      });
+    }
+    const after = Number(recipient.system?.attributes?.hp?.value) || 0;
+    amount.restored = Math.max(0, after - before);
+    amount.requested = requested;
+    await this.#announceInstantHealing(sourceActor, item, setting, recipient, amount);
+    return true;
   }
 
   static async #announceApplication(sourceActor, item, setting, entry, recipient, { refreshed = false } = {}) {
@@ -2530,6 +2671,7 @@ export class ItemCreatorTriggeredEffectService {
   }
 
   static #onDamageApplied(targetActor, amount, options = {}) {
+    if (options?.itemCreatorTriggeredHealing) return;
     const numeric = Number(amount) || 0;
     if (!numeric) return;
     const message = sourceMessage(options.origin) ?? sourceMessage(options.originatingMessage);
@@ -2977,10 +3119,21 @@ export class ItemCreatorTriggeredEffectService {
 
             let resolvedAny = false;
             for (const group of eligible) {
+              const groupPayloads = payloadsForRecipientGroup(setting, group);
+              const instantPayloads = groupPayloads.filter(payload => INSTANT_PAYLOAD_TYPES.has(payload.type));
+              const persistent = persistentPayloadGroup(setting, group);
+
               if (setting.effectApplication?.mode === "saveGated") {
                 if (await this.#postSaveGatedApplication(actor, item, setting, group, event, combat)) resolvedAny = true;
                 continue;
               }
+
+              for (const payload of instantPayloads) {
+                if (await this.#applyInstantHealingPayload(actor, item, setting, payload, group.actor, event)) resolvedAny = true;
+              }
+
+              if (!persistent.payloads.length) continue;
+
               let entry = group.existing;
               const wasActive = Boolean(entry?.combatId === combat.id && entry?.stacks > 0);
               if (entry?.combatId && entry.combatId !== combat.id) {
@@ -2997,8 +3150,8 @@ export class ItemCreatorTriggeredEffectService {
                 combatId: combat.id,
                 recipientActorUuid: group.actor.uuid,
                 recipientActorId: group.actor.id,
-                payloadIds: group.payloadIds,
-                payloadBindings: group.payloadBindings
+                payloadIds: persistent.payloadIds,
+                payloadBindings: persistent.payloadBindings
               }, actor);
               entry.key = group.key;
               entry.control = false;
@@ -3009,8 +3162,8 @@ export class ItemCreatorTriggeredEffectService {
               entry.combatId = combat.id;
               entry.recipientActorUuid = group.actor.uuid;
               entry.recipientActorId = group.actor.id;
-              entry.payloadIds = [...group.payloadIds];
-              entry.payloadBindings = clone(group.payloadBindings);
+              entry.payloadIds = [...persistent.payloadIds];
+              entry.payloadBindings = clone(persistent.payloadBindings);
               applyActivation(entry, setting, combat, event);
               ledger.entries.set(group.key, entry);
               await this.#syncEntryEffects(actor, item, setting, entry);
@@ -3083,7 +3236,7 @@ export class ItemCreatorTriggeredEffectService {
         consumptionPayload: false
       });
     }
-    const directPayloads = payloads.filter(payload => !["selectedSpellEffects", "contextualRollModifier"].includes(payload.type));
+    const directPayloads = payloads.filter(payload => !["selectedSpellEffects", "contextualRollModifier", "restoreHitPoints"].includes(payload.type));
     const directChanges = buildTriggeredEffectChanges(setting, entry.stacks, recipient, { payloads: directPayloads });
     if (directChanges.length) {
       descriptors.push({
@@ -3353,6 +3506,9 @@ export const __triggeredEffectTest = Object.freeze({
   activationKey,
   activationCycles,
   recipientGroups,
+  payloadsForRecipientGroup,
+  persistentPayloadGroup,
+  sourceSpellcastingModifier,
   effectFlags,
   entryPayloads,
   runtimeEffectMatches,

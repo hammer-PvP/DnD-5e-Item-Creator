@@ -1091,14 +1091,14 @@
                   {{#if isSaveGated}}
                   <aside class="ic-triggered-note"><i class="fa-solid fa-shield-heart"></i><span><strong>Saving Throw → GM Applies Effect</strong> creates a native D&amp;D5e save/chat workflow. The Item Creator does not decide who failed and does not auto-apply from hidden results. The GM uses the native Effects tray to apply the configured target effects. Their duration remains controlled by this Triggered Effect; concentration is not inferred from a copied Spell.</span></aside>
                   {{else}}
-                  <aside class="ic-triggered-note"><i class="fa-solid fa-bolt"></i><span><strong>Immediate</strong> keeps the current behavior: the configured effect is applied as soon as this trigger resolves.</span></aside>
+                  <aside class="ic-triggered-note"><i class="fa-solid fa-bolt"></i><span><strong>Immediate</strong> keeps the current behavior: the configured effect is applied as soon as this trigger resolves.{{#if onlyInstantHealing}} Instant Healing resolves once per eligible trigger and does not create a duration-tracked Active Effect.{{/if}}</span></aside>
                   {{/if}}
                 </div>
 
                 <div class="ic-triggered-consumption-block {{#if consumptionEnabled}}enabled{{/if}}">
                   <label class="ic-checkbox-line ic-triggered-consumption-toggle">
                     <input type="checkbox" data-trigger-input="enabled" data-trigger-scope="consumption" data-trigger-id="{{id}}" {{#if consumptionEnabled}}checked{{/if}} {{#if consumptionBlocked}}disabled{{else if hasRollDiceModifier}}disabled{{/if}}>
-                    <span><strong>Remove When Consumed</strong><small>{{#if isSaveGated}}Not used by the native Save-Gated workflow in this version.{{else if hasContextualModifier}}Contextual Roll Modifiers use the Triggered Effect's normal duration/stacks in this version.{{else if hasRollDiceModifier}}Required by Add/Subtract Dice; change or remove that Applied Effect to disable consumption.{{else}}Add an early-removal condition without replacing the duration above.{{/if}}</small></span>
+                    <span><strong>Remove When Consumed</strong><small>{{#if isSaveGated}}Not used by the native Save-Gated workflow in this version.{{else if hasContextualModifier}}Contextual Roll Modifiers use the Triggered Effect's normal duration/stacks in this version.{{else if onlyInstantHealing}}Instant Healing does not create a persistent effect to consume.{{else if hasRollDiceModifier}}Required by Add/Subtract Dice; change or remove that Applied Effect to disable consumption.{{else}}Add an early-removal condition without replacing the duration above.{{/if}}</small></span>
                   </label>
                   {{#if consumptionEnabled}}
                   <div class="ic-triggered-grid four-columns">
@@ -1121,7 +1121,7 @@
               </section>
 
               <section class="ic-triggered-subsection">
-                <header><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Applied Effects</strong></header>
+                <header><i class="fa-solid fa-wand-magic-sparkles"></i><strong>Applied Effects &amp; Instant Actions</strong></header>
                 <div class="ic-triggered-payload-list">
                   {{#each effects}}
                   <article class="ic-triggered-payload" data-payload-id="{{id}}">
@@ -1145,6 +1145,16 @@
                       <label><span>Amount</span><input type="number" min="0" step="1" value="{{amount}}" data-trigger-payload-input="amount" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
                       {{/if}}
                       <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-arrows-left-right-to-line"></i><span>This Active Effect stores a contextual declaration instead of permanently changing the roller. <strong>Roll Made by Effect Recipient</strong> modifies that Actor's eligible rolls. <strong>Attack Made Against Effect Recipient</strong> modifies an attack only when this Actor is the attacker's single current target.</span></aside>
+                      {{else if isInstantHealing}}
+                      <label><span>Healing Amount</span><select data-trigger-payload-input="calculation" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each instantHealingCalculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if instantHealingFormula}}
+                      <label class="ic-triggered-span-two"><span>Healing Formula</span><input type="text" value="{{formula}}" placeholder="1d4 + 2" data-trigger-payload-input="formula" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><small>Any valid Roll formula is allowed. Formula roll data comes from the Actor that caused the triggering healing when available.</small></label>
+                      {{else if instantHealingFlat}}
+                      <label><span>Flat Healing</span><input type="number" min="0" step="1" value="{{amount}}" data-trigger-payload-input="amount" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
+                      {{else if instantHealingSpellcasting}}
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-hat-wizard"></i><span>Uses the spellcasting ability modifier of the Actor that caused the triggering healing. When the triggering Activity exposes its spellcasting ability, that ability is preferred; otherwise the Actor's configured spellcasting ability is used.</span></aside>
+                      {{/if}}
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-heart-pulse"></i><span><strong>Instant Healing</strong> restores HP immediately and does not create an Active Effect. With <strong>Healing Applied by the Wielder</strong>, choose <strong>Item Owner</strong> to heal the healer or <strong>Trigger Target(s)</strong> to heal the creature that received the original healing. Item Creator marks this secondary healing internally so it cannot recursively trigger itself.</span></aside>
                       {{else if isRollDiceModifier}}
                       <label><span>Dice</span><input type="number" min="1" max="99" step="1" value="{{diceNumber}}" data-trigger-payload-input="diceNumber" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number"></label>
                       <label><span>Die</span><select data-trigger-payload-input="die" data-trigger-id="{{../id}}" data-payload-id="{{id}}" data-value-type="number">{{#each dieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
@@ -1173,7 +1183,7 @@
                   </article>
                   {{/each}}
                 </div>
-                <aside class="ic-triggered-note"><i class="fa-solid fa-crosshairs"></i><span><strong>Trigger Target(s)</strong> uses the Actor targets recorded by the D&amp;D5e Activity or attack. Damage and healing events use the Actor that actually received the change. When no valid target exists, target effects are skipped; they never fall back to the Item owner. Formulas on normal effects use the recipient Actor's roll data. Recipient-turn expiration requires that recipient to have a Combat turn; otherwise Combat cleanup remains the final boundary.</span></aside>
+                <aside class="ic-triggered-note"><i class="fa-solid fa-crosshairs"></i><span><strong>Trigger Target(s)</strong> uses the Actor targets recorded by the D&amp;D5e Activity or attack. Damage and healing events use the Actor that actually received the change. When no valid target exists, target effects are skipped; they never fall back to the Item owner. Formulas on persistent effects use the recipient Actor's roll data; Instant Healing formulas use the triggering healer's roll data when available. Recipient-turn expiration requires that recipient to have a Combat turn; otherwise Combat cleanup remains the final boundary.</span></aside>
                 <button type="button" class="ic-add-triggered-payload" data-action="add-triggered-payload" data-trigger-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Applied Effect</button>
               </section>
             </div>

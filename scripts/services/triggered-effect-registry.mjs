@@ -204,7 +204,8 @@ export const TRIGGER_EFFECT_TYPES = Object.freeze([
   ["selectedSpellEffects", "Apply Effects from Selected Spell"],
   ["addDiceToEligibleRoll", "Add Dice to Eligible Roll"],
   ["subtractDiceFromEligibleRoll", "Subtract Dice from Eligible Roll"],
-  ["contextualRollModifier", "Contextual Roll Modifier"]
+  ["contextualRollModifier", "Contextual Roll Modifier"],
+  ["restoreHitPoints", "Restore Hit Points (Instant)"]
 ]);
 
 export const VALUE_CALCULATIONS = Object.freeze([
@@ -220,6 +221,12 @@ export const VALUE_CALCULATIONS = Object.freeze([
   ["cha", "Charisma Modifier"],
   ["dice", "Dice Formula"],
   ["custom", "Custom Formula"]
+]);
+
+export const INSTANT_HEALING_CALCULATIONS = Object.freeze([
+  ["custom", "Dice / Formula"],
+  ["flat", "Flat Number"],
+  ["spellcasting", "Triggering Healer Spellcasting Modifier"]
 ]);
 
 export const EFFECT_SCALING = Object.freeze([
@@ -249,10 +256,10 @@ export function defaultTriggeredEffectPayload(type = "spellAttackBonus") {
   return {
     id: id(),
     type,
-    calculation: "flat",
+    calculation: type === "restoreHitPoints" ? "custom" : "flat",
     amount: 1,
-    formula: "",
-    scaling: "perStack",
+    formula: type === "restoreHitPoints" ? "1d4" : "",
+    scaling: type === "restoreHitPoints" ? "fixed" : "perStack",
     diceNumber: 1,
     die: 6,
     ability: "all",
@@ -351,6 +358,10 @@ export function normalizeTriggeredEffectPayload(value = {}) {
     calculation = "dice";
     scaling = "fixed";
   }
+  if (type === "restoreHitPoints") {
+    calculation = validChoice(INSTANT_HEALING_CALCULATIONS, value.calculation, "custom");
+    scaling = "fixed";
+  }
   return {
     ...fallback,
     ...clone(value),
@@ -358,7 +369,9 @@ export function normalizeTriggeredEffectPayload(value = {}) {
     type,
     calculation,
     amount: Number.isFinite(Number(value.amount)) ? Number(value.amount) : 1,
-    formula: String(value.formula ?? "").trim(),
+    formula: type === "restoreHitPoints"
+      ? (String(value.formula ?? "").trim() || "1d4")
+      : String(value.formula ?? "").trim(),
     scaling,
     diceNumber: Math.max(1, Number(value.diceNumber) || 1),
     die: [4, 6, 8, 10, 12, 20].includes(Number(value.die)) ? Number(value.die) : 6,
@@ -427,6 +440,7 @@ export function normalizeTriggeredEffect(value = {}) {
   const legacyConsumptionTiming = value.consumption?.timing === "afterFailure" ? "afterRoll" : value.consumption?.timing;
   let consumptionTiming = validChoice(CONSUMPTION_TIMINGS, legacyConsumptionTiming, fallback.consumption.timing);
   const hasRollDiceEffect = effects.some(effect => ROLL_DICE_EFFECTS.has(effect.type));
+  const onlyInstantHealing = effects.length > 0 && effects.every(effect => effect.type === "restoreHitPoints");
   let normalizedConsumptionEvent = consumptionEvent;
   if (hasRollDiceEffect && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) normalizedConsumptionEvent = "d20Test";
   if (consumptionTiming === "afterRoll" && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) {
@@ -478,7 +492,7 @@ export function normalizeTriggeredEffect(value = {}) {
     consumption: {
       ...fallback.consumption,
       ...(clone(value.consumption ?? {})),
-      enabled: Boolean(value.consumption?.enabled) || hasRollDiceEffect,
+      enabled: onlyInstantHealing ? false : (Boolean(value.consumption?.enabled) || hasRollDiceEffect),
       uses: Math.max(1, Number(value.consumption?.uses) || 1),
       event: normalizedConsumptionEvent,
       decision: consumptionDecision,
@@ -512,6 +526,11 @@ export function validateTriggeredEffectPayload(value) {
     if (!VALUE_CALCULATIONS.some(([type]) => type === row.calculation)) return false;
     if (row.calculation === "flat" && !Number.isFinite(Number(row.amount))) return false;
     if (row.calculation === "dice" && (!(row.diceNumber > 0) || ![4, 6, 8, 10, 12, 20].includes(Number(row.die)))) return false;
+    if (row.calculation === "custom" && !String(row.formula ?? "").trim()) return false;
+  }
+  if (row.type === "restoreHitPoints") {
+    if (!INSTANT_HEALING_CALCULATIONS.some(([calculation]) => calculation === row.calculation)) return false;
+    if (row.calculation === "flat" && (!Number.isFinite(Number(row.amount)) || Number(row.amount) < 0)) return false;
     if (row.calculation === "custom" && !String(row.formula ?? "").trim()) return false;
   }
   if (row.type === "savingThrowBonus" && !row.ability) return false;
@@ -555,6 +574,7 @@ export function validateTriggeredEffect(value) {
   if (!EFFECT_APPLICATION_MODES.some(([entry]) => entry === setting.effectApplication?.mode)) return false;
   if (setting.effectApplication?.mode === "saveGated") {
     if (setting.consumption?.enabled) return false;
+    if ((setting.effects ?? []).some(effect => normalizeTriggeredEffectPayload(effect).type === "restoreHitPoints")) return false;
     if (!(setting.effects ?? []).every(effect => normalizeTriggeredEffectPayload(effect).recipient === "target")) return false;
     if (!Object.hasOwn(CONFIG.DND5E.abilities ?? {}, setting.effectApplication.saveAbility)) return false;
     if (!SAVE_DC_MODES.some(([entry]) => entry === setting.effectApplication.saveDcMode)) return false;
@@ -644,7 +664,7 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
       const multiplier = row.scaling === "perStack" ? Math.max(1, Number(stacks) || 1) : 1;
       value = String((Number(highestSpellcasting) || 0) * multiplier);
     }
-    if (["selectedSpellEffects", "contextualRollModifier"].includes(row.type)) continue;
+    if (["selectedSpellEffects", "contextualRollModifier", "restoreHitPoints"].includes(row.type)) continue;
     switch (row.type) {
       case "addDiceToEligibleRoll":
         addEligibleRollChanges(changes, setting.consumption?.event ?? "d20Test", add, value);
@@ -829,6 +849,13 @@ function payloadSummary(source, setting) {
       : String(Math.abs(Number(row.amount) || 0));
     return toRecipient(`${relationship}; ${operation} ${value} on ${roll}`);
   }
+  if (row.type === "restoreHitPoints") {
+    const amount = row.calculation === "spellcasting"
+      ? "the triggering healer's spellcasting modifier"
+      : row.calculation === "flat" ? `${Math.max(0, Number(row.amount) || 0)} HP`
+        : `${String(row.formula ?? "1d4").trim() || "1d4"} HP`;
+    return toRecipient(`instantly restore ${amount}; no Active Effect or duration`);
+  }
   if (row.type === "selectedSpellEffects") {
     const spell = row.spellName || "the selected Spell";
     const count = row.spellEffects.length ? `; ${row.spellEffects.length} embedded effect(s)` : "";
@@ -923,7 +950,12 @@ export function triggeredEffectSummary(value) {
   const delivery = setting.effectApplication?.mode === "saveGated"
     ? ` Effect Application: Saving Throw → GM Applies Effect (${localizedConfigLabel(CONFIG.DND5E.abilities, setting.effectApplication.saveAbility, setting.effectApplication.saveAbility)}; DC ${setting.effectApplication.saveDcMode === "formula" ? setting.effectApplication.saveDcFormula : setting.effectApplication.saveDc}). The native D&D5e save/chat Effects tray is used; the Item Creator does not auto-apply based on hidden success/failure.`
     : "";
-  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${applicationSummary(setting)}.${consumptionSummary(setting)}${delivery}`;
+  const onlyInstantHealing = setting.effects.length > 0
+    && setting.effects.every(effect => normalizeTriggeredEffectPayload(effect).type === "restoreHitPoints");
+  const application = onlyInstantHealing
+    ? "Immediate; restores HP once when the trigger resolves and creates no duration-tracked Active Effect"
+    : applicationSummary(setting);
+  return `Trigger: ${trigger}. Effect: ${effects}. Frequency: ${frequencySummary(setting)}. Application: ${application}.${consumptionSummary(setting)}${delivery}`;
 }
 
 function collectionValues(value) {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.2 — Triggered Instant Healing
+
+### Restore Hit Points
+
+- Added **Restore Hit Points (Instant)** as a generic Triggered Effect action. It performs immediate HP restoration without creating a duration-tracked Active Effect.
+- Healing amount can use a free **Dice / Formula** expression such as `1d4`, `2d6 + 2`, or another valid D&D5e Roll formula; a **Flat Number**; or the **Triggering Healer Spellcasting Modifier**. No fixed die-size selector is used for this action.
+- With **Healing Applied by the Wielder**, `Trigger Target(s)` restores HP to the creature that received the original healing, while `Item Owner` restores HP to the healer/wielder. The existing recipient model is reused rather than introducing Item-specific healing logic.
+- Formula roll data comes from the Actor that caused the triggering healing when available. Spellcasting-modifier healing prefers the triggering Activity's resolved spellcasting ability and otherwise falls back to the source Actor's configured/highest available spellcasting ability.
+- Added a recursion guard to D&D5e `applyDamage` integration: secondary healing created by Item Creator is marked with `itemCreatorTriggeredHealing` and is ignored by Item Creator's own Damage & Healing trigger detector. This prevents `heal → bonus heal → bonus heal...` loops without hiding the healing from Foundry or unrelated modules.
+- Instant Healing cannot use **Saving Throw → GM Applies Effect**, does not participate in **Remove When Consumed** when it is the only payload, and does not create ledger/effect duration entries. Mixed Triggered Effects can still combine an instant healing action with normal persistent payloads.
+- Added a dedicated chat notice showing generated healing and the amount actually restored after maximum-HP clamping.
+
+### Scope protection
+
+- Shared Roll Resolution Queue v3, Character Builder Resource Events v1, concentration lifecycle, Contextual Roll Modifiers, Save-Gated Active Effect application, Multiple Attack Activities, Supplier, and Materialization Core are unchanged.
+- No Character Builder contract change is required for this feature; it operates after the existing native D&D5e healing application event and uses the existing Item Creator trigger/recipient model.
+- Item schema remains **15**; existing Items require no migration or recreation.
+
 ## 0.6.1 — Multiple Native Attack Activities
 
 ### Weapon Attack Activity editor

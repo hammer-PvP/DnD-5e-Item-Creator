@@ -12,7 +12,7 @@ import {
 import {
   ACTIVATION_COUNTING, APPLICATION_MODES, ATTACK_TYPES, CONSUMPTION_DECISIONS, CONSUMPTION_EVENTS, CONSUMPTION_TIMINGS,
   CONTEXTUAL_OPERATIONS, CONTEXTUAL_RELATIONSHIPS, CONTEXTUAL_ROLL_TYPES, DURATION_UNITS,
-  EFFECT_APPLICATION_MODES, EFFECT_RECIPIENTS, EFFECT_SCALING, RETRIGGER_BEHAVIORS, SAVE_DC_MODES,
+  EFFECT_APPLICATION_MODES, EFFECT_RECIPIENTS, EFFECT_SCALING, INSTANT_HEALING_CALCULATIONS, RETRIGGER_BEHAVIORS, SAVE_DC_MODES,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
   defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
@@ -1689,6 +1689,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const effect = normalizeTriggeredEffectPayload(effectSource);
         const isRollDiceModifier = isRollDiceTriggeredEffect(effect.type);
         const isContextualModifier = effect.type === "contextualRollModifier";
+        const isInstantHealing = effect.type === "restoreHitPoints";
         const contextualDiceOperation = ["addDice", "subtractDice"].includes(effect.contextualOperation);
         const contextualFlatOperation = ["addFlat", "subtractFlat"].includes(effect.contextualOperation);
         return {
@@ -1697,6 +1698,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           typeOptions: fixedOptions(TRIGGER_EFFECT_TYPES, effect.type),
           recipientOptions: fixedOptions(EFFECT_RECIPIENTS, effect.recipient),
           calculationOptions: fixedOptions(VALUE_CALCULATIONS, effect.calculation),
+          instantHealingCalculationOptions: fixedOptions(INSTANT_HEALING_CALCULATIONS, effect.calculation),
           scalingOptions: fixedOptions(EFFECT_SCALING, effect.scaling),
           dieOptions: [4, 6, 8, 10, 12, 20].map(die => ({ value: die, label: `d${die}`, selected: die === Number(effect.die) })),
           abilityOptions: allAbilityOptions(effect.ability, { allLabel: "All Saving Throws" }),
@@ -1718,13 +1720,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isAddRollDice: effect.type === "addDiceToEligibleRoll",
           isSubtractRollDice: effect.type === "subtractDiceFromEligibleRoll",
           isContextualModifier,
+          isInstantHealing,
+          instantHealingFormula: isInstantHealing && effect.calculation === "custom",
+          instantHealingFlat: isInstantHealing && effect.calculation === "flat",
+          instantHealingSpellcasting: isInstantHealing && effect.calculation === "spellcasting",
           contextualRollTypeOptions: fixedOptions(CONTEXTUAL_ROLL_TYPES, effect.contextualRollType),
           contextualRelationshipOptions: fixedOptions(CONTEXTUAL_RELATIONSHIPS.filter(([relationship]) =>
             relationship !== "againstRecipient" || effect.contextualRollType === "attackRoll"), effect.contextualRelationship),
           contextualOperationOptions: fixedOptions(CONTEXTUAL_OPERATIONS, effect.contextualOperation),
           contextualDiceOperation,
           contextualFlatOperation,
-          showScaling: effect.type !== "selectedSpellEffects" && !isRollDiceModifier && !isContextualModifier,
+          showScaling: effect.type !== "selectedSpellEffects" && !isRollDiceModifier && !isContextualModifier && !isInstantHealing,
           selectedSpellEffectCount: Array.isArray(effect.spellEffects) ? effect.spellEffects.length : 0,
           isDamageEffect: isDamageTriggeredEffect(effect.type),
           isTrait: isTraitTriggeredEffect(effect.type)
@@ -1733,9 +1739,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const hasTargetRecipients = effectRows.some(effect => effect.recipient === "target");
       const hasRollDiceModifier = effectRows.some(effect => effect.isRollDiceModifier);
       const hasContextualModifier = effectRows.some(effect => effect.isContextualModifier);
+      const hasInstantHealing = effectRows.some(effect => effect.isInstantHealing);
+      const onlyInstantHealing = effectRows.length > 0 && effectRows.every(effect => effect.isInstantHealing);
       const effectApplication = row.effectApplication;
       const isSaveGated = effectApplication?.mode === "saveGated";
-      const consumptionBlocked = isSaveGated || hasContextualModifier;
+      const consumptionBlocked = isSaveGated || hasContextualModifier || onlyInstantHealing;
       const allowedConsumptionEvents = hasRollDiceModifier
         ? CONSUMPTION_EVENTS.filter(([value]) => ["d20Test", "attackRoll", "abilityCheck", "savingThrow"].includes(value))
         : CONSUMPTION_EVENTS;
@@ -1769,11 +1777,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         attackTypeOptions: fixedOptions(ATTACK_TYPES, trigger.attackType),
         countingOptions: fixedOptions(ACTIVATION_COUNTING, row.counting),
         applicationModeOptions: fixedOptions(APPLICATION_MODES, application.mode),
-        effectApplicationModeOptions: fixedOptions(EFFECT_APPLICATION_MODES, effectApplication?.mode ?? "immediate"),
+        effectApplicationModeOptions: fixedOptions(hasInstantHealing ? EFFECT_APPLICATION_MODES.filter(([mode]) => mode === "immediate") : EFFECT_APPLICATION_MODES, effectApplication?.mode ?? "immediate"),
         saveAbilityOptions: configOptions(CONFIG.DND5E.abilities, effectApplication?.saveAbility ?? "wis"),
         saveDcModeOptions: fixedOptions(SAVE_DC_MODES, effectApplication?.saveDcMode ?? "fixed"),
         isSaveGated,
         hasContextualModifier,
+        hasInstantHealing,
+        onlyInstantHealing,
         consumptionBlocked,
         singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
@@ -4190,12 +4200,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (scope === "application" && part === "expiration") row.application.expirationExplicit = true;
     if (scope === "effectApplication" && part === "mode" && value === "saveGated") {
+      if ((row.effects ?? []).some(payload => normalizeTriggeredEffectPayload(payload).type === "restoreHitPoints")) {
+        row.effectApplication.mode = "immediate";
+        ui.notifications?.warn?.("Instant healing resolves immediately and cannot use the Save-Gated effect workflow.");
+      } else {
       row.effectApplication.saveAbility ||= "wis";
       row.effectApplication.saveDcMode ||= "fixed";
       row.effectApplication.saveDc ||= 15;
       for (const payload of row.effects ?? []) payload.recipient = "target";
       row.consumption ??= {};
       row.consumption.enabled = false;
+      }
     }
 
     const singleAttackEligible = row.trigger.category === "attack"
@@ -4257,6 +4272,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     payload[part] = value;
     if (!commit) return;
     if (part === "type" && value === "selectedSpellEffects") payload.scaling = "fixed";
+    if (part === "type" && value === "restoreHitPoints") {
+      payload.calculation = "custom";
+      payload.formula = String(payload.formula ?? "").trim() || "1d4";
+      payload.scaling = "fixed";
+      row.effectApplication ??= {};
+      row.effectApplication.mode = "immediate";
+      if ((row.effects ?? []).every(effect => (effect.id === payload.id ? "restoreHitPoints" : normalizeTriggeredEffectPayload(effect).type) === "restoreHitPoints")) {
+        row.consumption ??= {};
+        row.consumption.enabled = false;
+      }
+    }
     if (part === "type" && value === "contextualRollModifier") {
       payload.scaling = "fixed";
       payload.contextualRollType = "attackRoll";
