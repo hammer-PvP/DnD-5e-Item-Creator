@@ -1287,6 +1287,42 @@
   resize: vertical;
   min-height: 72px;
 }
+.ic-conditional-advantage-list {
+  display: grid;
+  gap: 8px;
+}
+.ic-conditional-advantage-entry {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--ic-border-soft);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .018);
+}
+.ic-conditional-advantage-entry > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 32px;
+  align-items: center;
+  gap: 8px;
+}
+.ic-conditional-advantage-entry > header > strong {
+  min-width: 0;
+  font-size: 11px;
+}
+.ic-condition-save-rule {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+.ic-condition-save-note {
+  font-size: 10px;
+  line-height: 1.35;
+  opacity: .72;
+}
+.ic-conditional-condition-grid {
+  grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+}
 
 @media (max-width: 1050px) {
   .ic-resistance-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -1297,6 +1333,8 @@
   .ic-enhancement-card.ic-span-two { grid-column: auto; }
   .ic-enhancement-fields.two-columns,
   .ic-enhancement-fields.conditional-fields { grid-template-columns: 1fr; }
+  .ic-conditional-advantage-entry > header { grid-template-columns: 1fr 32px; }
+  .ic-conditional-advantage-entry > header .ic-support-badge { grid-column: 1 / -1; grid-row: 2; }
   .ic-enhancement-fields.critical-damage-fields { grid-template-columns: 72px 90px minmax(140px, 1fr); }
   .ic-resistance-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

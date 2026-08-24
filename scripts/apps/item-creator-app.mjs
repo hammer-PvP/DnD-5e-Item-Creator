@@ -744,6 +744,43 @@ function ensureProgressionGroup(setting) {
   setting.unlockLevel = clampCharacterLevel(setting.unlockLevel);
 }
 
+function conditionalAdvantageEntry(values = {}) {
+  return {
+    id: foundry.utils.randomID(),
+    mode: "supported",
+    appliesTo: "attackRolls",
+    supportedCondition: "targetUndead",
+    conditions: [],
+    customText: "",
+    ...values
+  };
+}
+
+function normalizeConditionalAdvantageSetting(setting) {
+  const source = clone(setting ?? {});
+  const legacyKeys = ["mode", "appliesTo", "supportedCondition", "conditions", "customText"];
+  const hasLegacyShape = legacyKeys.some(key => Object.prototype.hasOwnProperty.call(source, key));
+  let entries = hasLegacyShape
+    ? [conditionalAdvantageEntry(Object.fromEntries(legacyKeys.filter(key => Object.prototype.hasOwnProperty.call(source, key)).map(key => [key, source[key]])))]
+    : Array.isArray(source.entries) ? source.entries.map(entry => conditionalAdvantageEntry(entry)) : [];
+
+  if (!entries.length) entries = [conditionalAdvantageEntry()];
+  entries = entries.map(entry => ({
+    ...conditionalAdvantageEntry(),
+    ...entry,
+    id: entry?.id || foundry.utils.randomID(),
+    mode: ["supported", "conditionSave", "custom"].includes(entry?.mode) ? entry.mode : "supported",
+    appliesTo: entry?.appliesTo || "attackRolls",
+    supportedCondition: entry?.supportedCondition || "targetUndead",
+    conditions: [...new Set(Array.isArray(entry?.conditions) ? entry.conditions.filter(Boolean) : [])],
+    customText: String(entry?.customText ?? "")
+  }));
+
+  source.entries = entries;
+  for (const key of legacyKeys) delete source[key];
+  return source;
+}
+
 function enhancementDefaults() {
   const firstDamageType = CONFIG.DND5E.damageTypes?.fire
     ? "fire"
@@ -757,12 +794,7 @@ function enhancementDefaults() {
     extraCriticalDamage: progressionValue({ number: 1, denomination: 8, damageType: firstDamageType }),
     ignoreResistance: progressionValue({ damageTypes: firstDamageType ? [firstDamageType] : [] }),
     grantedSpellcasting: { spells: [] },
-    conditionalAdvantage: progressionValue({
-      mode: "supported",
-      appliesTo: "attackRolls",
-      supportedCondition: "targetUndead",
-      customText: ""
-    })
+    conditionalAdvantage: progressionValue({ entries: [conditionalAdvantageEntry()] })
   };
 }
 
@@ -1396,6 +1428,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     await registry.loadAll({ force: !this.sourceRegistryValidated });
     this.sourceRegistryValidated = true;
     await this.#initializeEditState(registry);
+    if (this.enhancementValues?.conditionalAdvantage) {
+      this.enhancementValues.conditionalAdvantage = normalizeConditionalAdvantageSetting(this.enhancementValues.conditionalAdvantage);
+    }
 
     const expectedType = ["equipment", "tool"].includes(this.selectedType) ? this.selectedType : "weapon";
     const documentValidator = expectedType === "equipment" ? isEquipmentItemDocument
@@ -1836,6 +1871,31 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     });
     const triggeredEffectCount = triggeredEffectRows.length;
 
+    const conditionalSetting = normalizeConditionalAdvantageSetting(this.enhancementValues.conditionalAdvantage);
+    this.enhancementValues.conditionalAdvantage = conditionalSetting;
+    const conditionalAdvantageRows = (conditionalSetting.entries ?? []).map((row, index) => ({
+      ...row,
+      index: index + 1,
+      modeOptions: fixedOptions([
+        ["supported", "Supported Condition"],
+        ["conditionSave", "Condition Save"],
+        ["custom", "Custom Rule Text"]
+      ], row.mode),
+      appliesToOptions: fixedOptions([["attackRolls", !isWeapon ? "All Attack Rolls" : "Attack Rolls with this weapon"]], row.appliesTo),
+      supportedConditionOptions: fixedOptions([
+        ["targetUndead", "Target is Undead"],
+        ["targetFiend", "Target is a Fiend"],
+        ["targetBloodied", "Target is below half its Hit Points"],
+        ["wielderDimLight", "Wielder is in dim light"],
+        ["targetNotActed", "Target has not acted this combat"]
+      ], row.supportedCondition),
+      conditionOptions: conditionTypeOptions(row.conditions),
+      isSupported: row.mode === "supported",
+      isConditionSave: row.mode === "conditionSave",
+      isCustom: row.mode === "custom",
+      supportLabel: row.mode === "supported" ? "Item Creator Runtime" : "Description Only"
+    }));
+
     const effectValues = this.grantedEffectValues;
     const prepareEffectRows = key => (effectValues[key]?.entries ?? []).map((row, index) => ({ ...row, index: index + 1, ...effectEntryOptions(key, row) }));
     const damageEffectOptions = key => Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({
@@ -1978,11 +2038,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       criticalDamageDiceOptions: damageDiceOptions(this.enhancementValues.extraCriticalDamage?.denomination),
       criticalDamageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, this.enhancementValues.extraCriticalDamage?.damageType),
       resistanceDamageTypes: Object.entries(CONFIG.DND5E.damageTypes ?? {}).map(([value, entry]) => ({ value, label: localizedLabel(entry, value), selected: this.enhancementValues.ignoreResistance?.damageTypes?.includes(value) })).sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang)),
-      conditionalModeOptions: fixedOptions([["supported", "Supported Condition"], ["custom", "Custom Rule Text"]], this.enhancementValues.conditionalAdvantage?.mode),
-      conditionalAppliesToOptions: fixedOptions([["attackRolls", !isWeapon ? "All Attack Rolls" : "Attack Rolls with this weapon"]], this.enhancementValues.conditionalAdvantage?.appliesTo),
-      supportedConditionOptions: fixedOptions([["targetUndead", "Target is Undead"], ["targetFiend", "Target is a Fiend"], ["targetBloodied", "Target is below half its Hit Points"], ["wielderDimLight", "Wielder is in dim light"], ["targetNotActed", "Target has not acted this combat"]], this.enhancementValues.conditionalAdvantage?.supportedCondition),
-      conditionalIsSupported: this.enhancementValues.conditionalAdvantage?.mode === "supported",
-      conditionalSupportLabel: this.enhancementValues.conditionalAdvantage?.mode === "supported" ? "Item Creator Runtime" : "Description Only",
+      conditionalAdvantageRows,
 
       grantedEffects: this.grantedEffects, grantedEffectValues: effectValues,
       grantedEffectCount, levelProgressionCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
@@ -2073,6 +2129,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
       input.addEventListener(eventName, event => this.#updateEnhancement(event));
     });
+    root.querySelectorAll('[data-conditional-advantage-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateConditionalAdvantageEntry(event));
+    });
+    root.querySelectorAll('[data-conditional-advantage-condition]').forEach(input => input.addEventListener("change", event => this.#updateConditionalAdvantageConditions(event)));
+    root.querySelector('[data-action="add-conditional-advantage"]')?.addEventListener("click", event => this.#addConditionalAdvantageEntry(event));
+    root.querySelectorAll('[data-action="remove-conditional-advantage"]').forEach(button => button.addEventListener("click", event => this.#removeConditionalAdvantageEntry(event)));
     root.querySelectorAll('[data-resistance-type]').forEach(input => input.addEventListener("change", event => this.#updateResistanceType(event)));
     root.querySelectorAll('[data-effect-toggle]').forEach(input => input.addEventListener("change", event => this.#toggleGrantedEffect(event)));
     root.querySelectorAll('[data-effect-input]').forEach(input => {
@@ -3725,9 +3788,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (this.enhancements.ignoreResistance && !values.ignoreResistance?.damageTypes?.length) errors.ignoreResistance = true;
     if (this.enhancements.conditionalAdvantage) {
-      const conditional = values.conditionalAdvantage;
-      if (conditional.mode === "supported" && !conditional.supportedCondition) errors.conditionalAdvantage = true;
-      if (conditional.mode === "custom" && !String(conditional.customText ?? "").trim()) errors.conditionalAdvantage = true;
+      const conditional = normalizeConditionalAdvantageSetting(values.conditionalAdvantage);
+      values.conditionalAdvantage = conditional;
+      const entries = conditional.entries ?? [];
+      if (!entries.length || entries.some(entry => {
+        if (entry.mode === "supported") return !entry.supportedCondition || entry.appliesTo !== "attackRolls";
+        if (entry.mode === "conditionSave") return !Array.isArray(entry.conditions) || !entry.conditions.length;
+        if (entry.mode === "custom") return !String(entry.customText ?? "").trim();
+        return true;
+      })) errors.conditionalAdvantage = true;
     }
     for (const [key, enabled] of Object.entries(this.enhancements)) {
       if (!enabled || key === "grantedSpellcasting") continue;
@@ -4446,7 +4515,55 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       return;
     }
     if (field === "criticalThreshold" && part === "mode") this.#renderPreservingScroll();
-    if (field === "conditionalAdvantage" && part === "mode") this.#renderPreservingScroll();
+  }
+
+  #conditionalAdvantageEntries() {
+    this.enhancementValues.conditionalAdvantage = normalizeConditionalAdvantageSetting(this.enhancementValues.conditionalAdvantage);
+    return this.enhancementValues.conditionalAdvantage.entries;
+  }
+
+  #updateConditionalAdvantageEntry(event) {
+    if (!this.enhancements.conditionalAdvantage) return;
+    const rowId = event.currentTarget.dataset.conditionalAdvantageRowId;
+    const part = event.currentTarget.dataset.conditionalAdvantageInput;
+    if (!rowId || !part) return;
+    const row = this.#conditionalAdvantageEntries().find(entry => entry.id === rowId);
+    if (!row) return;
+    row[part] = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    if (part === "mode") this.#renderPreservingScroll();
+  }
+
+  #updateConditionalAdvantageConditions(event) {
+    if (!this.enhancements.conditionalAdvantage) return;
+    const rowId = event.currentTarget.dataset.conditionalAdvantageRowId;
+    const condition = event.currentTarget.dataset.conditionalAdvantageCondition;
+    if (!rowId || !condition) return;
+    const row = this.#conditionalAdvantageEntries().find(entry => entry.id === rowId);
+    if (!row) return;
+    const conditions = new Set(row.conditions ?? []);
+    if (event.currentTarget.checked) conditions.add(condition);
+    else conditions.delete(condition);
+    row.conditions = [...conditions];
+    this.#renderPreservingScroll();
+  }
+
+  #addConditionalAdvantageEntry(event) {
+    event.preventDefault();
+    if (!this.enhancements.conditionalAdvantage) return;
+    this.#conditionalAdvantageEntries().push(conditionalAdvantageEntry());
+    this.#renderPreservingScroll();
+  }
+
+  #removeConditionalAdvantageEntry(event) {
+    event.preventDefault();
+    if (!this.enhancements.conditionalAdvantage) return;
+    const rowId = event.currentTarget.dataset.conditionalAdvantageRowId;
+    if (!rowId) return;
+    const setting = normalizeConditionalAdvantageSetting(this.enhancementValues.conditionalAdvantage);
+    setting.entries = (setting.entries ?? []).filter(entry => entry.id !== rowId);
+    if (!setting.entries.length) setting.entries.push(conditionalAdvantageEntry());
+    this.enhancementValues.conditionalAdvantage = setting;
+    this.#renderPreservingScroll();
   }
 
   #updateResistanceType(event) {

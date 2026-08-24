@@ -919,6 +919,12 @@ function conditionLabel(key) {
   return configLabel(CONFIG.DND5E.conditionTypes, key, titleCase(key));
 }
 
+function conditionalAdvantageEntries(setting) {
+  if (Array.isArray(setting?.entries)) return setting.entries;
+  if (setting && ["supported", "conditionSave", "custom"].includes(setting.mode)) return [setting];
+  return [];
+}
+
 function movementLabel(key) {
   return configLabel(CONFIG.DND5E.movementTypes, key, titleCase(key));
 }
@@ -995,15 +1001,22 @@ function itemPropertyEntries(draft) {
   }
   if (enhancements.conditionalAdvantage && !settingHasProgression(enhancementValues.conditionalAdvantage)) {
     const setting = enhancementValues.conditionalAdvantage ?? {};
-    const condition = setting.mode === "custom" ? setting.customText : {
-      targetUndead: "the target is Undead",
-      targetFiend: "the target is a Fiend",
-      targetBloodied: "the target is below half its Hit Points",
-      wielderDimLight: "the wielder is in dim light",
-      targetNotActed: "the target has not acted in this combat"
-    }[setting.supportedCondition];
     const sourceLabel = draft.itemType === "weapon" ? "with this weapon" : "while this item is active";
-    add("Conditional Advantage", condition ? `Advantage on attacks ${sourceLabel} when ${condition}` : "");
+    const rules = conditionalAdvantageEntries(setting).map(entry => {
+      if (entry.mode === "conditionSave") {
+        const conditions = (entry.conditions ?? []).map(conditionLabel).filter(Boolean);
+        return conditions.length ? `Advantage on saving throws to avoid or end: ${conditions.join(", ")}` : "";
+      }
+      const condition = entry.mode === "custom" ? String(entry.customText ?? "").trim() : {
+        targetUndead: "the target is Undead",
+        targetFiend: "the target is a Fiend",
+        targetBloodied: "the target is below half its Hit Points",
+        wielderDimLight: "the wielder is in dim light",
+        targetNotActed: "the target has not acted in this combat"
+      }[entry.supportedCondition];
+      return condition ? `Advantage on attacks ${sourceLabel} when ${condition}` : "";
+    }).filter(Boolean);
+    add("Conditional Advantage", rules.join("; "));
   }
 
   if (effects.armorClassBonus && !settingHasProgression(effectValues.armorClassBonus)) add("Armor Class", `${signedValue(effectValues.armorClassBonus?.bonus)} AC`, effectValues.armorClassBonus?.availability);
@@ -1394,7 +1407,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 15,
+      schemaVersion: 16,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1565,7 +1578,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 15,
+      schemaVersion: 16,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1722,7 +1735,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 15,
+      schemaVersion: 16,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),

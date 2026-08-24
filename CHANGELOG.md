@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.3 — Repeatable Conditional Advantage and Condition Saves
+
+### Conditional Advantage entries
+
+- Converted **Conditional Advantage** from one global configuration into a repeatable entry list. GMs can add or remove multiple independent Conditional Advantage rules on the same Weapon, Equipment Item, or Tool, following the same row-based editing pattern used by repeatable Granted Effects such as Skill Proficiency.
+- Existing **Supported Condition** entries retain their Item Creator Runtime behavior for Attack Rolls, including Undead, Fiend, below-half-HP, dim-light, and target-not-yet-acted checks. Multiple supported entries are evaluated independently and any matching entry can grant Advantage.
+- Existing **Custom Rule Text** remains descriptive and can coexist with supported runtime entries instead of replacing the Item's only Conditional Advantage configuration.
+
+### Condition Save
+
+- Added **Condition Save** as a third Conditional Advantage type. It exposes the complete D&D5e `CONFIG.DND5E.conditionTypes` list rather than a hard-coded whitelist, allowing official, system-provided, and compatible homebrew condition identifiers to be selected.
+- Condition Save is deliberately **description only**. It writes `Advantage on saving throws to avoid or end: ...` into the generated Item information and does not hook Saving Throws, inspect effect origins, infer a hidden DC, or create a save when the originating rule has none.
+- This means declarations such as Cursed, Exhaustion, Bleeding, Prone, Frightened, Poisoned, or other available conditions are valid. The Advantage matters only when a specific rule actually calls for a saving throw to avoid or end that condition.
+- Condition Save has no `Applies To` selector because its scope is already defined by the declaration itself.
+
+### Compatibility and schema
+
+- Added Item schema **16** for the repeatable `conditionalAdvantage.entries` draft/runtime structure.
+- v0.6.2 and earlier managed Items using the legacy single Conditional Advantage object remain readable. Reopening them promotes the old configuration into the first repeatable entry; saving naturally writes schema 16.
+- Runtime remains backward compatible with legacy single-object Conditional Advantage flags, so already-created Items do not require recreation merely to continue using their existing supported Attack condition.
+- Shared Roll Resolution Queue v3, Character Builder Resource Events v1, Triggered Effects, Restore Hit Points, Supplier, and Materialization Core are unchanged by this update.
+
 ## 0.6.2 — Triggered Instant Healing
 
 ### Restore Hit Points

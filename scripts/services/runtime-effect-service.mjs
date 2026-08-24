@@ -1149,10 +1149,14 @@ export class ItemCreatorRuntimeEffectService {
     for (const item of this.#activeRuntimeItems(actor, originatingItem)) {
       const configured = item.getFlag(MODULE_ID, "runtime")?.conditionalAdvantage;
       const setting = selectProgressionTier(configured, actorTotalLevel(actor));
-      if (!setting || setting.mode !== "supported") continue;
-      if (this.#conditionApplies(setting, item)) {
-        config.advantage = true;
-        return;
+      if (!setting) continue;
+      const entries = Array.isArray(setting.entries) ? setting.entries : [setting];
+      for (const entry of entries) {
+        if (entry?.mode !== "supported") continue;
+        if (this.#conditionApplies(entry, item)) {
+          config.advantage = true;
+          return;
+        }
       }
     }
   }

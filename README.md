@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.6.2 Beta Candidate
+**Version:** 0.6.3 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
@@ -88,6 +88,8 @@ Weapons, Equipment, and Tools may grant Actor-facing bonuses including:
 - Conditional Advantage and Ignore Resistance.
 
 Granted Spellcasting and structural resource changes are configured in the separate **Spells & Resources** step.
+
+**Conditional Advantage** is repeatable. Each entry can use an Item Creator Runtime-supported Attack condition, a **Condition Save** declaration, or custom rule text. Condition Save exposes the D&D5e system condition list and writes the selected conditions into the generated Item information as Advantage on saving throws to avoid or end those conditions. It is intentionally descriptive rather than a save interceptor: the Advantage applies only when the originating rule actually calls for a saving throw, so conditions such as Cursed, Exhaustion, Bleeding, or homebrew/system-provided conditions remain valid declarations without Item Creator inventing a save where none exists. Multiple Conditional Advantage entries can coexist on the same Item, including runtime Attack rules and descriptive Condition Save rules.
 
 ### Triggered Effects
 

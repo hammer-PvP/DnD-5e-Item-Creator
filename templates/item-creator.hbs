@@ -779,18 +779,43 @@
           <section class="ic-enhancement-card ic-span-two {{#if enhancement.conditionalAdvantage}}enabled{{/if}} {{#if enhancementErrors.conditionalAdvantage}}invalid{{/if}}">
             <label class="ic-override-heading">
               <input type="checkbox" data-enhancement-toggle="conditionalAdvantage" {{#if enhancement.conditionalAdvantage}}checked{{/if}}>
-              <span><strong>Conditional Advantage</strong><small>Grant Advantage on supported Attack Rolls while this item applies, or record a custom descriptive rule.</small></span>
+              <span><strong>Conditional Advantage</strong><small>Add one or more conditional Advantage rules. Supported Attack conditions use Item Creator Runtime; Condition Saves and custom rules are descriptive.</small></span>
             </label>
-            <span class="ic-support-badge {{#if conditionalIsSupported}}runtime{{else}}description{{/if}}"><i class="fa-solid {{#if conditionalIsSupported}}fa-microchip{{else}}fa-align-left{{/if}}"></i> {{conditionalSupportLabel}}</span>
-            <div class="ic-enhancement-fields conditional-fields">
-              <label><span>Condition Type</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="mode" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each conditionalModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-              <label><span>Applies To</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="appliesTo" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each conditionalAppliesToOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-              {{#if conditionalIsSupported}}
-              <label class="ic-span-two"><span>Supported Condition</span><select data-enhancement-input="conditionalAdvantage" data-enhancement-part="supportedCondition" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each supportedConditionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-              {{else}}
-              <label class="ic-span-two"><span>Custom Rule Text</span><textarea rows="3" maxlength="500" data-enhancement-input="conditionalAdvantage" data-enhancement-part="customText" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}>{{enhancementValues.conditionalAdvantage.customText}}</textarea></label>
-              {{/if}}
+            <div class="ic-conditional-advantage-list">
+              {{#each conditionalAdvantageRows}}
+              <article class="ic-conditional-advantage-entry">
+                <header>
+                  <strong>Conditional Advantage {{index}}</strong>
+                  <span class="ic-support-badge {{#if isSupported}}runtime{{else}}description{{/if}}"><i class="fa-solid {{#if isSupported}}fa-microchip{{else}}fa-align-left{{/if}}"></i> {{supportLabel}}</span>
+                  <button type="button" class="ic-row-remove" data-action="remove-conditional-advantage" data-conditional-advantage-row-id="{{id}}" title="Remove" {{#unless ../enhancement.conditionalAdvantage}}disabled{{/unless}}><i class="fa-solid fa-trash"></i></button>
+                </header>
+                <div class="ic-enhancement-fields conditional-fields">
+                  <label><span>Condition Type</span><select data-conditional-advantage-input="mode" data-conditional-advantage-row-id="{{id}}" {{#unless ../enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each modeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if isSupported}}
+                  <label><span>Applies To</span><select data-conditional-advantage-input="appliesTo" data-conditional-advantage-row-id="{{id}}" {{#unless ../enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each appliesToOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-span-two"><span>Supported Condition</span><select data-conditional-advantage-input="supportedCondition" data-conditional-advantage-row-id="{{id}}" {{#unless ../enhancement.conditionalAdvantage}}disabled{{/unless}}>{{#each supportedConditionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{else}}
+                    {{#if isConditionSave}}
+                    <div class="ic-span-two ic-condition-save-rule">
+                      <span class="ic-condition-save-note">Advantage applies only when the effect actually calls for a saving throw to avoid or end the selected condition.</span>
+                      <div class="ic-effect-choice-grid ic-conditional-condition-grid">
+                        {{#each conditionOptions}}
+                        <label class="ic-property-option {{#if selected}}selected{{/if}}">
+                          <input type="checkbox" data-conditional-advantage-condition="{{value}}" data-conditional-advantage-row-id="{{../id}}" {{#if selected}}checked{{/if}} {{#unless ../../enhancement.conditionalAdvantage}}disabled{{/unless}}>
+                          <span>{{label}}</span>
+                        </label>
+                        {{/each}}
+                      </div>
+                    </div>
+                    {{else}}
+                    <label class="ic-span-two"><span>Custom Rule Text</span><textarea rows="3" maxlength="500" data-conditional-advantage-input="customText" data-conditional-advantage-row-id="{{id}}" {{#unless ../enhancement.conditionalAdvantage}}disabled{{/unless}}>{{customText}}</textarea></label>
+                    {{/if}}
+                  {{/if}}
+                </div>
+              </article>
+              {{/each}}
             </div>
+            <button type="button" class="ic-add-effect-row" data-action="add-conditional-advantage" {{#unless enhancement.conditionalAdvantage}}disabled{{/unless}}><i class="fa-solid fa-plus"></i> Add Conditional Advantage</button>
           </section>
         </div>
       </section>
