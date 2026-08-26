@@ -1,6 +1,6 @@
 import { MODULE_ID, defaultSourceSettings } from "../constants.mjs";
 
-const SUPPORTED_TYPES = new Set(["weapon", "equipment", "tool"]);
+const SUPPORTED_TYPES = new Set(["weapon", "equipment", "tool", "consumable"]);
 
 const PACK_INDEX_FIELDS = [
   "name", "img", "type",
@@ -121,6 +121,7 @@ function genericOption(entry, summary, pack) {
     weaponType: entry.type === "weapon" ? entry.system?.type?.value ?? "" : "",
     equipmentType: entry.type === "equipment" ? entry.system?.type?.value ?? "" : "",
     toolType: entry.type === "tool" ? entry.system?.type?.value ?? "" : "",
+    consumableType: entry.type === "consumable" ? entry.system?.type?.value ?? "" : "",
     collection: pack.collection,
     packLabel: summary.label,
     sourceLabel: summary.sourceLabel,
@@ -173,6 +174,13 @@ export class ItemCreatorSourceRegistry {
     this.toolTemplateSourceGroups = [];
     this.toolTemplateOptions = [];
     this.toolByUuid = new Map();
+
+    this.consumableSourceGroups = [];
+    this.consumablePackGroups = [];
+    this.consumableOptions = [];
+    this.consumableTemplateSourceGroups = [];
+    this.consumableTemplateOptions = [];
+    this.consumableByUuid = new Map();
 
     this.iconOptions = [];
     this.packSummaries = [];
@@ -246,7 +254,7 @@ export class ItemCreatorSourceRegistry {
         packageId: packageId(pack), packageTitle: resolvedPackageTitle,
         sourceLabel: resolvedSourceLabel, sourceId: sourceId(pack, resolvedSourceLabel),
         sourceOrder: sourceSortOrder(resolvedSourceLabel),
-        itemCount, weaponCount: counts.weapon, equipmentCount: counts.equipment, toolCount: counts.tool,
+        itemCount, weaponCount: counts.weapon, equipmentCount: counts.equipment, toolCount: counts.tool, consumableCount: counts.consumable,
         search: `${label} ${resolvedSourceLabel} ${resolvedPackageTitle}`.toLowerCase()
       });
     }
@@ -273,7 +281,7 @@ export class ItemCreatorSourceRegistry {
         group = {
           id: pack.sourceId, label: pack.sourceLabel, order: pack.sourceOrder,
           packageTitle: pack.packageTitle, packageTitles: new Set(),
-          itemCount: 0, weaponCount: 0, equipmentCount: 0, toolCount: 0, packs: [], search: ""
+          itemCount: 0, weaponCount: 0, equipmentCount: 0, toolCount: 0, consumableCount: 0, packs: [], search: ""
         };
         groups.set(pack.sourceId, group);
       }
@@ -282,6 +290,7 @@ export class ItemCreatorSourceRegistry {
       group.weaponCount += pack.weaponCount;
       group.equipmentCount += pack.equipmentCount;
       group.toolCount += pack.toolCount;
+      group.consumableCount += pack.consumableCount;
       group.packageTitles.add(pack.packageTitle);
       group.packs.push(pack);
     }
@@ -310,6 +319,8 @@ export class ItemCreatorSourceRegistry {
     this.equipmentTemplateSourceGroups = []; this.equipmentTemplateOptions = []; this.equipmentByUuid.clear();
     this.toolSourceGroups = []; this.toolPackGroups = []; this.toolOptions = [];
     this.toolTemplateSourceGroups = []; this.toolTemplateOptions = []; this.toolByUuid.clear();
+    this.consumableSourceGroups = []; this.consumablePackGroups = []; this.consumableOptions = [];
+    this.consumableTemplateSourceGroups = []; this.consumableTemplateOptions = []; this.consumableByUuid.clear();
     this.iconOptions = [];
 
     const activeSources = this.orderedSources(sources.filter(source => this.isSourceEnabled(source.id, settings)), settings)
@@ -320,8 +331,8 @@ export class ItemCreatorSourceRegistry {
     this.activePackSummaries = packs;
 
     const iconPaths = new Set();
-    const sourceGroups = { weapon: new Map(), equipment: new Map(), tool: new Map() };
-    const templateGroups = { weapon: new Map(), equipment: new Map(), tool: new Map() };
+    const sourceGroups = { weapon: new Map(), equipment: new Map(), tool: new Map(), consumable: new Map() };
+    const templateGroups = { weapon: new Map(), equipment: new Map(), tool: new Map(), consumable: new Map() };
 
     for (const summary of packs) {
       const pack = game.packs.get(summary.collection);
@@ -364,10 +375,14 @@ export class ItemCreatorSourceRegistry {
             this.equipmentByUuid.set(option.uuid, option);
             this.equipmentTemplateOptions.push(option);
             this.equipmentOptions.push(option);
-          } else {
+          } else if (type === "tool") {
             this.toolByUuid.set(option.uuid, option);
             this.toolTemplateOptions.push(option);
             this.toolOptions.push(option);
+          } else {
+            this.consumableByUuid.set(option.uuid, option);
+            this.consumableTemplateOptions.push(option);
+            this.consumableOptions.push(option);
           }
 
           if (type === "weapon" && isBaseWeapon(entry)) {
@@ -390,11 +405,12 @@ export class ItemCreatorSourceRegistry {
           packageTitle: summary.packageTitle, priority: summary.sourcePriority,
           itemCount: baseItems.length, weaponCount: type === "weapon" ? baseItems.length : 0,
           equipmentCount: type === "equipment" ? baseItems.length : 0,
-          toolCount: type === "tool" ? baseItems.length : 0, items: baseItems
+          toolCount: type === "tool" ? baseItems.length : 0, consumableCount: type === "consumable" ? baseItems.length : 0, items: baseItems
         };
         if (type === "weapon") this.weaponPackGroups.push(packGroup);
         else if (type === "equipment") this.equipmentPackGroups.push(packGroup);
-        else this.toolPackGroups.push(packGroup);
+        else if (type === "tool") this.toolPackGroups.push(packGroup);
+        else this.consumablePackGroups.push(packGroup);
 
         let sourceGroup = sourceGroups[type].get(summary.sourceId);
         if (!sourceGroup) {
@@ -408,7 +424,7 @@ export class ItemCreatorSourceRegistry {
     }
 
     const sortOptions = list => list.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, game.i18n.lang) || a.packLabel.localeCompare(b.packLabel, game.i18n.lang));
-    sortOptions(this.templateOptions); sortOptions(this.weaponOptions); sortOptions(this.equipmentTemplateOptions); sortOptions(this.equipmentOptions); sortOptions(this.toolTemplateOptions); sortOptions(this.toolOptions); sortOptions(this.iconOptions);
+    sortOptions(this.templateOptions); sortOptions(this.weaponOptions); sortOptions(this.equipmentTemplateOptions); sortOptions(this.equipmentOptions); sortOptions(this.toolTemplateOptions); sortOptions(this.toolOptions); sortOptions(this.consumableTemplateOptions); sortOptions(this.consumableOptions); sortOptions(this.iconOptions);
     for (const matches of this.weaponByIdentifier.values()) sortOptions(matches);
 
     const finalizeTemplateGroups = map => [...map.values()].map(group => ({
@@ -418,6 +434,7 @@ export class ItemCreatorSourceRegistry {
     this.templateSourceGroups = finalizeTemplateGroups(templateGroups.weapon);
     this.equipmentTemplateSourceGroups = finalizeTemplateGroups(templateGroups.equipment);
     this.toolTemplateSourceGroups = finalizeTemplateGroups(templateGroups.tool);
+    this.consumableTemplateSourceGroups = finalizeTemplateGroups(templateGroups.consumable);
 
     const finalizeSourceGroups = map => [...map.values()].map(group => ({
       ...group, packs: group.packs.sort((a, b) => a.label.localeCompare(b.label, game.i18n.lang))
@@ -425,9 +442,11 @@ export class ItemCreatorSourceRegistry {
     this.weaponSourceGroups = finalizeSourceGroups(sourceGroups.weapon);
     this.equipmentSourceGroups = finalizeSourceGroups(sourceGroups.equipment);
     this.toolSourceGroups = finalizeSourceGroups(sourceGroups.tool);
+    this.consumableSourceGroups = finalizeSourceGroups(sourceGroups.consumable);
     this.weaponPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
     this.equipmentPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
     this.toolPackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
+    this.consumablePackGroups.sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label, game.i18n.lang));
 
     this.loaded = true;
     // getIndex may populate pack.index during this rebuild, so persist the
@@ -440,6 +459,7 @@ export class ItemCreatorSourceRegistry {
   async loadWeapons(options = {}) { return this.loadAll(options); }
   async loadEquipment(options = {}) { return this.loadAll(options); }
   async loadTools(options = {}) { return this.loadAll(options); }
+  async loadConsumables(options = {}) { return this.loadAll(options); }
 
   findWeapon(uuid) { return this.templateByUuid.get(uuid) ?? this.weaponByUuid.get(uuid) ?? null; }
   findTemplate(uuid) { return this.templateByUuid.get(uuid) ?? null; }
@@ -447,6 +467,8 @@ export class ItemCreatorSourceRegistry {
   findEquipmentTemplate(uuid) { return this.equipmentByUuid.get(uuid) ?? null; }
   findTool(uuid) { return this.toolByUuid.get(uuid) ?? null; }
   findToolTemplate(uuid) { return this.toolByUuid.get(uuid) ?? null; }
+  findConsumable(uuid) { return this.consumableByUuid.get(uuid) ?? null; }
+  findConsumableTemplate(uuid) { return this.consumableByUuid.get(uuid) ?? null; }
 
   findBaseWeaponByIdentifier(identifier) {
     const normalized = normalizeIdentifier(identifier);
@@ -477,4 +499,5 @@ export class ItemCreatorSourceRegistry {
   async getWeaponDocument(uuid) { return this.getItemDocument(uuid, "weapon"); }
   async getEquipmentDocument(uuid) { return this.getItemDocument(uuid, "equipment"); }
   async getToolDocument(uuid) { return this.getItemDocument(uuid, "tool"); }
+  async getConsumableDocument(uuid) { return this.getItemDocument(uuid, "consumable"); }
 }

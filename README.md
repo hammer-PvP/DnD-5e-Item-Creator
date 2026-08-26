@@ -1,11 +1,11 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.6.3 Beta Candidate
+**Version:** 0.7.0 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
-Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains four connected features:
+Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
 
-- **Item Creator** for Weapons, Equipment, and Tools;
+- **Item Creator** for Weapons, Equipment, Tools, and Consumables;
 - **Scroll Factory** for native D&D5e Spell Scrolls;
 - **Supplier** for configurable merchant stock generation;
 - **Materialization Core** shared by manual creation, pricing, and automatic stock materialization.
@@ -14,7 +14,7 @@ The native Foundry and D&D5e Create Item workflow remains available and is not i
 
 ## World Items Directory entry points
 
-The World Items Directory always receives one GM-only **Item Creator** button. Its start screen provides Weapon, Equipment, Tool, and Scroll Factory. Scroll Factory remains inside Item Creator because it creates an individual Spell Scroll loot Item without requiring an Actor sheet.
+The World Items Directory always receives one GM-only **Item Creator** button. Its start screen provides Weapon, Equipment, Tool, Scroll Factory, and Consumables. Scroll Factory remains inside Item Creator because it creates an individual Spell Scroll loot Item without requiring an Actor sheet.
 
 When **Enable Supplier Tools** is active, the directory also receives a separate GM-only **Supplier** button with an epic-purple tint. Supplier has its own entry because it creates complete vendor stocks rather than an individual reward.
 
@@ -55,6 +55,18 @@ Supports armor, shields, robes, clothing, cloaks, headwear, amulets, gloves, rin
 #### Tool
 
 Supports native Tool category, base tool, default ability, proficiency handling, Tool Check Bonus, quantity, weight, price, magical rarity, optional Attunement, Granted Effects, Granted Spellcasting, and character-level progression. A Tool never receives weapon attacks, weapon damage, Mastery, range, Weapon Enhancement, or armor calculation fields.
+
+#### Consumable
+
+Consumables are native D&D5e `consumable` Items intended for potions, food, drinks, poisons, rods, wands, wondrous one-use objects, and other exotic rewards. They can inherit an existing Consumable blueprint or begin as a blank shell, then configure native type/subtype, quantity, uses, Auto Destroy, activation, icon, price, rarity, and description.
+
+The normal Granted Effects library becomes an **on-use effect package** for Consumables. Carrying the Item grants nothing. After D&D5e confirms the managed Use Activity and consumes the charge/item normally, Item Creator copies the eligible Active Effect blueprints onto the consuming Actor. Positive and negative changes can coexist in one dose.
+
+Effect duration can be Permanent, until the next Short or Long Rest, until the next Long Rest, a number of rounds, owner turns, minutes, or hours. One round equals six seconds outside Combat. Timed effects use Foundry World Time, so advancing the world clock expires them without real-time browser timers; Combat provides precise round/turn tracking when initiative exists. Permanent effects survive the destruction of the consumed Item.
+
+Consumables also provide an instant **Remove Exhaustion Levels** action. Its amount defaults to `1`, accepts any positive integer, or `all`; it is intentionally not capped at six and always clamps the Actor's final Exhaustion to a minimum of zero.
+
+Stacking can replace an existing dose, refresh its duration, ignore a new persistent dose while one is active, or allow independent stacks.
 
 ## Critical Threshold scope
 

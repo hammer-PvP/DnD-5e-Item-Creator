@@ -5,6 +5,7 @@ import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
+import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
 import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
@@ -32,6 +33,7 @@ let moduleSettingsInstance = null;
 Hooks.once("init", () => {
   ItemCreatorRuntimeEffectService.registerHooks();
   ItemCreatorTriggeredEffectService.registerHooks();
+  ItemCreatorConsumableEffectService.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, "sourceSettings", {
@@ -149,7 +151,8 @@ function contextItem(target) {
 function isEditableWorldItem(item) {
   const supported = item?.type === "weapon"
     || (item?.type === "equipment" && item?.system?.type?.value !== "vehicle")
-    || item?.type === "tool";
+    || item?.type === "tool"
+    || item?.type === "consumable";
   return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && supported && !item.parent && !item.pack);
 }
 
@@ -170,7 +173,7 @@ function addEditContextOption(options) {
 
 function openItemCreator({ item = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Item Creator.");
-  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon, Equipment, and Tool Items can be edited with Item Creator.");
+  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon, Equipment, Tool, and Consumable Items can be edited with Item Creator.");
 
   if (appInstance?.element?.isConnected) {
     const sameTarget = (appInstance.editingItemId ?? null) === (item?.id ?? null);

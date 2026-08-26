@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.7.0 — Consumables Factory
+
+### Fifth Item Creator workflow
+
+- Added **Consumables** as the fifth Item Creator start-screen workflow alongside Weapons, Equipment, Tools, and Scroll Factory. Consumables are built as native D&D5e `consumable` Items and are saved normally to the World Items Directory.
+- Consumables can start from an enabled compendium/World Item blueprint or from a blank custom shell. Native Consumable type/subtype, quantity, uses per physical item, Auto Destroy, weight, price, rarity, name, description, and custom icon are preserved or configurable.
+- Every created Consumable receives one managed native **Use / Consume Utility Activity**. Activation supports Action, Bonus Action, Reaction, Special, and No Action. Reaction/Special entries can carry GM-facing activation text.
+
+### On-use Actor effects
+
+- Reused the existing Granted Effects editor as the Consumable effect package. AC, ability adjustments, movement, skills, saves, resistances, immunities, advantages, spell statistics, positive and negative modifiers, imported Active Effects, and other supported Actor-facing changes are stored as blueprints on the Consumable.
+- Consumable effect blueprints are never granted merely because the Item is owned. A new persistent **ConsumableEffectService** copies the eligible effects to the consumer only after D&D5e confirms the managed Activity use and its normal consumption.
+- Applied effects carry independent provenance and survive destruction of the empty source Item. Permanent rewards such as a one-use Dragon Blood elixir can therefore leave a permanent +1 ability adjustment after the physical Consumable is gone.
+- Added stacking policies: **Replace Existing**, **Refresh Duration**, **Ignore New Use**, and **Allow Stacking**.
+
+### Duration and world-time lifecycle
+
+- Added effect durations: **Permanent**, **Until next Short or Long Rest**, **Until next Long Rest**, **Rounds**, **Owner Turns**, **Minutes**, and **Hours**.
+- Consumables work outside Combat. Rounds and owner-turn durations use the D&D time equivalence of **6 seconds each** outside Combat and store a World Time expiration rather than a browser timer. Advancing the Foundry world clock can therefore expire effects immediately.
+- When a timed effect is active in Combat, the runtime also tracks rounds/owner turns. Entering or leaving Combat does not restart the duration; remaining duration is translated between Combat tracking and World Time.
+- `dnd5e.restCompleted` removes the configured rest-bound effects only after a real Short/Long Rest completes. Permanent effects are untouched.
+
+### Instant Exhaustion removal
+
+- Added **Remove Exhaustion Levels** as an explicit Consumable instant effect. The amount defaults to `1`, accepts any positive integer, or accepts `all`.
+- No six-level cap is imposed: compatible worlds/modules that extend Exhaustion beyond the native range remain supported. The resulting Actor Exhaustion value is always clamped to a minimum of `0`.
+- Exhaustion removal resolves immediately on use and can coexist with duration-based Granted Effects on the same Consumable.
+
+### Compatibility and schema
+
+- Added Item schema **17** for the Consumable runtime/draft contract. Existing Weapon, Equipment, Tool, Scroll Factory, Triggered Effect, Supplier, and Materialization Core behavior remains on its existing paths.
+- The existing combat-scoped Triggered Effects ledger is deliberately not reused. Consumables have a separate persistent lifecycle so consuming food, potions, drinks, or exotic objects outside initiative works normally.
+
 ## 0.6.3 — Repeatable Conditional Advantage and Condition Saves
 
 ### Conditional Advantage entries

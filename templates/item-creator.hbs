@@ -35,7 +35,7 @@
       <h3>Current Draft</h3>
       <p><strong>Type:</strong> {{#if selectedType}}{{itemTypeLabel}}{{else}}—{{/if}}</p>
       <p><strong>{{#if isWeapon}}Template{{else}}Base Item{{/if}}:</strong> {{#if selectedWeapon}}{{selectedWeapon.name}}{{else}}—{{/if}}</p>
-      {{#if isWeapon}}<p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>{{else if isEquipment}}<p><strong>Equipment Form:</strong> {{equipmentFormLabel}}</p>{{else if isTool}}<p><strong>Tool Category:</strong> {{reviewSummary.baseWeapon}}</p>{{/if}}
+      {{#if isWeapon}}<p><strong>Base Weapon:</strong> {{#if selectedBaseWeapon}}{{selectedBaseWeapon.name}}{{else if selectedWeapon}}Required{{else}}—{{/if}}</p>{{else if isEquipment}}<p><strong>Equipment Form:</strong> {{equipmentFormLabel}}</p>{{else if isTool}}<p><strong>Tool Category:</strong> {{reviewSummary.baseWeapon}}</p>{{else if isConsumable}}<p><strong>Consumable Type:</strong> {{reviewSummary.baseWeapon}}</p>{{/if}}
       <p><strong>Name:</strong> <span data-draft-name>{{#if itemName}}{{itemName}}{{else}}—{{/if}}</span></p>
       <p><strong>Custom Fields:</strong> {{customFieldCount}}</p>
       {{#if custom.additionalDamage}}<p><strong>Extra Damage:</strong> {{additionalDamageCount}} part(s)</p>{{/if}}
@@ -58,7 +58,7 @@
         <div>
           <span class="ic-kicker">Assisted Item Creation</span>
           <h2>Choose Item Type</h2>
-          <p>Create Weapons, Equipment, and Tools with the assisted workflow, or use Scroll Factory to create native Spell Scroll loot without an Actor sheet.</p>
+          <p>Create Weapons, Equipment, Tools, and Consumables with the assisted workflow, or use Scroll Factory to create native Spell Scroll loot without an Actor sheet.</p>
         </div>
       </header>
 
@@ -81,7 +81,7 @@
         <i class="fa-solid fa-flask"></i>
         <div>
           <strong>v{{version}} Beta flow</strong>
-          <p>This Beta unifies Weapon, Equipment, Tool, Scroll Factory, and the shared Materialization Core. The optional Supplier has its own Item Directory entry because it creates complete vendor stocks rather than individual loot.</p>
+          <p>This Beta unifies Weapon, Equipment, Tool, Consumables, Scroll Factory, and the shared Materialization Core. The optional Supplier has its own Item Directory entry because it creates complete vendor stocks rather than individual loot.</p>
         </div>
       </aside>
     </section>
@@ -628,6 +628,46 @@
       {{else}}
       <div class="ic-empty-state ic-template-empty"><i class="fa-solid fa-screwdriver-wrench"></i><strong>Choose a Tool or create a custom shell</strong><p>Tools remain non-weapons. Their own check bonus belongs here; AC, attack bonuses, spell statistics, and other bearer benefits belong in Granted Effects.</p></div>
       {{/if}}
+      {{else if isConsumable}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Creation</span><h2>Base Item</h2><p>Select a native D&amp;D5e Consumable as a blueprint or start from a blank shell. The object is consumed through a native Activity; its Actor-facing effects are configured later.</p></div></header>
+      <section class="ic-template-panel">
+        <header><div><span class="ic-kicker">Base Consumable</span><h3>Choose a Starting Model</h3></div><small><strong>{{weaponCount}}</strong> matching items</small></header>
+        <div class="ic-template-browser-entry ic-equipment-browser-actions">
+          <button type="button" class="ic-browse-template-button" data-action="browse-templates"><i class="fa-solid fa-books"></i><span><strong>Browse Consumables</strong><small>Open the native D&amp;D5e Compendium Browser restricted to Consumable Items.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+          <button type="button" class="ic-browse-template-button ic-custom-equipment-button" data-action="custom-consumable"><i class="fa-solid fa-plus"></i><span><strong>Create Custom Consumable</strong><small>Start with a blank Potion-style Consumable for food, drinks, elixirs, exotic objects, and custom rewards.</small></span><i class="fa-solid fa-chevron-right"></i></button>
+        </div>
+        <div class="ic-manual-template-divider"><span>or select manually</span></div>
+        <div class="ic-template-controls ic-template-manual-controls">
+          <label><span>Consumable Type</span><select data-template-category>{{#each templateCategoryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+          <label class="ic-template-select-field"><span>Base Consumable</span><select data-template-select {{#unless weaponCount}}disabled{{/unless}}><option value="">Select a consumable…</option>{{#each templateOptionGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{uuid}}" data-template-option data-category="{{templateCategory}}" {{#if selected}}selected{{/if}}>{{optionLabel}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+        </div>
+      </section>
+      {{#if selectedWeapon}}
+      <div class="ic-base-form-layout">
+        <section class="ic-identity-panel">
+          <header><span class="ic-kicker">Identity</span><h3>Consumable Identity</h3></header>
+          <div class="ic-template-summary"><button type="button" class="ic-icon-button {{#unless iconCustomized}}locked{{/unless}}" data-action="open-icon-browser" {{#unless iconCustomized}}disabled{{/unless}}><img src="{{selectedWeapon.img}}" alt="{{selectedWeapon.name}}"><span><i class="fa-solid {{#if iconCustomized}}fa-images{{else}}fa-link{{/if}}"></i></span></button><div><strong>{{selectedWeapon.name}}</strong><small>{{selectedWeapon.sourceLabel}}</small><small>{{selectedWeapon.packLabel}}</small></div></div>
+          {{#if selectedWeapon.importedMechanics.length}}<aside class="ic-imported-mechanics-summary"><strong><i class="fa-solid fa-arrows-rotate"></i> Imported Effects</strong><ul>{{#each selectedWeapon.importedMechanics}}<li>{{this}}</li>{{/each}}</ul></aside>{{/if}}
+          <label class="ic-field"><span>Item Name</span><input type="text" name="itemName" value="{{itemName}}" maxlength="120" autocomplete="off"></label>
+          <label class="ic-identity-toggle"><input type="checkbox" data-override-toggle="icon" {{#if custom.icon}}checked{{/if}}><span><strong>Customize Icon</strong><small>Enable the icon button to select another image.</small></span></label>
+          <dl class="ic-template-metadata"><div><dt>Consumable Type</dt><dd>{{selectedWeapon.consumableTypeLabel}}</dd></div><div><dt>Uses</dt><dd>{{effective.uses.max}}</dd></div><div><dt>Identifier</dt><dd>{{selectedWeapon.identifier}}</dd></div></dl>
+        </section>
+        <section class="ic-core-fields-panel">
+          <header><span class="ic-kicker">Native Consumable Structure</span><h3>Consumable Fields</h3></header>
+          <div class="ic-override-grid">
+            <section class="ic-override-card {{#if custom.consumableType}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="consumableType" {{#if custom.consumableType}}checked{{/if}}><span><strong>Customize Type</strong><small>Potion, Food, Poison, Wand, Rod, Wondrous, and other native D&amp;D5e consumable categories.</small></span></label><select data-override-input="consumableType" {{#unless custom.consumableType}}disabled{{/unless}}>{{#each consumableTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.consumableSubtype}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="consumableSubtype" {{#if custom.consumableSubtype}}checked{{/if}}><span><strong>Customize Subtype</strong><small>Optional subtype supplied by the selected native category.</small></span></label><select data-override-input="consumableSubtype" {{#unless custom.consumableSubtype}}disabled{{/unless}}>{{#each consumableSubtypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+            <section class="ic-override-card {{#if custom.quantity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="quantity" {{#if custom.quantity}}checked{{/if}}><span><strong>Customize Quantity</strong><small>Initial physical stack quantity.</small></span></label><input type="number" min="1" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}></section>
+            <section class="ic-override-card {{#if custom.uses}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="uses" {{#if custom.uses}}checked{{/if}}><span><strong>Customize Uses</strong><small>Each Use Activity spends one charge. Auto Destroy removes one physical item when its charges are exhausted.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Uses per Item</span><input type="number" min="1" step="1" value="{{effective.uses.max}}" data-override-input="uses" data-override-part="max" data-value-type="number" {{#unless custom.uses}}disabled{{/unless}}></label><label><span>Auto Destroy</span><select data-override-input="uses" data-override-part="autoDestroy" {{#unless custom.uses}}disabled{{/unless}}><option value="true" {{#if effective.uses.autoDestroy}}selected{{/if}}>Yes</option><option value="false" {{#unless effective.uses.autoDestroy}}selected{{/unless}}>No</option></select></label></div></section>
+            <section class="ic-override-card {{#if custom.weight}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="weight" {{#if custom.weight}}checked{{/if}}><span><strong>Customize Weight</strong><small>Weight of one consumable.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.weight.value}}" data-override-input="weight" data-override-part="value" data-value-type="number" {{#unless custom.weight}}disabled{{/unless}}></label><label><span>Unit</span><select data-override-input="weight" data-override-part="units" {{#unless custom.weight}}disabled{{/unless}}>{{#each weightUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+            <section class="ic-override-card {{#if custom.price}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="price" {{#if custom.price}}checked{{/if}}><span><strong>Customize Price</strong><small>Market value and currency.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.price.value}}" data-override-input="price" data-override-part="value" data-value-type="number" {{#unless custom.price}}disabled{{/unless}}></label><label><span>Currency</span><select data-override-input="price" data-override-part="denomination" {{#unless custom.price}}disabled{{/unless}}>{{#each currencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
+            <section class="ic-override-card {{#if custom.rarity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="rarity" {{#if custom.rarity}}checked{{/if}}><span><strong>Customize Rarity</strong><small>Native D&amp;D5e rarity used by the Item and Item Creator pricing.</small></span></label><select data-override-input="rarity" {{#unless custom.rarity}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
+          </div>
+        </section>
+      </div>
+      {{else}}
+      <div class="ic-empty-state ic-template-empty"><i class="fa-solid fa-flask"></i><strong>Choose a Consumable or create a custom shell</strong><p>Consumables never grant their configured bearer effects simply by being carried. The effects are copied to the Actor only after the managed Use Activity completes.</p></div>
+      {{/if}}
       {{/if}}
     </section>
 
@@ -752,8 +792,24 @@
       <section class="ic-enhancement-group"><header><span class="ic-kicker">Magical Configuration</span><h3>Magical Nature</h3></header><div class="ic-enhancement-grid">
         <section class="ic-enhancement-card ic-span-two {{#if enhancement.magicalTool}}enabled{{/if}} {{#if enhancementErrors.magicalTool}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="magicalTool" {{#if enhancement.magicalTool}}checked{{/if}}><span><strong>Magical Tool</strong><small>Set rarity and optional attunement without adding any weapon or armor enchantment.</small></span></label>{{#if magicalAutoFromGrantedSpellcasting}}<small class="ic-mechanical-note"><i class="fa-solid fa-wand-magic-sparkles"></i> Enabled automatically by Granted Spellcasting. No enchantment bonus or attunement is added.</small>{{/if}}<div class="ic-enhancement-fields two-columns"><label><span>Rarity</span><select data-enhancement-input="magicalTool" data-enhancement-part="rarity" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Attunement</span><select data-enhancement-input="magicalTool" data-enhancement-part="attunement" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each attunementOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
       </div></section>
+      {{else if isConsumable}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Creation</span><h2>Use and Duration</h2><p>Configure the native Use Activity and the lifecycle of effects applied by this Consumable. Application never requires combat.</p></div></header>
+      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-clock"></i><div><strong>Persistent Consumable Runtime</strong><p>Rounds equal 6 seconds outside combat. World Time, combat turns, and completed rests can all expire the applied Actor effects without relying on a browser timer.</p></div></aside>
+      <section class="ic-enhancement-group"><header><span class="ic-kicker">Consumption</span><h3>Activation, Duration, and Stacking</h3></header><div class="ic-enhancement-grid">
+        <section class="ic-enhancement-card ic-span-two enabled"><div class="ic-enhancement-fields two-columns">
+          <label><span>Activation</span><select data-consumable-input="activation">{{#each consumableActivationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+          <label><span>Effect Duration</span><select data-consumable-input="durationMode">{{#each consumableDurationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+          {{#if (eq consumableConfig.activation "reaction")}}<label class="ic-span-two"><span>Reaction Trigger</span><textarea rows="2" maxlength="300" data-consumable-input="reactionTrigger" placeholder="When you would take Lightning damage…">{{consumableConfig.reactionTrigger}}</textarea></label>{{else if (eq consumableConfig.activation "special")}}<label class="ic-span-two"><span>Special Activation</span><textarea rows="2" maxlength="300" data-consumable-input="reactionTrigger" placeholder="Describe when or how this consumable is used…">{{consumableConfig.reactionTrigger}}</textarea></label>{{/if}}
+          {{#if (eq consumableConfig.durationMode "rounds")}}<label><span>Number of Rounds</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
+          {{#if (eq consumableConfig.durationMode "turns")}}<label><span>Number of Owner Turns</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
+          {{#if (eq consumableConfig.durationMode "minutes")}}<label><span>Minutes</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
+          {{#if (eq consumableConfig.durationMode "hours")}}<label><span>Hours</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
+          <label><span>Stacking</span><select data-consumable-input="stacking">{{#each consumableStackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+        </div></section>
+      </div></section>
       {{/if}}
 
+      {{#unless isConsumable}}
       <section class="ic-enhancement-group">
         <header>
           <span class="ic-kicker">Advanced Combat Behavior</span>
@@ -819,6 +875,7 @@
           </section>
         </div>
       </section>
+      {{/unless}}
     </section>
 
     <footer class="ic-navigation">
@@ -835,7 +892,7 @@
         <div>
           <span class="ic-kicker">{{itemTypeLabel}} Creation</span>
           <h2>Granted Effects</h2>
-          <p>Enable only the passive effects this item grants to its bearer. The complete Actor-facing library is available to Weapons, Equipment, and Tools.</p>
+          <p>{{#if isConsumable}}Configure the Actor-facing effects copied onto the consumer after the Use Activity completes. Carrying the item grants nothing.{{else}}Enable only the passive effects this item grants to its bearer. The complete Actor-facing library is available to Weapons, Equipment, and Tools.{{/if}}</p>
         </div>
       </header>
 
@@ -1261,12 +1318,21 @@
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless grantedEffectsComplete}}disabled{{/unless}}><span>Spells &amp; Resources</span><i class="fa-solid fa-chevron-right"></i></button>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless grantedEffectsComplete}}disabled{{/unless}}><span>{{#if isConsumable}}Instant Effects{{else}}Spells &amp; Resources{{/if}}</span><i class="fa-solid fa-chevron-right"></i></button>
     </footer>
     {{/if}}
 
     {{#if (eq step "spellsResources")}}
     <section class="ic-step-content ic-spells-resources-step">
+      {{#if isConsumable}}
+      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Powers</span><h2>Instant Effects</h2><p>Configure results that happen immediately when the managed Use Activity completes. These are independent from the duration-based Active Effects configured on the previous step.</p></div></header>
+      <section class="ic-enhancement-group"><header><span class="ic-kicker">Immediate Resolution</span><h3>Actor State Changes</h3></header><div class="ic-enhancement-grid">
+        <section class="ic-enhancement-card ic-span-two {{#if consumableConfig.removeExhaustion}}enabled{{/if}} {{#if spellsResourcesErrors.removeExhaustion}}invalid{{/if}}">
+          <label class="ic-override-heading"><input type="checkbox" data-consumable-input="removeExhaustion" {{#if consumableConfig.removeExhaustion}}checked{{/if}}><span><strong>Remove Exhaustion Levels</strong><small>Reduce the Actor's current Exhaustion immediately on use. The final value is never lower than 0.</small></span></label>
+          <div class="ic-enhancement-fields two-columns"><label><span>Amount</span><input type="text" value="{{consumableConfig.removeExhaustionAmount}}" placeholder="1 or all" data-consumable-input="removeExhaustionAmount" {{#unless consumableConfig.removeExhaustion}}disabled{{/unless}}></label><aside class="ic-resource-result"><i class="fa-solid fa-heart-pulse"></i><span>Default: 1. Enter any positive integer or <strong>all</strong>. Item Creator deliberately does not cap this at the native six levels so worlds using expanded Exhaustion remain supported.</span></aside></div>
+        </section>
+      </div></section>
+      {{else}}
       <header class="ic-section-header">
         <div>
           <span class="ic-kicker">Item Powers</span>
@@ -1437,6 +1503,7 @@
 
         <button type="button" class="ic-add-resource-modification" data-action="add-resource-modification"><i class="fa-solid fa-plus"></i> Add Resource Modification</button>
       </section>
+      {{/if}}
     </section>
 
     <footer class="ic-navigation">
@@ -1533,7 +1600,7 @@
               <div class="ic-inventory-title"><strong>{{reviewInventory.name}}</strong>{{#if reviewInventory.magical}}<i class="fa-solid fa-sparkles" title="Magical"></i>{{/if}}</div>
               <p>{{reviewInventory.type}} · {{reviewInventory.rarity}}</p>
               <dl>
-                {{#if isWeapon}}<div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>{{else if isEquipment}}<div><dt>Equipment Type</dt><dd>{{reviewInventory.equipmentType}}</dd></div>{{#if reviewInventory.armor}}<div><dt>Armor Class</dt><dd>{{reviewInventory.armor}}</dd></div>{{/if}}{{else if isTool}}<div><dt>Tool Category</dt><dd>{{reviewInventory.toolType}}</dd></div><div><dt>Tool Check Bonus</dt><dd>{{reviewInventory.toolBonus}}</dd></div>{{/if}}
+                {{#if isWeapon}}<div><dt>Damage</dt><dd>{{reviewInventory.damage}}</dd></div>{{else if isEquipment}}<div><dt>Equipment Type</dt><dd>{{reviewInventory.equipmentType}}</dd></div>{{#if reviewInventory.armor}}<div><dt>Armor Class</dt><dd>{{reviewInventory.armor}}</dd></div>{{/if}}{{else if isTool}}<div><dt>Tool Category</dt><dd>{{reviewInventory.toolType}}</dd></div><div><dt>Tool Check Bonus</dt><dd>{{reviewInventory.toolBonus}}</dd></div>{{else if isConsumable}}<div><dt>Consumable Type</dt><dd>{{reviewInventory.consumableType}}</dd></div><div><dt>Uses</dt><dd>{{reviewInventory.consumableUses}}</dd></div>{{/if}}
                 <div><dt>Attunement</dt><dd>{{reviewInventory.attunement}}</dd></div>
                 <div><dt>Price</dt><dd>{{reviewInventory.price}} <small>({{reviewInventory.priceMode}})</small></dd></div>
                 <div><dt>Quantity</dt><dd>{{reviewInventory.quantity}}</dd></div>
@@ -1563,7 +1630,7 @@
         <header><span class="ic-kicker">Configuration Summary</span><h3>Final Draft</h3></header>
         <dl>
           <div><dt>{{#if isWeapon}}Template{{else}}Base Item{{/if}}</dt><dd>{{reviewSummary.template}}</dd></div>
-          <div><dt>{{#if isWeapon}}Base Weapon{{else if isEquipment}}Equipment Form{{else}}Tool Category{{/if}}</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
+          <div><dt>{{#if isWeapon}}Base Weapon{{else if isEquipment}}Equipment Form{{else if isTool}}Tool Category{{else}}Consumable Type{{/if}}</dt><dd>{{reviewSummary.baseWeapon}}</dd></div>
           <div><dt>Final Name</dt><dd>{{reviewSummary.name}}</dd></div>
           <div><dt>Base Overrides</dt><dd>{{reviewSummary.baseOverrides}}</dd></div>
           <div><dt>Enhancements</dt><dd>{{reviewSummary.enhancements}}</dd></div>

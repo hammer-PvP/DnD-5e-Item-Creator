@@ -889,7 +889,8 @@ function availabilityTitle(availability) {
     weapon: "Item Properties",
     owned: "While Owned",
     equipped: "While Equipped",
-    equippedAttuned: "While Equipped and Attuned"
+    equippedAttuned: "While Equipped and Attuned",
+    consumableUse: "On Use"
   }[availability] ?? "While Active";
 }
 
@@ -899,7 +900,8 @@ function availabilityChatSuffix(availability) {
     weapon: "",
     owned: " while owned",
     equipped: " while equipped",
-    equippedAttuned: " while equipped and attuned"
+    equippedAttuned: " while equipped and attuned",
+    consumableUse: " on use"
   }[availability] ?? " while active";
 }
 
@@ -942,6 +944,7 @@ function itemPropertyEntries(draft) {
   const entries = [];
   const add = (label, value, availability = "item") => {
     const text = String(value ?? "").trim();
+    if (draft?.itemType === "consumable" && availability !== "item") availability = "consumableUse";
     if (text) entries.push({ label, value: text, availability });
   };
   const enhancements = draft.enhancements ?? {};
@@ -1217,7 +1220,7 @@ function composeItemPropertiesText(data, draft) {
     return;
   }
 
-  const groupOrder = ["item", "owned", "equipped", "equippedAttuned"];
+  const groupOrder = ["item", "consumableUse", "owned", "equipped", "equippedAttuned"];
   const groups = groupOrder.map(availability => ({
     availability,
     entries: entries.filter(entry => (entry.availability || "item") === availability)
@@ -1253,6 +1256,7 @@ export class ItemCreatorItemBuilder {
   static async build(draft) {
     if (draft?.itemType === "equipment") return this.#buildEquipment(draft);
     if (draft?.itemType === "tool") return this.#buildTool(draft);
+    if (draft?.itemType === "consumable") return this.#buildConsumable(draft);
     return this.#buildWeapon(draft);
   }
 
@@ -1407,7 +1411,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 16,
+      schemaVersion: 17,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1578,7 +1582,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 16,
+      schemaVersion: 17,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1735,7 +1739,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 16,
+      schemaVersion: 17,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1776,6 +1780,156 @@ export class ItemCreatorItemBuilder {
     composeItemPropertiesText(data, draft);
     composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
+
+    const finalSource = cleanDocumentSource(data);
+    const temporary = new ItemClass(finalSource, { temporary: true });
+    const finalData = cleanDocumentSource(temporary.toObject());
+    delete finalData._id;
+    return { data: finalData, temporary };
+  }
+
+  static async #buildConsumable(draft) {
+    if (!draft?.template || !draft?.effective) throw new Error("Template and effective Consumable values are required.");
+
+    const template = draft.template;
+    const baseConsumable = draft.baseConsumable ?? draft.baseWeapon ?? template;
+    const data = sanitizeDocumentData(template.toObject());
+    const effective = clone(draft.effective);
+    const config = plain(draft.consumableConfig ?? {});
+
+    data.name = draft.itemName.trim();
+    data.img = draft.icon || template.img || baseConsumable.img || "systems/dnd5e/icons/svg/items/consumable.svg";
+    data.type = "consumable";
+    data.system ??= {};
+    data.system.description ??= {};
+    data.system.description.value = draft.description ?? "";
+    data.system.description.chat = data.system.description.chat ?? "";
+
+    // Consumables are never passive equipment. Their configured Active Effects
+    // remain blueprints on the Item until the managed Use activity completes.
+    data.system.attunement = "";
+    data.system.attuned = false;
+    data.system.equipped = false;
+    data.system.quantity = Math.max(1, Number(effective.quantity) || 1);
+    data.system.weight = { value: Math.max(0, Number(effective.weight?.value) || 0), units: effective.weight?.units || "lb" };
+    data.system.price = { value: Math.max(0, Number(effective.price?.value) || 0), denomination: effective.price?.denomination || "gp" };
+    data.system.rarity = effective.rarity ?? data.system.rarity ?? "";
+    data.system.type = clone(data.system.type ?? {});
+    data.system.type.value = effective.consumableType || "potion";
+    data.system.type.subtype = effective.consumableSubtype || "";
+    data.system.properties = [...new Set(effective.properties ?? [])].filter(Boolean);
+    if (effective.magical || valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
+    data.system.properties = [...new Set(data.system.properties)];
+    data.system.uses = {
+      max: String(Math.max(1, Number(effective.uses?.max) || 1)),
+      spent: 0,
+      recovery: [],
+      autoDestroy: effective.uses?.autoDestroy !== false && effective.uses?.autoDestroy !== "false"
+    };
+
+    // A Consumable always gets one Item Creator managed usage Activity. Imported
+    // Activities are intentionally not copied because they could apply template
+    // effects before/alongside the new persistent Consumable lifecycle.
+    data.system.activities = {};
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const UtilityClass = CONFIG.DND5E.activityTypes?.utility?.documentClass;
+    if (!UtilityClass) throw new Error("D&D5e Utility Activity support is unavailable.");
+    const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+    const activityDocument = new UtilityClass({}, { parent: provisionalItem });
+    const activity = cleanDocumentSource(activityDocument.toObject?.() ?? activityDocument);
+    activity._id = foundry.utils.randomID();
+    activity.type = "utility";
+    activity.name = "Consume";
+    activity.activation ??= {};
+    activity.activation.type = config.activation === "none" ? "" : (config.activation || "action");
+    activity.activation.value = null;
+    activity.activation.override = false;
+    activity.activation.condition = ["reaction", "special"].includes(config.activation)
+      ? String(config.reactionTrigger ?? "") : "";
+    activity.consumption ??= {};
+    activity.consumption.targets = [{ type: "itemUses", target: "", value: "1", scaling: {} }];
+    activity.consumption.scaling = { allowed: false };
+    activity.consumption.spellSlot = false;
+    activity.target ??= {};
+    activity.target.prompt = false;
+    activity.target.override = false;
+    activity.target.affects ??= {};
+    activity.target.affects.choice = false;
+    activity.target.affects.count = "1";
+    activity.target.affects.type = "self";
+    activity.range ??= {};
+    activity.range.override = false;
+    activity.range.units = "self";
+    activity.flags ??= {};
+    activity.flags[MODULE_ID] = { ...(activity.flags[MODULE_ID] ?? {}), consumableUse: true };
+    data.system.activities[activity._id] = activity;
+
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, []);
+    data.effects = [
+      ...importedCustom.effects,
+      ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
+    ].map(effect => {
+      const source = cleanDocumentSource(effect);
+      source.transfer = false;
+      source.flags ??= {};
+      source.flags[MODULE_ID] = {
+        ...(source.flags[MODULE_ID] ?? {}),
+        consumableBlueprint: true
+      };
+      return source;
+    });
+
+    const pricing = finalizeRarityAndPricing(data, draft);
+    const materializationCore = finalizeCoreIdentity(data);
+    data.flags ??= {};
+    data.flags[MODULE_ID] = {
+      created: true,
+      schemaVersion: 17,
+      moduleVersion: MODULE_VERSION,
+      materializationCore: plain(materializationCore),
+      pricing: plain(pricing),
+      itemType: "consumable",
+      templateUuid: template.uuid,
+      baseConsumableUuid: baseConsumable.uuid,
+      editedFromUuid: draft.editingSourceUuid ?? null,
+      importedItem: Boolean(draft.importedItem),
+      runtime: {
+        consumable: {
+          key: String(draft.consumableKey || foundry.utils.randomID()),
+          config
+        }
+      },
+      draft: plain({
+        customized: draft.customized,
+        overrides: draft.overrides,
+        consumableConfig: config,
+        grantedEffects: draft.grantedEffects,
+        grantedEffectValues: draft.grantedEffectValues,
+        customImportedEffects: draft.customImportedEffects,
+        importedBaseSummary: draft.importedBaseSummary,
+        descriptionCustomized: draft.descriptionCustomized
+      })
+    };
+
+    // Make the non-runtime semantics visible on the Item itself. The Active
+    // Effect blueprints are described as On Use instead of While Owned.
+    composeItemPropertiesText(data, { ...draft, itemType: "consumable" });
+    const durationLabels = {
+      permanent: "Permanent",
+      shortOrLongRest: "Until next Short or Long Rest",
+      longRest: "Until next Long Rest",
+      rounds: `${Math.max(1, Number(config.durationValue) || 1)} round(s)`,
+      turns: `${Math.max(1, Number(config.durationValue) || 1)} owner turn(s)`,
+      minutes: `${Math.max(1, Number(config.durationValue) || 1)} minute(s)`,
+      hours: `${Math.max(1, Number(config.durationValue) || 1)} hour(s)`
+    };
+    const current = stripGeneratedSection(data.system.description.value, "consumable-runtime");
+    const currentChat = stripGeneratedSection(data.system.description.chat, "consumable-runtime");
+    const exhaustion = config.removeExhaustion
+      ? `<li><strong>Instant:</strong> Remove ${escapeHtml(String(config.removeExhaustionAmount ?? "1"))} Exhaustion level(s), minimum 0.</li>` : "";
+    const runtimeSection = `<section class="item-creator-generated" data-item-creator-generated="consumable-runtime"><h3>Consumable Use</h3><ul><li><strong>Activation:</strong> ${escapeHtml(titleCase(config.activation || "action"))}.</li><li><strong>Effect Duration:</strong> ${escapeHtml(durationLabels[config.durationMode] ?? "Until next Long Rest")}.</li>${exhaustion}</ul></section>`;
+    data.system.description.value = appendGeneratedSection(current, runtimeSection);
+    data.system.description.chat = appendGeneratedSection(currentChat, runtimeSection);
 
     const finalSource = cleanDocumentSource(data);
     const temporary = new ItemClass(finalSource, { temporary: true });
