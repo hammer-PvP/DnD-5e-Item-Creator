@@ -194,6 +194,9 @@ function normalizeRule(rule, defaults) {
   if (wasHealingFamily && !migrated.includeFamilies.includes("healingPotions")) migrated.includeFamilies.push("healingPotions");
   migrated.poolExclusions = arrayValue(migrated.poolExclusions);
   migrated.materializerExclusions = arrayValue(migrated.materializerExclusions);
+  migrated.homebrewCuration = String(migrated.homebrewCuration ?? "");
+  migrated.homebrewTemplateRule = migrated.homebrewTemplateRule === true || Boolean(migrated.homebrewCuration);
+  migrated.generatorResultCuration = String(migrated.generatorResultCuration ?? "");
   migrated.quantity = Number(migrated.quantity ?? 1);
   migrated.quantityMin = Number(migrated.quantityMin ?? 1);
   migrated.quantityMax = Number(migrated.quantityMax ?? 1);

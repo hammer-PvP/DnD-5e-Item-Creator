@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.7.1 — Editable Derived Supplier Profiles
+
+### Homebrew profile unlock
+
+- Changed derived Supplier archetypes into fully extensible Homebrew instances. Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, and Stable & Livestock remain starting templates rather than permanent candidate-pool restrictions.
+- New Mundane Catalog, Guaranteed Item, and Random Stock rules added to a derived Homebrew profile now use the same unrestricted profile-source resolver as a Blank Supplier. They are no longer silently assigned the parent archetype's curation merely because the profile originated from that template.
+- Preserved the original curation on rules seeded by the selected archetype, so existing vendor behavior remains unchanged unless the GM deliberately edits it.
+- Added a visible **Template pool** badge plus **Use Custom Pool** action on inherited curated rules. Unlocking a rule removes its archetype curation and generator-result curation while preserving Content Sources, type/subtype filters, progression/rarity limits, Vendor Access, bans, explicit exclusions, quantities, weights, and other rule configuration.
+- Added a **Custom pool** badge for unrestricted rules so the editor makes the distinction explicit.
+- Kept `homebrewTemplateId` as origin/template metadata, preserving template-specific generation behavior such as Blacksmith handling while allowing independent custom stock blocks.
+
+### Compatibility
+
+- Supplier configuration schema advanced to version **21**. Existing saved template rules retain their stored curation. New custom rules remain custom across save/reload rather than being re-inferred from the profile archetype.
+- Crafting Core World Compendiums require no special handling: if their Items are present in the profile source snapshot, unlocked/new Custom rules can use them under the same rarity, level, Access, and filter logic as other Supplier candidates.
+- Item schema remains **17**; Consumables, Weapons, Equipment, Tools, Scroll Factory, Materialization Core, Triggered Effects, and the rest of the Item Creator runtime are unchanged.
+
 ## 0.7.0 — Consumables Factory
 
 ### Fifth Item Creator workflow

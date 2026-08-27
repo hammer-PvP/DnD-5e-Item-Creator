@@ -341,6 +341,9 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
         isGuaranteed: kind === "guaranteed",
         isRandom: kind === "random",
         hasCategory: Boolean(rule.category),
+        hasHomebrewCuration: Boolean(rule.homebrewCuration),
+        homebrewTemplateRule: rule.homebrewTemplateRule === true,
+        homebrewCurationLabel: rule.homebrewCuration ? titleCase(String(rule.homebrewCuration).replace(/([a-z])([A-Z])/g, "$1 $2")) : "",
         isWeapon: rule.category === "weapon",
         isEquipment: rule.category === "equipment",
         isConsumable: rule.category === "consumable",
@@ -724,6 +727,18 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       button.addEventListener("click", () => {
         this.#syncForm();
         ruleList(this.#selectedProfile(), button.dataset.kind)?.splice(Number(button.dataset.index), 1);
+        this.#renderWithState();
+      });
+    });
+
+    root.querySelectorAll("[data-action='unlock-rule-pool']").forEach(button => {
+      button.addEventListener("click", () => {
+        this.#syncForm();
+        const rule = ruleList(this.#selectedProfile(), button.dataset.kind)?.[Number(button.dataset.index)];
+        if (!rule) return;
+        rule.homebrewCuration = "";
+        rule.generatorResultCuration = "";
+        rule.homebrewTemplateRule = false;
         this.#renderWithState();
       });
     });

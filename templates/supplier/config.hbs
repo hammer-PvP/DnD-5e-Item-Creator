@@ -186,6 +186,7 @@
                           <div class="supplier-rule-toolbar">
                             <label class="supplier-inline-check rule-enabled"><input type="checkbox" data-path="{{path}}.enabled" data-rerender {{#if enabled}}checked{{/if}}><span>{{localize "DND5E_SUPPLIER.Config.UseRule"}}</span></label>
                             <input class="supplier-rule-name" type="text" data-path="{{path}}.name" value="{{name}}" placeholder="{{categoryLabel}}">
+                            {{#if hasHomebrewCuration}}<span class="supplier-template-pool-badge" title="{{localize 'DND5E_SUPPLIER.Config.TemplatePoolHint'}}"><i class="fa-solid fa-filter"></i>{{localize "DND5E_SUPPLIER.Config.TemplatePool"}}</span><button type="button" class="supplier-secondary compact" data-action="unlock-rule-pool" data-kind="{{kind}}" data-index="{{index}}" title="{{localize 'DND5E_SUPPLIER.Config.UnlockCustomPoolHint'}}"><i class="fa-solid fa-unlock"></i>{{localize "DND5E_SUPPLIER.Config.UseCustomPool"}}</button>{{else}}<span class="supplier-custom-pool-badge" title="{{localize 'DND5E_SUPPLIER.Config.CustomPoolHint'}}"><i class="fa-solid fa-globe"></i>{{localize "DND5E_SUPPLIER.Config.CustomPool"}}</span>{{/if}}
                             <button type="button" class="supplier-icon-button danger" data-action="remove-rule" data-kind="{{kind}}" data-index="{{index}}"><i class="fa-solid fa-trash"></i></button>
                           </div>
 

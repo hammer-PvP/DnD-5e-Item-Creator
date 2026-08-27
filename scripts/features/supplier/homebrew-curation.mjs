@@ -71,7 +71,17 @@ export function restoreHomebrewRuleCurations(profile) {
     ...(profile.randomRules ?? [])
   ];
   for (const rule of rules) {
-    rule.homebrewCuration ||= inferHomebrewCuration(profile, rule);
+    // Template rules created by Supplier carry their curation explicitly.
+    // A GM-added rule is deliberately left uncategorized so a derived
+    // Homebrew profile can use the same global Custom pool as a Blank profile.
+    // Only an explicitly template-owned legacy rule may recover a missing
+    // marker; never infer curation merely because the profile has an archetype.
+    if (rule.homebrewTemplateRule === true && !rule.homebrewCuration) {
+      rule.homebrewCuration = inferHomebrewCuration(profile, rule);
+    }
+    rule.homebrewCuration = String(rule.homebrewCuration ?? "");
+    rule.homebrewTemplateRule = rule.homebrewTemplateRule === true;
+    rule.generatorResultCuration = String(rule.generatorResultCuration ?? "");
     rule.materializerExclusions = Array.isArray(rule.materializerExclusions)
       ? [...new Set(rule.materializerExclusions.map(String))]
       : [];

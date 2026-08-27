@@ -318,7 +318,13 @@
       "MaximumVendorAccess": "Maximum vendor access",
       "MaximumPerFamily": "Maximum per family",
       "AvailabilityControlsHint": "Use 0 for no access limit or no family cap. Access is separate from rarity and party-level progression.",
-      "ConfigureShortcut": "Configure Supplier Profiles"
+      "ConfigureShortcut": "Configure Supplier Profiles",
+      "TemplatePool": "Template pool",
+      "TemplatePoolHint": "This rule still uses the original supplier archetype curation.",
+      "UseCustomPool": "Use Custom Pool",
+      "UnlockCustomPoolHint": "Detach this rule from the archetype curation. Sources, type, subtype, rarity, Access, bans, and the rule filters still apply.",
+      "CustomPool": "Custom pool",
+      "CustomPoolHint": "This rule uses the profile source snapshot and the rule filters without an archetype-specific curation restriction."
     },
     "Errors": {
       "NoCatalog": "No enabled Item compendium produced a usable catalog. Configure Supplier sources first.",

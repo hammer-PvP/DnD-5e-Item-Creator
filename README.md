@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.0 Beta Candidate
+**Version:** 0.7.1 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -220,6 +220,12 @@ Scroll Factory accepts a Spell dropped from a compendium, World Items, or an Act
 The factory calls the native D&D5e Spell Scroll generator. D&D5e remains responsible for the Scroll structure, embedded Cast Activity, Save DC, Spell Attack Bonus, uses, properties, and price. The result is created directly in the World Items Directory rather than an Actor inventory.
 
 Scrolls use the Spell's base level and do not offer upcasting. Generated Scrolls remain compatible with native D&D5e use and supported Scribe Spell workflows.
+
+## Supplier Homebrew profile editing
+
+Derived Homebrew Supplier profiles are editable vendor instances rather than locked archetypes. Rules inherited from Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, or Stable & Livestock keep their original template curation until the GM explicitly unlocks that rule. New Catalog, Guaranteed, and Random Stock rules use the profile's full source snapshot by default, matching the broad Custom pool behavior of a Blank Supplier.
+
+A curated inherited rule shows a **Template pool** badge and can be detached with **Use Custom Pool**. Detaching removes only the archetype-specific curation; the profile's Content Sources, Item type/subtype filters, progression/rarity rules, Vendor Access, bans, and explicit local exclusions still apply. This lets a Blacksmith add ores and ingots, an Alchemist add harvested glands, or a Magic Assortment add elemental crafting materials without rebuilding the vendor from a Blank profile.
 
 ## Optional Supplier
 

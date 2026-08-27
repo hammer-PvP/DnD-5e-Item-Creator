@@ -3133,3 +3133,23 @@
   gap: 0.3rem;
   min-width: 0;
 }
+
+/* v0.7.1 — derived Homebrew rule pool state */
+.supplier-template-pool-badge,
+.supplier-custom-pool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--color-border-light-tertiary, #777);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+.supplier-rule-toolbar .supplier-secondary.compact {
+  padding: 0.2rem 0.45rem;
+  min-height: 0;
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
