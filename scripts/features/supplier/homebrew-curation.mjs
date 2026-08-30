@@ -24,6 +24,7 @@ export function inferHomebrewCuration(profile, rule) {
   if (!template || !rule) return "";
 
   if (template === "blacksmith") {
+    if (name.includes("crafting") || name.includes("smithing-material")) return "craftingBlacksmithMaterials";
     if (name.includes("named-magic")) return "blacksmithNamed";
     if (name.includes("enchanted-ammunition")) return "blacksmithMagicAmmunition";
     if (name.includes("two-handed")) return "blacksmithTwoHanded";
@@ -37,15 +38,32 @@ export function inferHomebrewCuration(profile, rule) {
     return "firearmWeapons";
   }
   if (template === "alchemist") {
+    if (category === "loot" && (name.includes("crafting") || name.includes("reagent") || name.includes("essence"))) return "craftingAlchemistMaterials";
     if (name.includes("oil") || name.includes("powder") || name.includes("preparation")) return "alchemicalPreparations";
     return "alchemicalConsumables";
   }
+  if (template === "herbalist") {
+    if (category === "tool") return "herbalistMundaneTools";
+    if (category === "container") return "alchemistMundaneContainers";
+    if (category === "loot") return "craftingHerbalistMaterials";
+    return "alchemistMundaneConsumables";
+  }
+  if (template === "hunter") {
+    if (name.includes("forage") || name.includes("herb") || name.includes("root") || name.includes("fung")) return "craftingHunterForage";
+    return "craftingHunterMaterials";
+  }
+  if (template === "butcher") return "craftingButcherMaterials";
+  if (template === "tavern-common") return "craftingTavern-common";
+  if (template === "tavern-dwarven") return "craftingTavern-dwarven";
+  if (template === "tavern-elven") return "craftingTavern-elven";
   if (template === "magic") {
+    if (name.includes("crafting") || name.includes("essence")) return "craftingMagicMaterials";
     if (category === "spellScroll" || name.includes("spell-scroll")) return "excludeCantrips";
     if (name.includes("relic")) return "magicRelics";
     return "magicAssortment";
   }
   if (template === "general") {
+    if (name.includes("crafting") || name.includes("trade-material")) return "craftingGeneralTradeMaterials";
     if (category === "loot") return "generalTradeLoot";
     if (category === "consumable") return "generalTradeConsumables";
     if (category === "equipment") return "generalTradeEquipment";

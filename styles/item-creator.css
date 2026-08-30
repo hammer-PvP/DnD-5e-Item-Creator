@@ -60,6 +60,32 @@
 
 .ic-supplier-directory-button > i { color: #bd5cff; }
 
+.ic-directory-suite-row {
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.28fr) minmax(0, .82fr);
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ic-directory-suite-row > .ic-item-directory-button,
+.ic-directory-suite-row > .ic-supplier-directory-button {
+  width: 100%;
+  min-width: 0;
+  flex: none;
+  margin-top: 0;
+}
+
+.ic-directory-suite-row > .ic-item-directory-button {
+  padding-inline: 10px;
+}
+
+.ic-directory-suite-row > .ic-supplier-directory-button {
+  padding-inline: 8px;
+}
+
 .ic-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);

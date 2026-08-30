@@ -273,33 +273,40 @@ function injectItemDirectoryButton(app, element) {
   if (!header) return;
   const actions = header.querySelector(".header-actions, .action-buttons") ?? header;
 
-  root.querySelectorAll(".ic-scroll-factory-button, .ic-supplier-directory-button").forEach(button => button.remove());
+  // Rebuild our directory controls on every render so Supplier enable/disable state
+  // and the compact paired layout never leave stale buttons behind.
+  root.querySelectorAll(".ic-directory-suite-row, .ic-scroll-factory-button, .ic-item-directory-button, .ic-supplier-directory-button")
+    .forEach(node => node.remove());
 
-  if (!root.querySelector(".ic-item-directory-button")) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ic-item-directory-button";
-    button.dataset.tooltip = "Open Item Creator and Scroll Factory";
-    button.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      openItemCreator();
-    });
-    actions.append(button);
+  const itemButton = document.createElement("button");
+  itemButton.type = "button";
+  itemButton.className = "ic-item-directory-button";
+  itemButton.dataset.tooltip = "Open Item Creator and Scroll Factory";
+  itemButton.innerHTML = '<i class="fa-solid fa-hammer" inert></i><span>Item Creator</span>';
+  itemButton.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    openItemCreator();
+  });
+
+  if (!isSupplierEnabled()) {
+    actions.append(itemButton);
+    return;
   }
 
-  if (isSupplierEnabled() && !root.querySelector(".ic-supplier-directory-button")) {
-    const supplierButton = document.createElement("button");
-    supplierButton.type = "button";
-    supplierButton.className = "ic-supplier-directory-button";
-    supplierButton.dataset.tooltip = "Generate controlled vendor stock with Supplier";
-    supplierButton.innerHTML = '<i class="fa-solid fa-store" inert></i><span>Supplier</span>';
-    supplierButton.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      openSupplier();
-    });
-    actions.append(supplierButton);
-  }
+  const supplierButton = document.createElement("button");
+  supplierButton.type = "button";
+  supplierButton.className = "ic-supplier-directory-button";
+  supplierButton.dataset.tooltip = "Generate controlled vendor stock with Supplier";
+  supplierButton.innerHTML = '<i class="fa-solid fa-store" inert></i><span>Supplier</span>';
+  supplierButton.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    openSupplier();
+  });
+
+  const row = document.createElement("div");
+  row.className = "ic-directory-suite-row";
+  row.append(itemButton, supplierButton);
+  actions.append(row);
 }

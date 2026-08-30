@@ -533,6 +533,46 @@ export async function initializeDefaultSources() {
     changed = true;
   }
 
+  // v8 adds Crafting Core material shelves to existing HAMMER profiles. This
+  // migration is deliberately additive: it never rebuilds a v7 profile and
+  // therefore preserves every GM edit, unlocked Custom Pool, ban, source, and
+  // quantity. Only the newly introduced semantic Crafting rules are appended.
+  const additiveV8Curations = new Set([
+    "craftingBlacksmithMaterials",
+    "craftingAlchemistMaterials",
+    "craftingMagicMaterials",
+    "craftingGeneralTradeMaterials"
+  ]);
+  const v7Homebrew = configuration.profiles.filter(profile =>
+    profile.homebrewTemplateId
+    && Number(profile.homebrewPresetVersion ?? 0) >= 7
+    && Number(profile.homebrewPresetVersion ?? 0) < 8
+  );
+  if (v7Homebrew.length) {
+    const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
+    for (const profile of v7Homebrew) {
+      const preset = createHomebrewSupplierProfile({
+        templateId: profile.homebrewTemplateId,
+        accessLevel: profile.homebrewAccessLevel || "2",
+        name: profile.name,
+        sourceIds: profile.sourceIds?.length ? profile.sourceIds : enabledIds
+      });
+      const collections = ["mundaneCatalogRules", "guaranteedRules", "randomRules"];
+      const existing = new Set(collections.flatMap(key => (profile[key] ?? []).map(rule => String(rule?.homebrewCuration ?? ""))));
+      for (const key of collections) {
+        profile[key] ??= [];
+        for (const rule of preset[key] ?? []) {
+          const curation = String(rule?.homebrewCuration ?? "");
+          if (!additiveV8Curations.has(curation) || existing.has(curation)) continue;
+          profile[key].push(foundry.utils.deepClone(rule));
+          existing.add(curation);
+        }
+      }
+      profile.homebrewPresetVersion = 8;
+      changed = true;
+    }
+  }
+
   if (changed || Number(game.settings.get(MODULE_ID, SUPPLIER_CONFIGURATION_KEY)?.version ?? 0) < CONFIGURATION_VERSION) {
     await saveConfiguration(configuration);
   }

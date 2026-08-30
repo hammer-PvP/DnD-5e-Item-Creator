@@ -49,6 +49,54 @@ export const HOMEBREW_SUPPLIER_TEMPLATES = [
     theme: "alchemist"
   },
   {
+    id: "herbalist",
+    label: "DND5E_SUPPLIER.Homebrew.Herbalist",
+    description: "DND5E_SUPPLIER.Homebrew.HerbalistHint",
+    icon: "fa-solid fa-leaf",
+    secondaryIcon: "",
+    theme: "herbalist"
+  },
+  {
+    id: "hunter",
+    label: "DND5E_SUPPLIER.Homebrew.Hunter",
+    description: "DND5E_SUPPLIER.Homebrew.HunterHint",
+    icon: "fa-solid fa-paw",
+    secondaryIcon: "",
+    theme: "hunter"
+  },
+  {
+    id: "butcher",
+    label: "DND5E_SUPPLIER.Homebrew.Butcher",
+    description: "DND5E_SUPPLIER.Homebrew.ButcherHint",
+    icon: "fa-solid fa-drumstick-bite",
+    secondaryIcon: "",
+    theme: "butcher"
+  },
+  {
+    id: "tavern-common",
+    label: "DND5E_SUPPLIER.Homebrew.TavernCommon",
+    description: "DND5E_SUPPLIER.Homebrew.TavernCommonHint",
+    icon: "fa-solid fa-utensils",
+    secondaryIcon: "",
+    theme: "tavern"
+  },
+  {
+    id: "tavern-dwarven",
+    label: "DND5E_SUPPLIER.Homebrew.TavernDwarven",
+    description: "DND5E_SUPPLIER.Homebrew.TavernDwarvenHint",
+    icon: "fa-solid fa-beer-mug-empty",
+    secondaryIcon: "",
+    theme: "tavern"
+  },
+  {
+    id: "tavern-elven",
+    label: "DND5E_SUPPLIER.Homebrew.TavernElven",
+    description: "DND5E_SUPPLIER.Homebrew.TavernElvenHint",
+    icon: "fa-solid fa-wine-glass",
+    secondaryIcon: "",
+    theme: "tavern"
+  },
+  {
     id: "magic",
     label: "DND5E_SUPPLIER.Homebrew.MagicAssortment",
     description: "DND5E_SUPPLIER.Homebrew.MagicAssortmentHint",
@@ -217,6 +265,10 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     blacksmith: "fa-solid fa-hammer",
     gunsmith: "fa-solid fa-gun",
     alchemist: "fa-solid fa-flask",
+    herbalist: "fa-solid fa-leaf",
+    hunter: "fa-solid fa-paw",
+    butcher: "fa-solid fa-drumstick-bite",
+    tavern: "fa-solid fa-utensils",
     magic: "fa-solid fa-wand-magic-sparkles",
     general: "fa-solid fa-basket-shopping",
     stable: "fa-solid fa-horse-head",
@@ -240,7 +292,7 @@ function blankProfile({ name, theme, sourceIds, templateId = "", accessLevel = "
     stockTotalMode: "fixed",
     stockTotal: 0,
     stockScaleBase: 4,
-    homebrewPresetVersion: 7,
+    homebrewPresetVersion: 8,
     mundaneCatalogRules: [],
     guaranteedRules: [],
     bannedItems: [],
@@ -266,7 +318,17 @@ function createBlacksmith(profile, access) {
     catalogRule({ name: "Mundane Smithing Wearables", category: "equipment", subtypes: ["clothing", "trinket", "wondrous"], quantityMode: "players", quantity: 1, curation: "blacksmithMundaneWearables", silentIfEmpty: true }),
     catalogRule({ name: "Mundane Ammunition", category: "consumable", subtypes: ["ammunition"], quantityMode: "players", quantity: 1, curation: "blacksmithAmmunition", silentIfEmpty: true })
   ];
-  profile.guaranteedRules = [];
+  profile.guaranteedRules = [
+    guaranteedRule({
+      name: "Crafting Metals & Smithing Materials",
+      category: "loot",
+      quantityMode: "fixed",
+      quantity: [2, 3, 4, 5][access - 1],
+      allowDuplicates: false,
+      curation: "craftingBlacksmithMaterials",
+      silentIfEmpty: true
+    })
+  ];
   profile.randomReservations = [{ id: "armor", share: 0.30, minimumByAccess: [0, 1, 2, 3] }];
 
   const enhancedWeight = [5.5, 4.5, 3.25, 2.25][access - 1];
@@ -347,6 +409,15 @@ function createAlchemist(profile, access) {
       curation: "alchemicalConsumables",
       selectionDistribution: "hammerHealingPotions",
       maxPerFamily: 0
+    }),
+    guaranteedRule({
+      name: "Crafting Reagents & Essences",
+      category: "loot",
+      quantityMode: "fixed",
+      quantity: [2, 3, 4, 5][access - 1],
+      allowDuplicates: false,
+      curation: "craftingAlchemistMaterials",
+      silentIfEmpty: true
     })
   ];
   profile.randomRules = [
@@ -376,6 +447,60 @@ function createAlchemist(profile, access) {
   if (access === 1) profile.randomRules = profile.randomRules.filter(rule => Number(rule.minimumVendorAccess ?? 0) <= 1);
 }
 
+function createHerbalist(profile, access) {
+  profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.HerbalistDescription");
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  profile.stockTotal = [5, 7, 9, 11][access - 1];
+  profile.mundaneCatalogRules = [
+    catalogRule({ name: "Herbalism & Healer Kits", category: "tool", quantityMode: "players", quantity: 1, curation: "herbalistMundaneTools", silentIfEmpty: true }),
+    catalogRule({ name: "Pouches, Vials & Field Containers", category: "container", quantityMode: "players", quantity: 1, curation: "alchemistMundaneContainers", silentIfEmpty: true })
+  ];
+  profile.randomRules = [
+    randomRule({ name: "Herbs, Roots, Fungi & Forage", category: "loot", weight: 5, allowDuplicates: false, curation: "craftingHerbalistMaterials", silentIfEmpty: true }),
+    randomRule({ name: "Mundane Herbal Remedies", category: "consumable", weight: 1.25, magicalState: "mundane", allowDuplicates: false, curation: "alchemistMundaneConsumables", silentIfEmpty: true })
+  ];
+}
+
+function createHunter(profile, access) {
+  profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.HunterDescription");
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  profile.stockTotal = [5, 7, 9, 11][access - 1];
+  profile.randomRules = [
+    randomRule({ name: "Game, Hides & Field Harvest", category: "loot", weight: 5, allowDuplicates: false, curation: "craftingHunterMaterials", silentIfEmpty: true }),
+    randomRule({ name: "Foraged Herbs, Roots & Fungi", category: "loot", weight: 1.5, allowDuplicates: false, curation: "craftingHunterForage", silentIfEmpty: true })
+  ];
+}
+
+function createButcher(profile, access) {
+  profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.ButcherDescription");
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  profile.stockTotal = [4, 6, 8, 10][access - 1];
+  profile.randomRules = [
+    randomRule({ name: "Fresh & Preserved Meats", category: "loot", weight: 5, allowDuplicates: false, curation: "craftingButcherMaterials", silentIfEmpty: true })
+  ];
+}
+
+function createTavern(profile, access, culture) {
+  const cultureKey = culture === "dwarven" ? "Dwarven" : culture === "elven" ? "Elven" : "Common";
+  profile.description = game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Tavern${cultureKey}Description`);
+  profile.stockTotalMode = "partyScaled";
+  profile.stockScaleBase = 4;
+  profile.stockTotal = [2, 3, 4, 5][access - 1];
+  profile.randomRules = [
+    randomRule({
+      name: `${cultureKey} Tavern Food & Drink`,
+      category: "consumable",
+      weight: 5,
+      allowDuplicates: false,
+      curation: `craftingTavern-${culture}`,
+      silentIfEmpty: true
+    })
+  ];
+}
+
 function createMagicAssortment(profile, access) {
   profile.description = game.i18n.localize("DND5E_SUPPLIER.Homebrew.MagicAssortmentDescription");
   profile.stockTotalMode = "levelPartyScaled";
@@ -403,6 +528,15 @@ function createMagicAssortment(profile, access) {
       allowDuplicates: true,
       curation: "excludeCantrips",
       maxPerFamily: 2
+    }),
+    guaranteedRule({
+      name: "Arcane Crafting Materials & Essences",
+      category: "loot",
+      quantityMode: "fixed",
+      quantity: [1, 2, 3, 4][access - 1],
+      allowDuplicates: false,
+      curation: "craftingMagicMaterials",
+      silentIfEmpty: true
     })
   ];
 
@@ -435,6 +569,17 @@ function createGeneralTrade(profile, access) {
     catalogRule({ name: "Food, Water, Kits & Supplies", category: "consumable", subtypes: ["food", "gear", "trinket", "ammunition"], ...quantity, curation: "generalTradeConsumables" }),
     catalogRule({ name: "Clothing & Utility Equipment", category: "equipment", subtypes: ["clothing", "trinket", "wondrous"], ...quantity, curation: "generalTradeEquipment" })
   ];
+  profile.guaranteedRules = [
+    guaranteedRule({
+      name: "Common Crafting & Trade Materials",
+      category: "loot",
+      quantityMode: "fixed",
+      quantity: [3, 5, 7, 9][access - 1],
+      allowDuplicates: false,
+      curation: "craftingGeneralTradeMaterials",
+      silentIfEmpty: true
+    })
+  ];
 }
 
 function createStable(profile, access) {
@@ -462,6 +607,12 @@ export function createHomebrewSupplierProfile({ templateId, accessLevel = "2", n
   if (templateId === "blacksmith") createBlacksmith(profile, access);
   else if (templateId === "gunsmith") createGunsmith(profile, access);
   else if (templateId === "alchemist") createAlchemist(profile, access);
+  else if (templateId === "herbalist") createHerbalist(profile, access);
+  else if (templateId === "hunter") createHunter(profile, access);
+  else if (templateId === "butcher") createButcher(profile, access);
+  else if (templateId === "tavern-common") createTavern(profile, access, "common");
+  else if (templateId === "tavern-dwarven") createTavern(profile, access, "dwarven");
+  else if (templateId === "tavern-elven") createTavern(profile, access, "elven");
   else if (templateId === "magic") createMagicAssortment(profile, access);
   else if (templateId === "general") createGeneralTrade(profile, access);
   else if (templateId === "stable") createStable(profile, access);
@@ -573,8 +724,119 @@ function finalSellableMerchandise(entry) {
   return validMerchandise(entry) && !isMaterializerItem(entry);
 }
 
+function normalizedSet(values) {
+  return new Set((values ?? []).map(value => normalizeText(value)).filter(Boolean));
+}
+
+function craftingMaterial(entry) {
+  return entry?.craftingMaterial === true && finalSellableMerchandise(entry);
+}
+
+function craftingMaterialCategory(entry) {
+  return normalizeText(entry?.craftingMaterialCategory);
+}
+
+function craftingMaterialFamily(entry) {
+  return normalizeText(entry?.craftingMaterialFamily);
+}
+
+function craftingTags(entry) {
+  return normalizedSet(entry?.craftingMaterialTags);
+}
+
+function craftingRequires(entry) {
+  return normalizedSet(entry?.craftingMaterialRequires);
+}
+
+function hasAny(values, expected) {
+  return expected.some(value => values.has(value));
+}
+
+function isCraftingBlacksmithMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  const category = craftingMaterialCategory(entry);
+  const tags = craftingTags(entry);
+  if (category === "metalworking") return true;
+  return category === "mineral" && hasAny(tags, ["metal", "fuel", "coal"]);
+}
+
+function isCraftingHerbalistMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  return ["flora", "roots", "fungi", "forage"].includes(craftingMaterialCategory(entry));
+}
+
+function isCraftingAlchemistMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  const family = craftingMaterialFamily(entry);
+  const category = craftingMaterialCategory(entry);
+  const tags = craftingTags(entry);
+  const requires = craftingRequires(entry);
+  if (family === "essence" || category === "alchemy") return true;
+  if (category === "mineral" && hasAny(tags, ["alchemy", "sulfur"])) return true;
+  if (["flora", "roots", "fungi"].includes(category)
+    && hasAny(tags, ["alchemy", "medicine", "arcane", "fire", "luminous", "spirit"])) return true;
+  if (family === "creature") {
+    return hasAny(tags, ["gland", "venom", "acid", "organ", "arcane", "elemental", "psionic", "poison"])
+      || hasAny(requires, ["venom", "blood", "eye"]);
+  }
+  return false;
+}
+
+function isCraftingMagicMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  if (craftingMaterialFamily(entry) === "essence") return true;
+  return hasAny(craftingTags(entry), [
+    "arcane", "elemental", "planar", "psionic", "radiant", "necrotic",
+    "fey", "fiend", "draconic", "spirit", "soul"
+  ]);
+}
+
+function isCraftingGeneralTradeMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  if (craftingMaterialFamily(entry) !== "profession") return false;
+  return ["general", "food", "cultivated"].includes(craftingMaterialCategory(entry));
+}
+
+function isCraftingHunterMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  const category = craftingMaterialCategory(entry);
+  if (craftingMaterialFamily(entry) === "gathering" && category.startsWith("game-")) return true;
+  if (craftingMaterialFamily(entry) !== "creature") return false;
+  return hasAny(craftingRequires(entry), ["hide", "bone", "horn", "feather", "claw", "fang", "scale", "flesh"]);
+}
+
+function isCraftingHunterForage(entry) {
+  return isCraftingHerbalistMaterial(entry);
+}
+
+function isCraftingButcherMaterial(entry) {
+  if (!craftingMaterial(entry)) return false;
+  const tags = craftingTags(entry);
+  const materialId = normalizeText(entry?.craftingMaterialId);
+  const name = normalizeText(entry?.name);
+  return tags.has("meat") || materialId.includes("meat") || name.includes("meat");
+}
+
+function isCraftingTavernProduct(entry, culture) {
+  if (entry?.craftingProduct !== true || !validMerchandise(entry)) return false;
+  if (normalizeText(entry?.craftingProductCategory) !== "culinary") return false;
+  // Knowledge Sources deliberately do not satisfy product=true and therefore
+  // remain available for future dedicated recipe merchants without leaking
+  // into tavern stock today.
+  return normalizeText(entry?.craftingProductCulture) === normalizeText(culture);
+}
+
 export function homebrewCurationAllowsEntry(entry, curation) {
   if (!curation) return true;
+  if (curation === "craftingBlacksmithMaterials") return isCraftingBlacksmithMaterial(entry);
+  if (curation === "craftingHerbalistMaterials") return isCraftingHerbalistMaterial(entry);
+  if (curation === "craftingAlchemistMaterials") return isCraftingAlchemistMaterial(entry);
+  if (curation === "craftingMagicMaterials") return isCraftingMagicMaterial(entry);
+  if (curation === "craftingGeneralTradeMaterials") return isCraftingGeneralTradeMaterial(entry);
+  if (curation === "craftingHunterMaterials") return isCraftingHunterMaterial(entry);
+  if (curation === "craftingHunterForage") return isCraftingHunterForage(entry);
+  if (curation === "craftingButcherMaterials") return isCraftingButcherMaterial(entry);
+  if (curation.startsWith("craftingTavern-")) return isCraftingTavernProduct(entry, curation.slice("craftingTavern-".length));
   if (curation === "blacksmithBase") return finalSellableMerchandise(entry) && !entry.isMagical && !isFirearmRelated(entry) && !isImprovisedWeaponMerchandise(entry);
   if (curation === "blacksmithTwoHanded") {
     const properties = new Set((entry.properties ?? []).map(value => normalizeText(value).replaceAll("-", "")));
@@ -609,6 +871,7 @@ export function homebrewCurationAllowsEntry(entry, curation) {
   if (curation === "namedFirearms") {
     return validMerchandise(entry) && (isFirearmEntry(entry) || isMaterializerItem(entry)) && (entry.isMagical === true || isMaterializerItem(entry));
   }
+  if (curation === "herbalistMundaneTools") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, ["healers-kit", "healer-kit", "herbalism-kit", "kit-de-curandeiro", "kit-de-herbalismo"]);
   if (curation === "alchemistMundaneTools") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, ALCHEMIST_TOOL_TERMS);
   if (curation === "alchemistMundaneContainers") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, ALCHEMIST_CONTAINER_TERMS);
   if (curation === "alchemistMundaneConsumables") return finalSellableMerchandise(entry) && !entry.isMagical && matchesAnyTerm(entry, ALCHEMIST_MUNDANE_CONSUMABLE_TERMS);

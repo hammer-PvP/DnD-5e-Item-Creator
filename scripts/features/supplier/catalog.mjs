@@ -34,7 +34,35 @@ const INDEX_FIELDS = [
   "system.unidentified.name",
   "effects",
   "flags.dnd5e-item-creator.supplier.minimumAccess",
-  "flags.dnd5e-item-creator.minimumVendorAccess"
+  "flags.dnd5e-item-creator.minimumVendorAccess",
+  // Crafting Core exposes semantic commerce metadata directly on its managed
+  // Materials and curated Products. Supplier indexes these fields rather than
+  // hard-coding catalog item names, so future catalog additions automatically
+  // join compatible vendor pools.
+  "flags.dnd5e-crafting-core.material",
+  "flags.dnd5e-crafting-core.materialId",
+  "flags.dnd5e-crafting-core.materialFamily",
+  "flags.dnd5e-crafting-core.materialNature",
+  "flags.dnd5e-crafting-core.materialCategory",
+  "flags.dnd5e-crafting-core.materialRarity",
+  "flags.dnd5e-crafting-core.materialChance",
+  "flags.dnd5e-crafting-core.materialQuantity",
+  "flags.dnd5e-crafting-core.materialTags",
+  "flags.dnd5e-crafting-core.materialRequires",
+  "flags.dnd5e-crafting-core.materialBiomes",
+  "flags.dnd5e-crafting-core.materialManaged",
+  "flags.dnd5e-crafting-core.materialCatalogVersion",
+  "flags.dnd5e-crafting-core.curated",
+  "flags.dnd5e-crafting-core.curatedKind",
+  "flags.dnd5e-crafting-core.product",
+  "flags.dnd5e-crafting-core.productId",
+  "flags.dnd5e-crafting-core.productCategory",
+  "flags.dnd5e-crafting-core.productSubcategory",
+  "flags.dnd5e-crafting-core.productCulture",
+  "flags.dnd5e-crafting-core.productRarity",
+  "flags.dnd5e-crafting-core.productMealType",
+  "flags.dnd5e-crafting-core.productManaged",
+  "flags.dnd5e-crafting-core.knowledgeRecipeId"
 ];
 
 const SUBTYPE_LABEL_KEYS = {
@@ -771,6 +799,33 @@ export async function buildCatalog({ force = false, configurationOverride = null
           ?? foundry.utils.getProperty(record, "flags.dnd5e-item-creator.minimumVendorAccess")
           ?? 0
         ) || 0,
+        // Semantic Crafting Core metadata. These values are deliberately
+        // copied into the Supplier catalog entry so Homebrew curation can use
+        // the live Compendium contract without knowing individual Item names.
+        craftingMaterial: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.material") === true,
+        craftingMaterialId: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialId") ?? ""),
+        craftingMaterialFamily: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialFamily") ?? ""),
+        craftingMaterialNature: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialNature") ?? ""),
+        craftingMaterialCategory: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialCategory") ?? ""),
+        craftingMaterialRarity: normalizeRarity(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialRarity") ?? rarity),
+        craftingMaterialChance: Number(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialChance") ?? 0) || 0,
+        craftingMaterialQuantity: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialQuantity") ?? ""),
+        craftingMaterialTags: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialTags")).map(String),
+        craftingMaterialRequires: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialRequires")).map(String),
+        craftingMaterialBiomes: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialBiomes")).map(String),
+        craftingMaterialManaged: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialManaged") === true,
+        craftingMaterialCatalogVersion: Number(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialCatalogVersion") ?? 0) || 0,
+        craftingCurated: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.curated") === true,
+        craftingCuratedKind: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.curatedKind") ?? ""),
+        craftingProduct: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.product") === true,
+        craftingProductId: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productId") ?? ""),
+        craftingProductCategory: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productCategory") ?? ""),
+        craftingProductSubcategory: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productSubcategory") ?? ""),
+        craftingProductCulture: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productCulture") ?? ""),
+        craftingProductRarity: normalizeRarity(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productRarity") ?? rarity),
+        craftingProductMealType: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productMealType") ?? ""),
+        craftingProductManaged: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productManaged") === true,
+        craftingKnowledgeRecipeId: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.knowledgeRecipeId") ?? ""),
         spellLevel: Number(foundry.utils.getProperty(record, "system.level") ?? 0),
         school: foundry.utils.getProperty(record, "system.school") ?? "",
         isMechanical: Boolean(mechanicalRule),

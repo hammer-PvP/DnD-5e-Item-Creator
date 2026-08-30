@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.2 — Crafting-Aware Supplier Profiles
+
+### Semantic Crafting Core stock
+
+- Added live Crafting Core commerce metadata to the Supplier catalog index. Material `family`, `nature`, `category`, `tags`, `requires`, biomes, managed metadata, and curated Product category/culture fields are read from enabled Item compendiums instead of hard-coding catalog names. Newly added Items that preserve this metadata contract automatically join compatible Supplier pools after the Supplier catalog refreshes.
+- Kept **Level, Quality & Price** unchanged and authoritative for party-level rarity access, rarity weighting, quality, and pricing. The new rules only decide whether an Item thematically belongs to a vendor; no second rarity ceiling or parallel progression engine was introduced.
+- Enriched **Blacksmith**, **Alchemist**, **Magic Assortment**, and **General Trade** with semantic Crafting Material shelves while preserving all existing stock and magical-generation behavior. Existing v0.7.1 derived profiles receive only these new shelves through an additive preset migration that preserves GM edits, Custom Pools, source snapshots, bans, quantities, and exclusions.
+
+### New Supplier archetypes
+
+- Split the former combined **Alchemist / Herbalist** concept into independent **Alchemist** and **Herbalist** archetypes. Herbalist focuses on flora, roots, fungi, forage, and field remedies; Alchemist focuses on alchemy materials, essences, glands, venoms, acids, and other appropriate reagents, with deliberate botanical overlap where metadata indicates alchemical/medicinal affinity.
+- Added **Hunter**, with primary game/harvest stock and a lower-weight field-forage pool, and **Butcher**, focused on meat and food-grade animal products.
+- Added **Mundane Tavern**, **Dwarven Tavern**, and **Elven Tavern**. Tavern rules select only Crafting Core curated culinary Products matching `productCulture`; Recipe/Knowledge Sources are deliberately excluded from these stock pools without being globally banned. The filter does not lock to the current `meal` subcategory, allowing future drinks and other culinary Products to enter automatically under the same category/culture contract.
+
+### Item Directory integration
+
+- When Supplier is enabled, **Item Creator** and **Supplier** now share one compact Item Directory row. Item Creator remains the slightly wider primary action while Supplier remains the smaller complementary action, preserving the established green and epic-purple identities. With Supplier disabled, Item Creator remains full width.
+
+### Compatibility
+
+- Supplier configuration schema advanced to **22** and HAMMER Homebrew preset version to **8**. Item schema remains **17**.
+- Weapons, Equipment, Tools, Consumables, Scroll Factory, Materialization Core, Triggered Effects, Conditional Advantage, and the existing Supplier generation/Level/Quality/Price engines are otherwise unchanged.
+
 ## 0.7.1 — Editable Derived Supplier Profiles
 
 ### Homebrew profile unlock

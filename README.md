@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.1 Beta Candidate
+**Version:** 0.7.2 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -16,7 +16,7 @@ The native Foundry and D&D5e Create Item workflow remains available and is not i
 
 The World Items Directory always receives one GM-only **Item Creator** button. Its start screen provides Weapon, Equipment, Tool, Scroll Factory, and Consumables. Scroll Factory remains inside Item Creator because it creates an individual Spell Scroll loot Item without requiring an Actor sheet.
 
-When **Enable Supplier Tools** is active, the directory also receives a separate GM-only **Supplier** button with an epic-purple tint. Supplier has its own entry because it creates complete vendor stocks rather than an individual reward.
+When **Enable Supplier Tools** is active, **Item Creator** and **Supplier** share one compact directory row. Item Creator remains the wider primary action and Supplier is the smaller complementary action; both retain their established green and epic-purple visual identities. Supplier has its own action because it creates complete vendor stocks rather than an individual reward.
 
 ## Item Creator
 
@@ -223,9 +223,9 @@ Scrolls use the Spell's base level and do not offer upcasting. Generated Scrolls
 
 ## Supplier Homebrew profile editing
 
-Derived Homebrew Supplier profiles are editable vendor instances rather than locked archetypes. Rules inherited from Blacksmith, Gunsmith, Alchemist / Herbalist, Magic Assortment, General Trade, or Stable & Livestock keep their original template curation until the GM explicitly unlocks that rule. New Catalog, Guaranteed, and Random Stock rules use the profile's full source snapshot by default, matching the broad Custom pool behavior of a Blank Supplier.
+Derived Homebrew Supplier profiles are editable vendor instances rather than locked archetypes. Rules inherited from Blacksmith, Gunsmith, Alchemist, Herbalist, Hunter, Butcher, Mundane/Dwarven/Elven Tavern, Magic Assortment, General Trade, or Stable & Livestock keep their original template curation until the GM explicitly unlocks that rule. New Catalog, Guaranteed, and Random Stock rules use the profile's full source snapshot by default, matching the broad Custom pool behavior of a Blank Supplier.
 
-A curated inherited rule shows a **Template pool** badge and can be detached with **Use Custom Pool**. Detaching removes only the archetype-specific curation; the profile's Content Sources, Item type/subtype filters, progression/rarity rules, Vendor Access, bans, and explicit local exclusions still apply. This lets a Blacksmith add ores and ingots, an Alchemist add harvested glands, or a Magic Assortment add elemental crafting materials without rebuilding the vendor from a Blank profile.
+A curated inherited rule shows a **Template pool** badge and can be detached with **Use Custom Pool**. Detaching removes only the archetype-specific curation; the profile's Content Sources, Item type/subtype filters, progression/rarity rules, Vendor Access, bans, and explicit local exclusions still apply. Crafting-aware template rules read live `dnd5e-crafting-core` metadata from enabled compendiums rather than hard-coded Item names, so newly added, correctly classified Materials and culinary Products automatically become candidates for matching vendor profiles without an Item Creator patch.
 
 ## Optional Supplier
 
@@ -235,7 +235,7 @@ Supplier is integrated but disabled by default. Enable it through:
 
 When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
 
-When enabled, the Item Directory receives a separate GM-only **Supplier** button with an epic-purple tint. Inside the Supplier window, the gear beside **Supplier Profiles** opens the profile and **Level, Quality & Price** configuration directly.
+When enabled, the Item Directory places **Item Creator** and the GM-only epic-purple **Supplier** action on the same compact row, with Item Creator slightly wider. Inside the Supplier window, the gear beside **Supplier Profiles** opens the profile and **Level, Quality & Price** configuration directly.
 Selections and partial rerenders inside Supplier preserve the current scroll position and focused control. Scroll resets only when the GM actually changes to another screen or section.
 
 Supplier separates two independent controls:
@@ -271,10 +271,17 @@ Only explicit restrictions, artifacts, and major relics are normally hard-gated.
 
 ### HAMMER vendor presets
 
-- **Blacksmith** always carries the complete mundane weapon, armor, shield, ammunition, and relevant physical-equipment catalog. Separate magical slots cover enhanced gear, named weapons and armor, and physical wondrous equipment. Thirty percent of its random magical budget is reserved for armor rules, with an Access-scaled minimum, so the broader physical catalog cannot dilute armor below Magic Assortment curiosities. Enchanted ammunition is checked independently once per stock: when party progression permits it, there is a 50% chance to add exactly one +1/+2/+3 ammunition family while retaining every mundane stack.
-- **Alchemist / Herbalist** always carries thematic mundane kits, remedies, reagents, vessels, and field supplies; guarantees one level-appropriate healing-potion slot per party member; and adds thematic consumables, poisons, oils, powders, and preparations.
-- **Magic Assortment** always carries mundane arcane foci, component supplies, scribing tools, cases, ink, and related accessories; adds Spell Scrolls from the profile's source snapshot; and rolls magical implements, accessories, wondrous Items, Access-weighted relics, and at most one armory curiosity. That single armor rule uses an Access-scaled chance of 5%, 15%, 30%, or 50% for Access I–IV.
-- **Gunsmith**, **General Trade**, and **Stable & Livestock** also use deterministic party-sized mundane catalogs appropriate to their themes.
+- **Blacksmith** keeps its complete mundane weapon, armor, shield, ammunition, and physical-equipment catalog, and now also draws Crafting Core ores, metalworking products, ingots/alloys, and metal/fuel minerals through semantic Material metadata. Its existing magical stock rules are unchanged.
+- **Alchemist** is now its own canonical archetype. It keeps healing potions, alchemical consumables, poisons, oils, powders, and preparations while adding Crafting Core alchemy materials, essences, glands, venoms, acids, and appropriate botanical or supernatural reagents.
+- **Herbalist** is a separate archetype focused on flora, roots, fungi, forage, field remedies, and botanical supplies.
+- **Hunter** supplies game meat and field-harvest creature parts such as hides, bones, horns, feathers, claws, fangs, scales, and related harvests, plus a lower-weight forage pool of herbs, roots, fungi, and other field gathering.
+- **Butcher** focuses on meat and food-grade animal products from the Crafting Core Material catalog.
+- **Mundane Tavern**, **Dwarven Tavern**, and **Elven Tavern** draw only curated Crafting Core culinary **Products** whose `productCulture` matches the selected tradition. The rule deliberately keys on culinary Product metadata rather than meal names or current subcategory, so future drinks and additional prepared foods can join the same tavern automatically when they use the same culture/category contract. Recipe/Knowledge Sources are not part of these tavern pools.
+- **Magic Assortment** keeps its arcane catalog and adds Crafting Core essences plus arcane, elemental, planar, psionic, radiant, necrotic, fey, fiendish, draconic, spirit, and soul-tagged materials.
+- **General Trade** keeps its broad mundane catalog and additionally carries profession-family general, food, and cultivated Crafting Materials such as staple foods and ordinary trade/craft goods.
+- **Gunsmith** and **Stable & Livestock** retain their existing themes.
+
+Crafting-aware profile curation only determines thematic eligibility. **Level, Quality & Price** remains the authority for party-level rarity access, rarity weighting, quality, and pricing; v0.7.2 does not add a second rarity ceiling or replace the existing progression engine.
 
 
 ### Cumulative HAMMER rarity distribution

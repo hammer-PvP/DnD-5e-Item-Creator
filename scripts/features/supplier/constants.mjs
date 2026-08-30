@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.3.2-integrated";
-export const CONFIGURATION_VERSION = 21;
+export const SUPPLIER_FEATURE_VERSION = "0.3.3-integrated";
+export const CONFIGURATION_VERSION = 22;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },
@@ -30,6 +30,34 @@ export const SUPPLIER_THEMES = [
     icon: "fa-solid fa-hammer",
     secondaryIcon: "fa-solid fa-cube",
     color: "iron"
+  },
+  {
+    id: "herbalist",
+    label: "DND5E_SUPPLIER.Theme.Herbalist",
+    icon: "fa-solid fa-leaf",
+    secondaryIcon: "",
+    color: "herbal"
+  },
+  {
+    id: "hunter",
+    label: "DND5E_SUPPLIER.Theme.Hunter",
+    icon: "fa-solid fa-paw",
+    secondaryIcon: "",
+    color: "hunter"
+  },
+  {
+    id: "butcher",
+    label: "DND5E_SUPPLIER.Theme.Butcher",
+    icon: "fa-solid fa-drumstick-bite",
+    secondaryIcon: "",
+    color: "butcher"
+  },
+  {
+    id: "tavern",
+    label: "DND5E_SUPPLIER.Theme.Tavern",
+    icon: "fa-solid fa-utensils",
+    secondaryIcon: "",
+    color: "tavern"
   },
   {
     id: "gunsmith",

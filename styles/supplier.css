@@ -1145,6 +1145,10 @@
 }
 
 .theme-alchemist { --theme-accent: #87b98c; }
+.theme-herbalist { --theme-accent: #76b978; }
+.theme-hunter { --theme-accent: #b99a68; }
+.theme-butcher { --theme-accent: #c47f76; }
+.theme-tavern { --theme-accent: #d0a45f; }
 .theme-blacksmith { --theme-accent: #b7bcc5; }
 .theme-general { --theme-accent: #c69b63; }
 .theme-jeweler { --theme-accent: #e1bd65; }

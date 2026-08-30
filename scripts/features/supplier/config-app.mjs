@@ -561,7 +561,20 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       ],
       selectedProfileIsHomebrew: Boolean(selectedProfile?.homebrewTemplateId),
       selectedProfileHomebrewLabel: selectedProfile?.homebrewTemplateId
-        ? game.i18n.localize(`DND5E_SUPPLIER.Homebrew.${({ blacksmith: "Blacksmith", gunsmith: "Gunsmith", alchemist: "Alchemist", magic: "MagicAssortment", general: "GeneralTrade", stable: "StableLivestock" })[selectedProfile.homebrewTemplateId]}`)
+        ? game.i18n.localize(`DND5E_SUPPLIER.Homebrew.${({
+          blacksmith: "Blacksmith",
+          gunsmith: "Gunsmith",
+          alchemist: "Alchemist",
+          herbalist: "Herbalist",
+          hunter: "Hunter",
+          butcher: "Butcher",
+          "tavern-common": "TavernCommon",
+          "tavern-dwarven": "TavernDwarven",
+          "tavern-elven": "TavernElven",
+          magic: "MagicAssortment",
+          general: "GeneralTrade",
+          stable: "StableLivestock"
+        })[selectedProfile.homebrewTemplateId]}`)
         : "",
       selectedProfileAccessLabel: selectedProfile?.homebrewAccessLevel
         ? game.i18n.localize(`DND5E_SUPPLIER.Homebrew.Access${selectedProfile.homebrewAccessLevel}`)
