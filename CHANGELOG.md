@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.7.3 — Supplier Profile System v2
+
+### Breaking change — Supplier Profiles
+
+- Rebuilt the Supplier Profile architecture around explicit **Item Groups** and **Stock Rules**. Profiles/Homebrew Profiles created before v0.7.3 are intentionally **not migrated** because the old derived-template/curation model is incompatible with the new design. GMs must recreate custom Supplier Profiles after updating. Compendium Sources and the existing **Level, Quality & Price** configuration remain independent of that Profile reset.
+- Presets are now visible starting configurations rather than hidden runtime archetypes. A Blank Profile and a Preset with equivalent visible settings use the same generator path; `homebrewCuration`, template-rule flags, named-profile selection branches, hidden reservations, and legacy HAMMER per-vendor rarity distributions were removed from the v2 Profile path.
+- Supplier configuration schema advanced to **23**. Item Creator Item schema remains unchanged.
+
+### Item Groups and Profile Builder
+
+- Added reusable **Item Groups** for defining what a vendor trades. Groups support Compendium sources, Item type/subtype, rarity, magical state, document nature, search/identity filters, explicit exclusions, and semantic Crafting Core Material/Product/Knowledge metadata.
+- Added **Dynamic Filter** groups that automatically absorb future matching source content while preserving explicit exclusions, and **Explicit Selection** groups that store exact Item UUIDs. The picker includes search, progressive filters, Select All/Clear Visible controls, and individual checkboxes.
+- Added visible **Affinity Weight** so a Profile can express primary and secondary merchandise families without hidden vendor reservations; for example Hunter game/harvest groups can outweigh its secondary forage group.
+- Reorganized Supplier Profile editing around the actual stock-building order while preserving the established Supplier visual identity.
+- Added Profile stock Preview using Party Level, Party Size, and Vendor Access. Preview runs through the same `generateStock()` path used by real Supplier generation rather than a separate simulator.
+
+### Guaranteed Stock
+
+- Replaced legacy guaranteed-rule special cases with explicit Guaranteed Stock rules built from one or more Item Groups/Sets.
+- Added **All Eligible Items** and **Pick N From Eligible** coverage modes.
+- Added base quantity plus simple party scaling: none, party size, `floor(players / 2)`, or `floor(players / 3)`.
+- Added **Limit Guaranteed Items by Level Range**. When enabled, the existing Level/Quality progression determines which members of a guaranteed family are currently eligible; when disabled, the GM's explicit guarantee bypasses that level gate. This supports tiered families such as Healing Potions without a dedicated potion rule.
+
+### Random / Organic Stock
+
+- Separated stock **variety** from per-SKU **quantity**. Random Stock now chooses a controlled number of distinct items and then assigns Organic Quantity rather than simulating quantity through duplicate lottery slots.
+- Added **Sparse**, **Normal**, **Abundant**, and **Custom** quantity policies with rarity-sensitive stack ranges. Party size and Vendor Access can expand availability while **Level, Quality & Price remains the sole rarity/progression authority**.
+- Preserved generic controls for chance, minimum/maximum picks, and minimum/maximum Vendor Access so narrow or specialty vendors can be expressed without named-profile code.
+
+### Special Items, Materialization, and Scrolls
+
+- Split special stock into **Existing Special Items** for ready-made/named source documents and **Materialized Special Items** for Base Item Groups routed through the existing Materialization Core.
+- Materialized rules can use explicit Base Groups, optional Template/Materializer Groups, and an optional recipe selected from the existing Materialization registry. v2 materialization strictly respects the configured Base Groups and no longer escapes to unrelated Profile merchandise when a configured base cannot produce a valid result.
+- Preserved the existing Materialization Core and curated recipe registry rather than duplicating their logic in Profiles. Enchanted ammunition is represented as explicit ammunition-base materialization rather than selling a generic template as final stock.
+- Simplified **Scroll Stock** to enable/disable plus base quantity and party scaling. Existing Level/Quality/Spell progression and the existing Scroll generation/materialization path continue to choose valid scrolls automatically.
+
+### Catalog normalization and Crafting Core
+
+- Excluded D&D5e **Natural Weapon** and **Natural Armor** documents globally from Supplier candidate pools because they are creature mechanics rather than merchandise.
+- Kept **Siege** weapons valid but prevented broad weapon groups from absorbing them unless `siege` is explicitly requested. Added a canonical **Siege Engineer** preset for siege merchandise.
+- Replaced the canonical Gunsmith preset with the Profile option **Normalize Firearms & Firearm Ammunition**. When enabled, firearm-oriented pools are normalized inside Supplier to deduplicated medieval crossbow/ammunition families without modifying source Compendium documents; Homebrew Profiles can disable normalization to sell firearms normally.
+- Expanded semantic Crafting Core support around the current catalog contract: Materials, culinary Products including meals/alcoholic/non-alcoholic drinks, and opt-in Recipe Knowledge Sources are filtered by metadata rather than hard-coded Item names. Correctly classified future content can therefore join Dynamic groups without an Item Creator patch.
+
+### Canonical presets and source priority
+
+- Rebuilt the canonical v2 presets entirely from visible Item Groups/Stock Rules: **Blacksmith**, **Alchemist**, **Herbalist**, **Hunter**, **Butcher**, **Mundane/Common Tavern**, **Dwarven Tavern**, **Elven Tavern**, **Magic Assortment**, **General Trade**, **Stable & Livestock**, and **Siege Engineer**.
+- Blacksmith keeps deterministic mundane weapon/armor/ammunition availability, rotating smithing materials, existing special stock, and explicit weapon/armor/ammunition materialization bases. Alchemist, Herbalist, Hunter, Butcher, Taverns, Magic Assortment, General Trade, and Stable express their themes through visible semantic groups and Access/quantity rules rather than hidden curations.
+- Added drag-and-drop reordering for **Compendium Sources** priority with a dedicated grip, drop indicator, and long-list autoscroll while preserving the existing ordered source model.
+
+### Scope protection
+
+- **Level, Quality & Price** progression, rarity weighting, enchantment bands, Spell limits, and price calculation are not redesigned by this update. The new Profile System feeds candidates and quantities into that existing authority.
+- Materialization Core internals, Scroll Factory internals, Weapons, Equipment, Tools, Consumables, Triggered Effects, Structural Progression, attunement handling, combat runtimes, and other Item Creator systems are outside the v0.7.3 scope and remain on their existing paths.
+
 ## 0.7.2 — Crafting-Aware Supplier Profiles
 
 ### Semantic Crafting Core stock

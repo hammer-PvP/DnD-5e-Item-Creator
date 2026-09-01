@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.2 Beta Candidate
+**Version:** 0.7.3 Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -221,11 +221,13 @@ The factory calls the native D&D5e Spell Scroll generator. D&D5e remains respons
 
 Scrolls use the Spell's base level and do not offer upcasting. Generated Scrolls remain compatible with native D&D5e use and supported Scribe Spell workflows.
 
-## Supplier Homebrew profile editing
+## Supplier Profile System v2
 
-Derived Homebrew Supplier profiles are editable vendor instances rather than locked archetypes. Rules inherited from Blacksmith, Gunsmith, Alchemist, Herbalist, Hunter, Butcher, Mundane/Dwarven/Elven Tavern, Magic Assortment, General Trade, or Stable & Livestock keep their original template curation until the GM explicitly unlocks that rule. New Catalog, Guaranteed, and Random Stock rules use the profile's full source snapshot by default, matching the broad Custom pool behavior of a Blank Supplier.
+Supplier v0.7.3 replaces the previous derived-Homebrew curation model with one explicit Profile language. A Profile created from **Blank**, a protected Preset, or a duplicated Homebrew Profile uses the same visible settings and the same generator path. Presets are starting configurations, not hidden runtime archetypes.
 
-A curated inherited rule shows a **Template pool** badge and can be detached with **Use Custom Pool**. Detaching removes only the archetype-specific curation; the profile's Content Sources, Item type/subtype filters, progression/rarity rules, Vendor Access, bans, and explicit local exclusions still apply. Crafting-aware template rules read live `dnd5e-crafting-core` metadata from enabled compendiums rather than hard-coded Item names, so newly added, correctly classified Materials and culinary Products automatically become candidates for matching vendor profiles without an Item Creator patch.
+> **Breaking change:** Supplier Profiles/Homebrew Profiles created before v0.7.3 are not migrated. The Profile architecture changed substantially and old custom Profiles must be recreated in the new Profile Builder after updating. Compendium Sources and **Level, Quality & Price** configuration remain independent of that Profile reset.
+
+The acceptance rule for the new system is simple: if a manually built Profile has the same visible settings as a Preset, both must behave mechanically the same.
 
 ## Optional Supplier
 
@@ -235,54 +237,94 @@ Supplier is integrated but disabled by default. Enable it through:
 
 When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
 
-When enabled, the Item Directory places **Item Creator** and the GM-only epic-purple **Supplier** action on the same compact row, with Item Creator slightly wider. Inside the Supplier window, the gear beside **Supplier Profiles** opens the profile and **Level, Quality & Price** configuration directly.
-Selections and partial rerenders inside Supplier preserve the current scroll position and focused control. Scroll resets only when the GM actually changes to another screen or section.
+When enabled, the Item Directory places **Item Creator** and the GM-only epic-purple **Supplier** action on the same compact row, with Item Creator slightly wider. Inside Supplier, the gear beside **Supplier Profiles** opens the Profile Builder and **Level, Quality & Price** configuration.
 
-Supplier separates two independent controls:
+Supplier separates two responsibilities:
 
-- **Level, Quality & Price** determines party-level rarity access, enchantment distribution, Spell limits, and prices. The protected presets are **Supplier — Official D&D 2024** and **Supplier — HAMMER Homebrew**. Duplicate a preset to create a fully editable custom copy.
-- **Supplier Profiles** determine vendor identity, Access I–IV, thematic catalogs, guarantees, weighted magical pools, exclusions, repetition limits, and source compendiums.
+- **Level, Quality & Price** remains the sole authority for party-level rarity access, rarity weighting, enchantment quality, Spell limits, and prices. v0.7.3 does not add a second rarity ceiling or a parallel progression engine.
+- **Supplier Profiles** explicitly describe what the vendor trades, how guaranteed and rotating inventory is assembled, what can be used as a magic-item base, and how stock quantity scales.
 
-### Content Source refresh and Supplier snapshots
+### Compendium Sources and priority
 
-Item Creator rebuilds its live Base Item/template registry when Content Sources are saved, whenever a fresh Item Creator window opens, and after a world reload when the installed-pack signature changes. This prevents checked PHB 2024 sources from remaining visually enabled while their templates or icons are absent from the runtime catalog.
+Profiles use the enabled Supplier Compendium Sources as their content universe. Source priority can now be reorganized directly by **drag-and-drop** using the row handle; enabled state and existing priority semantics are preserved. The saved priority array remains the same Supplier source model used by generation.
 
-A Supplier Profile copies the Content Sources enabled at the moment it is created or imported. Source changes are intentionally not applied retroactively. Enable every desired PHB, DMG, system, or module pack before creating the profile; a richer enabled catalog produces a richer preset.
+A newly created Profile receives the currently enabled source set and can then use those sources explicitly in its Item Groups. Changes to the global source list do not silently rewrite an existing Profile's intended groups.
 
-### Mundane catalog, magical slots, and technical targets
+### Item Groups
 
-HAMMER vendor profiles build stock in two layers:
+An **Item Group** is the reusable definition of a merchandise family. Guaranteed, Random/Organic, and Materialized Stock can reference the same groups so the vendor's mundane and special inventory stay thematically related.
 
-1. **Mundane Catalog** — every eligible mundane Item for that vendor is always included, with quantity equal to the current party size. A party of ten therefore finds ten copies of each eligible mundane weapon, armor, kit, focus, container, or supply.
-2. **Magical Stock** — a separate number of slots is calculated from party size, Vendor Access, vendor type, and the selected Level, Quality & Price profile. These slots produce +1/+2/+3 enhancements, named Items, resolved blueprints, concrete variants, and restricted relics.
+A group can filter by Compendium source, Item type/subtype, rarity, magical state, document nature, search/identity terms, exclusions, and live Crafting Core metadata. Crafting-aware filters include Material family/nature/category/tags/requires/biomes and Product category/subcategory/culture/meal type. Recipe Knowledge Sources remain excluded by default and become candidates only when the GM explicitly opts into Knowledge content.
 
-The Materialization Core prefers the vendor's mundane catalog as its target source. For a recipe-backed curiosity whose vendor intentionally does not display the required mundane base, the Core may use a separate technical target catalog built from that Supplier Profile's source snapshot. Vendor affinity controls how often a family is selected; it does not make the same official recipe succeed in one vendor and fail in another. The base document is cloned and never consumes the mundane stock.
+The Item Group picker supports search, visible-result selection, **Select All**, individual exclusions, and two persistence modes:
 
-Every stock therefore continues to depend on the current **party level** and **party size**. Party level controls the power ceiling, Spell level, enchantment quality, and weighted rarity distribution; party size controls available quantities and stock scaling; Vendor Access controls commercial reach and special-item frequency. HAMMER progression is cumulative: reaching a higher band adds stronger rarities without removing Adamantine, Mithral, Uncommon, Rare, or other useful merchandise from earlier bands.
+- **Dynamic Filter** keeps the filter contract, allowing future matching content from the same sources to become eligible automatically while preserving explicit exclusions.
+- **Explicit Selection** stores exactly the checked Item UUIDs.
 
-HAMMER Access uses gradual probabilities for ordinary magical merchandise:
+Each group also has an **Affinity Weight**. When several groups feed one rotating-stock rule, higher-weight groups are selected more often without creating a hidden vendor-specific reservation.
 
-- **Access I:** primarily mundane, with a minimal exceptional chance;
-- **Access II:** a small but visible selection of special Items;
-- **Access III:** moderate and consistent special variety;
-- **Access IV:** broad magical variety, major relics, and highly restricted merchandise when party progression permits it.
+### Guaranteed Stock
 
-Only explicit restrictions, artifacts, and major relics are normally hard-gated. Ordinary rare merchandise is weighted rather than completely prohibited below its preferred Access.
+Guaranteed Stock is built from one or more Item Groups/Sets. Each rule can use:
 
-### HAMMER vendor presets
+- **All Eligible Items** — every currently eligible Item in the attached groups is stocked;
+- **Pick N From Eligible** — the attached groups define the guaranteed pool and the configured number of selections is made from it.
 
-- **Blacksmith** keeps its complete mundane weapon, armor, shield, ammunition, and physical-equipment catalog, and now also draws Crafting Core ores, metalworking products, ingots/alloys, and metal/fuel minerals through semantic Material metadata. Its existing magical stock rules are unchanged.
-- **Alchemist** is now its own canonical archetype. It keeps healing potions, alchemical consumables, poisons, oils, powders, and preparations while adding Crafting Core alchemy materials, essences, glands, venoms, acids, and appropriate botanical or supernatural reagents.
-- **Herbalist** is a separate archetype focused on flora, roots, fungi, forage, field remedies, and botanical supplies.
-- **Hunter** supplies game meat and field-harvest creature parts such as hides, bones, horns, feathers, claws, fangs, scales, and related harvests, plus a lower-weight forage pool of herbs, roots, fungi, and other field gathering.
-- **Butcher** focuses on meat and food-grade animal products from the Crafting Core Material catalog.
-- **Mundane Tavern**, **Dwarven Tavern**, and **Elven Tavern** draw only curated Crafting Core culinary **Products** whose `productCulture` matches the selected tradition. The rule deliberately keys on culinary Product metadata rather than meal names or current subcategory, so future drinks and additional prepared foods can join the same tavern automatically when they use the same culture/category contract. Recipe/Knowledge Sources are not part of these tavern pools.
-- **Magic Assortment** keeps its arcane catalog and adds Crafting Core essences plus arcane, elemental, planar, psionic, radiant, necrotic, fey, fiendish, draconic, spirit, and soul-tagged materials.
-- **General Trade** keeps its broad mundane catalog and additionally carries profession-family general, food, and cultivated Crafting Materials such as staple foods and ordinary trade/craft goods.
-- **Gunsmith** and **Stable & Livestock** retain their existing themes.
+Quantity uses a simple base plus party scaling: none, party size, `floor(players / 2)`, or `floor(players / 3)`. This supports stock such as one mundane weapon/armor copy per party member or a smaller guaranteed selection of consumables.
 
-Crafting-aware profile curation only determines thematic eligibility. **Level, Quality & Price** remains the authority for party-level rarity access, rarity weighting, quality, and pricing; v0.7.2 does not add a second rarity ceiling or replace the existing progression engine.
+**Limit Guaranteed Items by Level Range** optionally sends the guaranteed pool through the existing Level, Quality & Price eligibility rules. This is useful for complete tiered families such as Healing Potions: the family can be selected once while the existing progression determines which rarities are currently available. Turning the option off means the GM's explicit guarantee takes precedence over level eligibility.
 
+### Random / Organic Stock
+
+Random Stock separates **variety** from **quantity**. Variety determines how many distinct SKUs appear; Organic Quantity determines how many units of each selected SKU are stocked. Duplicate lottery slots are not used as a substitute for quantity.
+
+Quantity presets are **Sparse**, **Normal**, **Abundant**, and **Custom**. Common merchandise naturally supports larger stacks while increasingly rare merchandise trends toward smaller stacks. Party size and Vendor Access can expand availability without replacing the existing rarity/progression rules; Access primarily broadens commercial reach and variety.
+
+Rules can expose weight, minimum/maximum picks, appearance chance, and minimum/maximum Vendor Access. This makes narrow vendors such as Hunter intentionally carry a small rotating selection while still allowing several units of a material they happened to obtain in quantity.
+
+### Existing special Items and Materialized stock
+
+Special stock has two explicit paths:
+
+- **Existing Special Items** selects ready-made/named magical documents already present in enabled sources.
+- **Materialized Special Items** selects visible Base Item Groups and routes only those bases through the existing Materialization Core and its curated recipe registry. Optional Template/Materializer Groups and an explicit Materialization Recipe can further constrain the rule.
+
+Materialized Stock does not escape to unrelated Profile merchandise if the configured base groups cannot produce a valid result. The visible Base Item Groups are authoritative. The Materialization Core itself is unchanged and continues to resolve enhancement generators, blueprints, concrete variants, enchanted ammunition, and its validated recipe families.
+
+This allows the same merchandise definition to keep magical stock coherent with the vendor: a sword specialist can materialize from sword bases, a bowyer from bows/crossbows/ammunition, and a Blacksmith from its configured weapon/armor bases without a hidden `if Blacksmith` rule.
+
+### Scroll Stock
+
+Scroll configuration is intentionally simple. A Profile only enables **This Vendor Sells Scrolls** and sets a base quantity plus party scaling. The existing Supplier/Materialization scroll path continues to perform the hard work of choosing valid Spells and creating native Scrolls. **Level, Quality & Price** remains authoritative for the party's allowed Spell level and progression.
+
+### Supplier catalog normalization
+
+Natural Weapon and Natural Armor documents are not merchandise and are excluded from Supplier candidate pools, including Blank/Homebrew Profiles. Siege weapons remain valid merchandise but broad weapon groups do not absorb them unless the `siege` subtype is explicitly requested; the canonical **Siege Engineer** Preset demonstrates that path.
+
+Profiles also expose **Normalize Firearms & Firearm Ammunition**. When enabled, firearm-oriented candidate groups are normalized inside Supplier to deduplicated medieval ranged families such as crossbows and compatible arrows/bolts/needles before stock selection/materialization. Source Compendium documents are never edited. When disabled, a Homebrew Profile can deliberately trade firearms normally. Canonical medieval Presets enable normalization by default.
+
+### Crafting Core semantic stock
+
+The Supplier reads live `dnd5e-crafting-core` metadata instead of storing a fixed list of Material/Product names. Correctly classified future Materials, meals, alcoholic drinks, non-alcoholic drinks, and other culinary Products can therefore enter matching Dynamic Item Groups without an Item Creator patch. Knowledge/Recipe Sources stay opt-in.
+
+The canonical Presets currently include **Blacksmith**, **Alchemist**, **Herbalist**, **Hunter**, **Butcher**, **Mundane/Common Tavern**, **Dwarven Tavern**, **Elven Tavern**, **Magic Assortment**, **General Trade**, **Stable & Livestock**, and **Siege Engineer**. There is no canonical Gunsmith Preset; firearm behavior is controlled by the Profile normalization option instead.
+
+- **Blacksmith** guarantees ordinary simple/martial weapons, armor/shields, and ammunition, rotates smithing materials, and uses explicit weapon/armor/ammunition bases for special/materialized stock.
+- **Alchemist** combines guaranteed tools/remedies/level-eligible Healing Potions with rotating alchemical, botanical, creature, fluid, and Essence reagents.
+- **Herbalist** focuses on kits, containers, flora, roots, fungi, forage, and field remedies.
+- **Hunter** keeps intentionally narrow rotating game/animal-harvest stock with higher affinity than its secondary field-forage group.
+- **Butcher** focuses on meat and food-grade creature flesh/products with more abundant stack quantities.
+- **Mundane/Common**, **Dwarven**, and **Elven Tavern** Presets select live culinary Products by culture/category rather than fixed names, allowing the available menu variety to grow with the Crafting Core catalog.
+- **Magic Assortment** combines mundane arcane supplies, existing named magic, explicit materialization bases/templates, scarce supernatural components, and simple Scroll Stock.
+- **General Trade** guarantees broad mundane utility goods and rotates ordinary Crafting commodities.
+- **Stable & Livestock** expresses livestock, standard/premium/exotic mounts, stable equipment, and Access gates through visible groups/rules.
+- **Siege Engineer** isolates siege weapons and dedicated supplies from ordinary Blacksmith stock.
+
+### Stock Preview and diagnostics
+
+The Profile Builder can generate a stock preview using Party Level, Party Size, and Vendor Access. Preview calls the same Supplier generation path used for real stock rather than a separate simulation engine, so it can be used to tune Item Groups, affinities, Organic Quantity, and Access behavior before generating a vendor.
+
+Supplier diagnostics remain available for generation audits, and the existing Materialization audit API remains available for recipe/family testing.
 
 ### Cumulative HAMMER rarity distribution
 
@@ -320,7 +362,7 @@ It distinguishes:
 
 The v0.4.0 Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
 
-Current focused recipes cover Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Elven Chain, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, enchanted ammunition, and Oil of Sharpness. Adamantine and Mithral preserve the mundane armor price and add the active magical price component through a global recipe price finalizer that runs across every vendor and source path; the HAMMER Homebrew Adamantine recipe uses a fixed +1,500 GP magical surcharge. Elven Chain is restricted to Chain Shirt or Chain Mail targets. Oil of Sharpness is treated as a complete consumable and keeps its native use activity without requiring a concrete target during stock generation. Equivalent SRD and PHB 2024 documents converge on the same canonical family. The vendor's mundane catalog remains the preferred target source; recipe-backed Magic Assortment curiosities may use compatible mundane targets from that profile's source snapshot when the visible vendor catalog intentionally does not sell those bases. Unknown incomplete templates are rejected and rerolled rather than guessed.
+Current focused recipes cover Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Elven Chain, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, enchanted ammunition, and Oil of Sharpness. Adamantine and Mithral preserve the mundane armor price and add the active magical price component through a global recipe price finalizer that runs across every vendor and source path; the HAMMER Homebrew Adamantine recipe uses a fixed +1,500 GP magical surcharge. Elven Chain is restricted to Chain Shirt or Chain Mail targets. Oil of Sharpness is treated as a complete consumable and keeps its native use activity without requiring a concrete target during stock generation. Equivalent SRD and PHB 2024 documents converge on the same canonical family. For Supplier Profile System v2, Materialized Stock uses only the Base Item Groups explicitly attached to that rule; it does not fall back to unrelated merchandise elsewhere in the Profile. Unknown or incomplete templates are rejected/rerolled within the configured rule rather than guessed.
 
 The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
 
@@ -347,4 +389,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.5.0l/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.3/item-creator.zip`

@@ -373,6 +373,14 @@ export function isFirearmRelated(entry) {
   return firearmClassification(entry).firearmRelated;
 }
 
+export function isNaturalSupplierEntry(entry) {
+  const type = String(entry?.type ?? "");
+  if (!["weapon", "equipment"].includes(type)) return false;
+  const values = [entry?.subtype, entry?.primarySubtypeKey, ...(entry?.subtypeKeys ?? [])]
+    .map(value => normalizeText(value).replaceAll("-", ""));
+  return values.some(value => value === "natural" || value === "naturalweapon" || value === "naturalarmor");
+}
+
 export function isMechanicalItem(entry) {
   return Boolean(entry?.isMechanical || mechanicalItemRule(entry));
 }
@@ -883,6 +891,7 @@ export function entriesForProfile(catalog, profile, configuration = getConfigura
       if ((sourceSnapshot || sourceIds.size) && !sourceIds.has(entry.packId)) return false;
       if (!includeBanned && isBannedEntry(entry, profile, configuration)) return false;
       if (!includeMechanical && isMechanicalItemExcluded(entry, profile, configuration)) return false;
+      if (isNaturalSupplierEntry(entry)) return false;
       return true;
     });
     const merged = mergeEntryGroup(variants);

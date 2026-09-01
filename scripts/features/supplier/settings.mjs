@@ -7,17 +7,13 @@ import {
   HAMMER_HOMEBREW_PROGRESSION_ID,
   MODULE_ID,
   RECOMMENDED_PROGRESSION_ID,
-  SUPPLIER_THEMES,
   SUPPLIER_CONFIGURATION_KEY,
   SUPPLIER_ENABLED_KEY,
-  createDefaultCatalogRule,
-  createDefaultGuaranteedRule,
-  createDefaultRandomRule,
   createDefaultSettings,
   createHammerHomebrewProgressionProfile,
   createRecommendedProgressionProfile
 } from "./constants.mjs";
-import { restoreHomebrewRuleCurations } from "./homebrew-curation.mjs";
+import { createSupplierProfileV2, normalizeSupplierProfileV2 } from "./profile-v2.mjs";
 
 export function registerSupplierSettings() {
   game.settings.register(MODULE_ID, SUPPLIER_ENABLED_KEY, {
@@ -45,227 +41,6 @@ function arrayValue(value, fallback = []) {
   if (Array.isArray(value)) return value;
   if (value === undefined || value === null || value === "") return [...fallback];
   return [value];
-}
-
-function normalizeBannedItem(item) {
-  return {
-    id: String(item?.id ?? foundry.utils.randomID()),
-    key: String(item?.key ?? ""),
-    uuid: String(item?.uuid ?? ""),
-    name: String(item?.name ?? ""),
-    img: String(item?.img ?? ""),
-    type: String(item?.type ?? ""),
-    subtype: String(item?.subtype ?? ""),
-    subtypeKey: String(item?.subtypeKey ?? ""),
-    packId: String(item?.packId ?? ""),
-    packLabel: String(item?.packLabel ?? ""),
-    packageName: String(item?.packageName ?? ""),
-    allSources: item?.allSources === true
-  };
-}
-
-function normalizeBannedItems(items) {
-  return arrayValue(items).map(normalizeBannedItem).filter(item => item.key || item.uuid);
-}
-
-function normalizeMechanicalOverride(item) {
-  return {
-    uuid: String(item?.uuid ?? ""),
-    excluded: item?.excluded === true
-  };
-}
-
-function normalizeMechanicalOverrides(items) {
-  const byUuid = new Map();
-  for (const item of arrayValue(items).map(normalizeMechanicalOverride)) {
-    if (!item.uuid) continue;
-    byUuid.set(item.uuid, item);
-  }
-  return [...byUuid.values()];
-}
-
-function inferTheme(profile) {
-  if (SUPPLIER_THEMES.some(theme => theme.id === profile?.theme)) return profile.theme;
-  const value = `${profile?.name ?? ""} ${profile?.icon ?? ""}`.toLowerCase();
-  if (value.includes("alchemist") || value.includes("alquim") || value.includes("flask")) return "alchemist";
-  if (value.includes("gunsmith") || value.includes("armas de fogo") || value.includes("pistola") || value.includes("mosquete") || value.includes("fa-gun")) return "gunsmith";
-  if (value.includes("blacksmith") || value.includes("ferreir") || value.includes("hammer")) return "blacksmith";
-  if (value.includes("jewel") || value.includes("joalh") || value.includes("gem") || value.includes("ring")) return "jeweler";
-  if (value.includes("magic") || value.includes("mágic") || value.includes("arcane") || value.includes("wand")) return "magic";
-  if (value.includes("general") || value.includes("gerais") || value.includes("basket")) return "general";
-  if (value.includes("stable") || value.includes("livestock") || value.includes("estábulo") || value.includes("curral") || value.includes("horse")) return "stable";
-  return "custom";
-}
-
-function iconForTheme(themeId, fallback = "fa-solid fa-store") {
-  return SUPPLIER_THEMES.find(theme => theme.id === themeId)?.icon ?? fallback;
-}
-
-function inferCategory(rule) {
-  if (rule?.category === "healingPotions") return "consumable";
-  if (rule?.category) return rule.category;
-  if (rule?.selectionMode === "spellScroll") return "spellScroll";
-  if (rule?.selectionMode === "family" && rule?.familyId === "healingPotions") return "consumable";
-  if (["exact", "list"].includes(rule?.selectionMode)) return "exact";
-
-  const types = arrayValue(rule?.itemTypes);
-  if (types.length === 1) {
-    if (types[0] === "weapon") return "weapon";
-    if (types[0] === "equipment") return "equipment";
-    if (["consumable", "tool", "loot", "container"].includes(types[0])) return types[0];
-    if (types[0] === "spell") return "spellScroll";
-  }
-  return "";
-}
-
-function canonicalSubtypeValue(value) {
-  const raw = String(value ?? "");
-  const normalized = raw.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const aliases = {
-    simplem: "simpleM",
-    simpler: "simpleR",
-    martialm: "martialM",
-    martialr: "martialR",
-    light: "lightArmor",
-    lightarmor: "lightArmor",
-    medium: "mediumArmor",
-    mediumarmor: "mediumArmor",
-    heavy: "heavyArmor",
-    heavyarmor: "heavyArmor",
-    shield: "shield",
-    wondrousitem: "wondrous",
-    wondrous: "wondrous",
-    ammo: "ammunition"
-  };
-  return aliases[normalized] ?? raw;
-}
-
-function migrateLegacySubtypeFilters(rule, category, existingSubtypes) {
-  const result = new Set(arrayValue(existingSubtypes).map(canonicalSubtypeValue).filter(Boolean));
-  if (rule?.category === "healingPotions" || rule?.familyId === "healingPotions") result.add("potion");
-  if (category === "weapon") {
-    const categories = arrayValue(rule?.weaponCategories);
-    const modes = arrayValue(rule?.weaponModes);
-    const selectedCategories = categories.length ? categories : ["simple", "martial"];
-    const selectedModes = modes.length ? modes : ["melee", "ranged"];
-    if (categories.length || modes.length) {
-      for (const weaponCategory of selectedCategories) {
-        for (const mode of selectedModes) {
-          if (weaponCategory === "simple" && mode === "melee") result.add("simpleM");
-          if (weaponCategory === "simple" && mode === "ranged") result.add("simpleR");
-          if (weaponCategory === "martial" && mode === "melee") result.add("martialM");
-          if (weaponCategory === "martial" && mode === "ranged") result.add("martialR");
-        }
-      }
-    }
-  }
-  if (category === "equipment" || category === "armor") {
-    for (const armorCategory of arrayValue(rule?.armorCategories)) result.add(canonicalSubtypeValue(armorCategory));
-  }
-  return [...result];
-}
-
-function normalizeRule(rule, defaults) {
-  const migrated = foundry.utils.mergeObject(defaults, rule ?? {}, {
-    inplace: false,
-    insertKeys: true,
-    insertValues: true,
-    overwrite: true,
-    recursive: true
-  });
-
-  const wasHealingFamily = rule?.category === "healingPotions"
-    || rule?.familyId === "healingPotions"
-    || (rule?.selectionMode === "family" && rule?.familyId === "healingPotions");
-
-  migrated.category = inferCategory(rule ?? migrated);
-  if (migrated.category === "armor") migrated.category = "equipment";
-  migrated.itemRefs = arrayValue(migrated.itemRefs);
-  migrated.subtypes = migrateLegacySubtypeFilters(rule ?? migrated, migrated.category, migrated.subtypes ?? migrated.subtype);
-  migrated.subtypeCategory = migrated.category;
-  migrated.weaponCategories = [];
-  migrated.weaponModes = [];
-  migrated.armorCategories = [];
-  migrated.spellLevelMode = "level";
-  migrated.spellLevels = arrayValue(migrated.spellLevels, [0, 1]).map(Number);
-  migrated.excludeRefs = arrayValue(migrated.excludeRefs);
-  migrated.excludeFamilies = arrayValue(migrated.excludeFamilies);
-  migrated.includeFamilies = arrayValue(migrated.includeFamilies);
-  if (wasHealingFamily && !migrated.includeFamilies.includes("healingPotions")) migrated.includeFamilies.push("healingPotions");
-  migrated.poolExclusions = arrayValue(migrated.poolExclusions);
-  migrated.materializerExclusions = arrayValue(migrated.materializerExclusions);
-  migrated.homebrewCuration = String(migrated.homebrewCuration ?? "");
-  migrated.homebrewTemplateRule = migrated.homebrewTemplateRule === true || Boolean(migrated.homebrewCuration);
-  migrated.generatorResultCuration = String(migrated.generatorResultCuration ?? "");
-  migrated.quantity = Number(migrated.quantity ?? 1);
-  migrated.quantityMin = Number(migrated.quantityMin ?? 1);
-  migrated.quantityMax = Number(migrated.quantityMax ?? 1);
-  migrated.fixedBonus = Number(migrated.fixedBonus ?? 1);
-  migrated.enchantedMinimum = Number(migrated.enchantedMinimum ?? 0);
-  migrated.randomWeight = Math.max(0.001, Number(migrated.randomWeight ?? 1));
-  migrated.chance = Math.min(100, Math.max(0, Number(migrated.chance ?? 100)));
-  migrated.minimumVendorAccess = Math.min(4, Math.max(0, Number(migrated.minimumVendorAccess ?? 0)));
-  migrated.maximumVendorAccess = Math.min(4, Math.max(0, Number(migrated.maximumVendorAccess ?? 0)));
-  migrated.maxPerFamily = Math.max(0, Number(migrated.maxPerFamily ?? 0));
-  migrated.rarityDistribution = String(migrated.rarityDistribution ?? "");
-  migrated.selectionDistribution = String(migrated.selectionDistribution ?? "");
-  migrated.silentIfEmpty = migrated.silentIfEmpty === true;
-  migrated.requireMagicalResult = migrated.requireMagicalResult === true;
-  migrated.maxSelections = Math.max(0, Number(migrated.maxSelections ?? 0));
-  migrated.reservationGroup = String(migrated.reservationGroup ?? "");
-  migrated.stockScaleBase = Math.max(1, Number(migrated.stockScaleBase ?? 4));
-  migrated.coverageMode = migrated.coverageMode === "rolls" ? "slots" : (migrated.coverageMode ?? "slots");
-
-  // v0.0.2 centralizes all rarity availability in progression profiles.
-  delete migrated.rarityMode;
-  delete migrated.rarities;
-  return migrated;
-}
-
-function migrateCatalogRule(rule) {
-  const migrated = normalizeRule(rule, createDefaultCatalogRule());
-  migrated.magicalState = "mundane";
-  migrated.qualityMode = "mundane";
-  migrated.coverageMode = "all";
-  migrated.countsTowardTotal = false;
-  return migrated;
-}
-
-function migrateGuaranteedRule(rule) {
-  const migrated = normalizeRule(rule, createDefaultGuaranteedRule());
-  migrated.countsTowardTotal = false;
-  migrated.coverageMode = "slots";
-  const ref = String(rule?.itemRef ?? "").toLowerCase();
-  if (!migrated.category && ["potion-of-healing", "potion of healing"].includes(ref)) {
-    migrated.category = "consumable";
-    migrated.subtypes = ["potion"];
-    migrated.subtypeCategory = "consumable";
-    migrated.includeFamilies = ["healingPotions"];
-    migrated.name = rule?.itemLabel || "Healing Potions";
-  }
-  return migrated;
-}
-
-function migrateRandomRule(rule, profileTheme) {
-  const migrated = normalizeRule(rule, createDefaultRandomRule());
-  migrated.quantityMode = "remainder";
-  migrated.countsTowardTotal = false;
-  migrated.randomWeight = Math.max(0.001, Number(rule?.randomWeight ?? 1));
-
-  const looksLikeLegacyPotionDefault =
-    String(rule?.name ?? "") === "Random Stock"
-    && rule?.selectionMode === "category"
-    && arrayValue(rule?.itemTypes).length === 1
-    && arrayValue(rule?.itemTypes)[0] === "consumable"
-    && arrayValue(rule?.subtypes ?? rule?.subtype).map(String).includes("potion");
-  if (profileTheme !== "alchemist" && looksLikeLegacyPotionDefault) {
-    migrated.category = "";
-    migrated.subtypeCategory = "";
-    migrated.subtypes = [];
-    migrated.excludeFamilies = [];
-    migrated.includeFamilies = [];
-  }
-  return migrated;
 }
 
 function normalizeProgressionProfile(profile, fallback = null) {
@@ -366,7 +141,8 @@ export function syncActiveProgression(configuration) {
 }
 
 function migrateConfiguration(stored) {
-  const configuration = foundry.utils.mergeObject(createDefaultSettings(), stored ?? {}, {
+  const defaults = createDefaultSettings();
+  const configuration = foundry.utils.mergeObject(defaults, stored ?? {}, {
     inplace: false,
     insertKeys: true,
     insertValues: true,
@@ -375,8 +151,16 @@ function migrateConfiguration(stored) {
   });
 
   if (!stored?.folderNameTemplate && stored?.containerNameTemplate) configuration.folderNameTemplate = stored.containerNameTemplate;
+  configuration.sources = arrayValue(Array.isArray(stored?.sources) ? stored.sources : configuration.sources)
+    .map((source, index) => ({
+      id: String(source?.id ?? ""),
+      enabled: source?.enabled === true,
+      priority: Number.isFinite(Number(source?.priority)) ? Number(source.priority) : index
+    }))
+    .filter(source => source.id)
+    .sort((a, b) => a.priority - b.priority);
+  configuration.sources.forEach((source, index) => { source.priority = index; });
 
-  configuration.sources = arrayValue(Array.isArray(stored?.sources) ? stored.sources : configuration.sources);
   configuration.excludeMechanicalItems = stored?.excludeMechanicalItems !== false;
   configuration.useCorePricing = stored?.useCorePricing !== false;
   configuration.progressionProfiles = normalizeProgressionProfiles(stored, configuration);
@@ -387,77 +171,33 @@ function migrateConfiguration(stored) {
     ?? RECOMMENDED_PROGRESSION_ID
   );
 
-  const legacyGlobalBans = normalizeBannedItems(Array.isArray(stored?.bannedItems) ? stored.bannedItems : []);
-  const storedProfiles = Array.isArray(stored?.profiles) ? stored.profiles : configuration.profiles;
-  configuration.profiles = arrayValue(storedProfiles).map(profile => {
-    const theme = inferTheme(profile);
-    const customIcon = profile.customIcon || profile.icon || "fa-solid fa-store";
-    const migratedProfile = {
-      ...profile,
-      theme,
-      customIcon,
-      icon: theme === "custom" ? customIcon : iconForTheme(theme, customIcon),
-      sourceIds: arrayValue(profile.sourceIds),
-      sourceSnapshot: profile.sourceSnapshot === true,
-      progressionProfileId: String(profile.progressionProfileId ?? "world"),
-      homebrewTemplateId: String(profile.homebrewTemplateId ?? ""),
-      homebrewAccessLevel: ["1", "2", "3", "4"].includes(String(profile.homebrewAccessLevel)) ? String(profile.homebrewAccessLevel) : "2",
-      homebrewPresetVersion: Number(profile.homebrewPresetVersion ?? 0),
-      allowCursedItems: profile.allowCursedItems === true,
-      randomReservations: arrayValue(profile.randomReservations).map(reservation => ({
-        id: String(reservation?.id ?? ""),
-        share: Math.min(1, Math.max(0, Number(reservation?.share ?? 0))),
-        minimumByAccess: arrayValue(reservation?.minimumByAccess, [0, 0, 0, 0]).map(value => Math.max(0, Number(value ?? 0)))
-      })).filter(reservation => reservation.id),
-      stockScaleBase: Math.max(1, Number(profile.stockScaleBase ?? 4)),
-      stockBands: arrayValue(profile.stockBands).map(band => ({
-        min: Number(band?.min ?? 1),
-        max: Number(band?.max ?? 20),
-        total: Math.max(0, Number(band?.total ?? 0)),
-        scrolls: Math.max(0, Number(band?.scrolls ?? 0))
-      })),
-      allowedItemTypes: [],
-      stockTotalMode: (() => {
-        const mode = profile.stockTotalMode ?? "perPlayer";
-        if (["partyScaled", "levelPartyScaled", "fixed", "perPlayer"].includes(mode)) return mode;
-        if (["players", "playersMultiplier", "halfDown", "halfUp"].includes(mode)) return "perPlayer";
-        return "perPlayer";
-      })(),
-      stockTotal: (() => {
-        const mode = profile.stockTotalMode ?? "perPlayer";
-        const value = Number(profile.stockTotal ?? 1);
-        if (mode === "players") return 1;
-        if (["halfDown", "halfUp"].includes(mode)) return 0.5;
-        if (Number(stored?.version ?? 0) < 4 && profile.id === "alpha-alchemist" && mode === "playersMultiplier" && value === 2) return 1;
-        return value;
-      })(),
-      mundaneCatalogRules: arrayValue(profile.mundaneCatalogRules).map(migrateCatalogRule),
-      guaranteedRules: arrayValue(profile.guaranteedRules).map(migrateGuaranteedRule),
-      mechanicalItemOverrides: normalizeMechanicalOverrides(profile.mechanicalItemOverrides),
-      bannedItems: (() => {
-        const own = normalizeBannedItems(profile.bannedItems);
-        if (!legacyGlobalBans.length) return own;
-        const merged = [...own];
-        const signatures = new Set(merged.map(item => item.allSources ? `key:${item.key}` : `uuid:${item.uuid}`));
-        for (const item of legacyGlobalBans) {
-          const migrated = { ...item, id: foundry.utils.randomID(), allSources: item.allSources !== false };
-          const signature = migrated.allSources ? `key:${migrated.key}` : `uuid:${migrated.uuid}`;
-          if (signatures.has(signature)) continue;
-          merged.push(migrated);
-          signatures.add(signature);
-        }
-        return merged;
-      })(),
-      randomRules: arrayValue(profile.randomRules).map(rule => migrateRandomRule(rule, theme))
-    };
-    return restoreHomebrewRuleCurations(migratedProfile);
-  });
+  const isProfileV2Configuration = Number(stored?.version ?? 0) >= 23;
+  if (isProfileV2Configuration) {
+    configuration.profiles = arrayValue(stored?.profiles).map(normalizeSupplierProfileV2);
+  } else {
+    // v0.7.3 intentionally starts Supplier Profiles clean. The profile model was
+    // redesigned from the ground up and legacy Homebrew/Profile curations are
+    // deliberately not migrated. Sources and Level/Quality/Price settings are
+    // preserved because they are independent subsystems.
+    const enabledSourceIds = configuration.sources.filter(source => source.enabled).map(source => source.id);
+    configuration.profiles = [createSupplierProfileV2({
+      name: game?.i18n?.localize?.("DND5E_SUPPLIER.Config.NewProfile") ?? "New Supplier",
+      sourceIds: enabledSourceIds,
+      normalizeFirearms: true
+    })];
+  }
+
+  if (!configuration.profiles.length) {
+    configuration.profiles.push(createSupplierProfileV2({
+      name: game?.i18n?.localize?.("DND5E_SUPPLIER.Config.NewProfile") ?? "New Supplier",
+      sourceIds: configuration.sources.filter(source => source.enabled).map(source => source.id),
+      normalizeFirearms: true
+    }));
+  }
 
   const progressionIds = new Set((configuration.progressionProfiles ?? []).map(profile => profile.id));
-  for (const profile of configuration.profiles ?? []) {
-    if (profile.progressionProfileId !== "world" && !progressionIds.has(profile.progressionProfileId)) {
-      profile.progressionProfileId = "world";
-    }
+  for (const profile of configuration.profiles) {
+    if (profile.progressionProfileId !== "world" && !progressionIds.has(profile.progressionProfileId)) profile.progressionProfileId = "world";
   }
 
   delete configuration.bannedItems;
@@ -473,6 +213,7 @@ export function getConfiguration() {
 export async function saveConfiguration(configuration) {
   delete configuration.bannedItems;
   configuration.version = CONFIGURATION_VERSION;
+  configuration.profiles = arrayValue(configuration.profiles).map(normalizeSupplierProfileV2);
   syncActiveProgression(configuration);
   return game.settings.set(MODULE_ID, SUPPLIER_CONFIGURATION_KEY, configuration);
 }
@@ -507,70 +248,6 @@ export async function initializeDefaultSources() {
     if (profile.sourceSnapshot === true || profile.sourceIds?.length) continue;
     profile.sourceIds = [...enabledIds];
     changed = true;
-  }
-
-  // Rebuild legacy HAMMER vendor snapshots once for the v7 cumulative-progression architecture.
-  // Names, selected sources, bans, and mechanical overrides are preserved.
-  const legacyHomebrew = configuration.profiles.filter(profile => profile.homebrewTemplateId && Number(profile.homebrewPresetVersion ?? 0) < 7);
-  if (legacyHomebrew.length) {
-    const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
-    for (const legacy of legacyHomebrew) {
-      const rebuilt = createHomebrewSupplierProfile({
-        templateId: legacy.homebrewTemplateId,
-        accessLevel: legacy.homebrewAccessLevel || "2",
-        name: legacy.name,
-        sourceIds: legacy.sourceIds?.length ? legacy.sourceIds : enabledIds
-      });
-      rebuilt.id = legacy.id;
-      rebuilt.sourceSnapshot = true;
-      rebuilt.progressionProfileId = legacy.progressionProfileId ?? rebuilt.progressionProfileId;
-      rebuilt.bannedItems = foundry.utils.deepClone(legacy.bannedItems ?? []);
-      rebuilt.mechanicalItemOverrides = foundry.utils.deepClone(legacy.mechanicalItemOverrides ?? []);
-      rebuilt.allowCursedItems = legacy.allowCursedItems === true;
-      const index = configuration.profiles.indexOf(legacy);
-      configuration.profiles[index] = rebuilt;
-    }
-    changed = true;
-  }
-
-  // v8 adds Crafting Core material shelves to existing HAMMER profiles. This
-  // migration is deliberately additive: it never rebuilds a v7 profile and
-  // therefore preserves every GM edit, unlocked Custom Pool, ban, source, and
-  // quantity. Only the newly introduced semantic Crafting rules are appended.
-  const additiveV8Curations = new Set([
-    "craftingBlacksmithMaterials",
-    "craftingAlchemistMaterials",
-    "craftingMagicMaterials",
-    "craftingGeneralTradeMaterials"
-  ]);
-  const v7Homebrew = configuration.profiles.filter(profile =>
-    profile.homebrewTemplateId
-    && Number(profile.homebrewPresetVersion ?? 0) >= 7
-    && Number(profile.homebrewPresetVersion ?? 0) < 8
-  );
-  if (v7Homebrew.length) {
-    const { createHomebrewSupplierProfile } = await import("./homebrew-suppliers.mjs");
-    for (const profile of v7Homebrew) {
-      const preset = createHomebrewSupplierProfile({
-        templateId: profile.homebrewTemplateId,
-        accessLevel: profile.homebrewAccessLevel || "2",
-        name: profile.name,
-        sourceIds: profile.sourceIds?.length ? profile.sourceIds : enabledIds
-      });
-      const collections = ["mundaneCatalogRules", "guaranteedRules", "randomRules"];
-      const existing = new Set(collections.flatMap(key => (profile[key] ?? []).map(rule => String(rule?.homebrewCuration ?? ""))));
-      for (const key of collections) {
-        profile[key] ??= [];
-        for (const rule of preset[key] ?? []) {
-          const curation = String(rule?.homebrewCuration ?? "");
-          if (!additiveV8Curations.has(curation) || existing.has(curation)) continue;
-          profile[key].push(foundry.utils.deepClone(rule));
-          existing.add(curation);
-        }
-      }
-      profile.homebrewPresetVersion = 8;
-      changed = true;
-    }
   }
 
   if (changed || Number(game.settings.get(MODULE_ID, SUPPLIER_CONFIGURATION_KEY)?.version ?? 0) < CONFIGURATION_VERSION) {

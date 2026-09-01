@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.3.3-integrated";
-export const CONFIGURATION_VERSION = 22;
+export const SUPPLIER_FEATURE_VERSION = "0.4.0-integrated";
+export const CONFIGURATION_VERSION = 23;
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },
@@ -58,13 +58,6 @@ export const SUPPLIER_THEMES = [
     icon: "fa-solid fa-utensils",
     secondaryIcon: "",
     color: "tavern"
-  },
-  {
-    id: "gunsmith",
-    label: "DND5E_SUPPLIER.Theme.Gunsmith",
-    icon: "fa-solid fa-gun",
-    secondaryIcon: "fa-solid fa-gears",
-    color: "gunmetal"
   },
   {
     id: "general",
@@ -274,142 +267,6 @@ export function createCustomProgressionProfile(source = null, name = "Custom Pro
   };
 }
 
-function baseRule() {
-  return {
-    id: foundry.utils.randomID(),
-    enabled: true,
-    name: "",
-    category: "",
-    itemRef: "",
-    itemLabel: "",
-    itemRefs: [],
-    subtypes: [],
-    subtypeCategory: "",
-    weaponCategories: [],
-    weaponModes: [],
-    armorCategories: [],
-    magicalState: "any",
-    spellLevelMode: "level",
-    spellLevels: [0, 1],
-    qualityMode: "source",
-    fixedBonus: 1,
-    enchantedMinimumMode: "none",
-    enchantedMinimum: 0,
-    quantityMode: "fixed",
-    quantity: 1,
-    quantityMin: 1,
-    quantityMax: 1,
-    randomWeight: 1,
-    coverageMode: "slots",
-    allowDuplicates: true,
-    countsTowardTotal: false,
-    excludeRefs: [],
-    excludeFamilies: [],
-    includeFamilies: [],
-    poolExclusions: [],
-    materializerExclusions: [],
-    homebrewCuration: "",
-    homebrewTemplateRule: false,
-    generatorResultCuration: "",
-    chance: 100,
-    minimumVendorAccess: 0,
-    maximumVendorAccess: 0,
-    maxPerFamily: 0,
-    rarityDistribution: "",
-    selectionDistribution: "",
-    silentIfEmpty: false,
-    requireMagicalResult: false,
-    maxSelections: 0,
-    reservationGroup: ""
-  };
-}
-
-export function createDefaultCatalogRule() {
-  return {
-    ...baseRule(),
-    name: "Mundane Catalog",
-    category: "",
-    quantityMode: "players",
-    quantity: 1,
-    magicalState: "mundane",
-    qualityMode: "mundane",
-    coverageMode: "all",
-    allowDuplicates: false,
-    countsTowardTotal: false
-  };
-}
-
-export function createDefaultGuaranteedRule() {
-  return {
-    ...baseRule(),
-    name: "Guaranteed Item",
-    quantityMode: "fixed",
-    quantity: 1,
-    coverageMode: "slots",
-    countsTowardTotal: false
-  };
-}
-
-export function createDefaultRandomRule() {
-  return {
-    ...baseRule(),
-    name: "Random Stock",
-    quantityMode: "remainder",
-    quantity: 1,
-    randomWeight: 1,
-    coverageMode: "slots",
-    countsTowardTotal: false
-  };
-}
-
-export const DEFAULT_PROFILE = {
-  id: "alpha-alchemist",
-  name: "Alchemist",
-  theme: "alchemist",
-  icon: "fa-solid fa-flask",
-  customIcon: "fa-solid fa-store",
-  description: "Potions, elixirs, oils, poisons, and other alchemical consumables.",
-  sourceIds: [],
-  progressionProfileId: "world",
-  homebrewTemplateId: "",
-  homebrewAccessLevel: "2",
-  allowCursedItems: false,
-  randomReservations: [],
-  allowedItemTypes: [],
-  stockTotalMode: "perPlayer",
-  stockTotal: 1,
-  mundaneCatalogRules: [],
-  guaranteedRules: [
-    {
-      ...createDefaultGuaranteedRule(),
-      id: "alpha-healing-potion",
-      name: "Healing Potions",
-      category: "consumable",
-      subtypes: ["potion"],
-      subtypeCategory: "consumable",
-      includeFamilies: ["healingPotions"],
-      quantityMode: "players",
-      quantity: 1,
-      qualityMode: "source",
-      allowDuplicates: true
-    }
-  ],
-  bannedItems: [],
-  mechanicalItemOverrides: [],
-  randomRules: [
-    {
-      ...createDefaultRandomRule(),
-      id: "alpha-random-potions",
-      name: "Random Alchemical Stock",
-      category: "consumable",
-      subtypes: ["potion"],
-      subtypeCategory: "consumable",
-      quantityMode: "remainder",
-      excludeFamilies: ["healingPotions"]
-    }
-  ]
-};
-
 export function createDefaultSettings() {
   const recommended = createRecommendedProgressionProfile();
   const homebrew = createHammerHomebrewProgressionProfile();
@@ -425,7 +282,10 @@ export function createDefaultSettings() {
     qualityPriceAdditions: foundry.utils.deepClone(recommended.qualityPriceAdditions),
     levelBands: foundry.utils.deepClone(recommended.levelBands),
     enchantmentBands: foundry.utils.deepClone(recommended.enchantmentBands),
-    profiles: [foundry.utils.deepClone(DEFAULT_PROFILE)],
+    // Supplier Profile System v2 is initialized by settings.mjs. Keep the raw
+    // setting default profile-free so a fresh world always starts from the
+    // same explicit v2 profile model.
+    profiles: [],
     folderNameTemplate: "{supplier} — {date} — {time}"
   };
 }

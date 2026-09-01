@@ -33,6 +33,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
     this.catalogUnits = 0;
     this.guaranteedUnits = 0;
     this.randomUnits = 0;
+    this.specialUnits = 0;
     this.diagnostics = null;
     this.busy = false;
     this.viewState = null;
@@ -73,6 +74,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       catalogUnits: this.catalogUnits,
       guaranteedUnits: this.guaranteedUnits,
       randomUnits: this.randomUnits,
+      specialUnits: this.specialUnits,
       preview: this.preview.map((line, index) => ({
         ...line,
         index,
@@ -124,6 +126,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
         this.catalogUnits = 0;
         this.guaranteedUnits = 0;
         this.randomUnits = 0;
+        this.specialUnits = 0;
         this.diagnostics = null;
         this.#renderPreservingView();
       });
@@ -143,6 +146,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = 0;
       this.guaranteedUnits = 0;
       this.randomUnits = 0;
+      this.specialUnits = 0;
       this.diagnostics = null;
       this.#renderPreservingView();
     });
@@ -225,6 +229,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = result.catalogUnits ?? 0;
       this.guaranteedUnits = result.guaranteedUnits ?? 0;
       this.randomUnits = result.randomUnits ?? 0;
+      this.specialUnits = result.specialUnits ?? 0;
       this.diagnostics = result.diagnostics ?? null;
       if (!this.preview.length) ui.notifications.warn(game.i18n.localize("DND5E_SUPPLIER.Errors.NothingGenerated"));
     } catch (error) {
@@ -257,6 +262,7 @@ export class SupplierApplication extends HandlebarsApplicationMixin(ApplicationV
       this.catalogUnits = 0;
       this.guaranteedUnits = 0;
       this.randomUnits = 0;
+      this.specialUnits = 0;
       this.diagnostics = null;
       ui.items?.render(true);
     } catch (error) {
