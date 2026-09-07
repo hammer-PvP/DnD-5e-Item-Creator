@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.4a — Runtime Integrity / Attunement Stabilization
+
+- Began the v0.7.4 Runtime Integrity pass. Runtime reconciliation triggered by `createItem`, `updateItem`, `updateActor`, and managed Item Active Effect changes is now deferred until the current Foundry/D&D5e document-update stack has settled. This prevents Item Creator from performing structural embedded-Item updates recursively inside D&D5e's native update/preparation cycle.
+- Runtime Actor and Item synchronization requests are now coalesced and, critically, requests that arrive while a sync is already running are queued for another pass instead of being silently discarded. This targets the observed state where Item Creator mechanics could remain stale during a session but become correct after the full `ready` reconciliation on world reload.
+- Weapon creation now explicitly initializes `system.equipped = false` and `system.attuned = false`, matching Equipment and Tool creation. Weapons no longer inherit a Template's transient equipped/attuned state.
+- Added a non-mutating `game.itemCreator.auditRuntime(actor)` diagnostic that compares D&D5e's prepared attunement count with the Items that are actually attuned and reports any in-memory drift, plus reconciliation queue state.
+- This build deliberately does **not** implement Activities v2, Consumables v2, or the global lifecycle redesign. It is an isolated stability build for live regression testing before v0.7.4 is finalized.
+
 ## 0.7.3 — Supplier Profile System v2
 
 ### Breaking change — Supplier Profiles

@@ -1299,6 +1299,11 @@ export class ItemCreatorItemBuilder {
     // Preserve special Template metadata unless explicitly overridden by Item Creator.
     data.system.rarity = draft.template.system?.rarity ?? data.system.rarity ?? "";
     data.system.attunement = draft.template.system?.attunement ?? data.system.attunement ?? "";
+    // A newly-created Weapon is an independent document. Never inherit the
+    // Template's transient equipped/attuned state; Equipment and Tool builders
+    // already enforce the same invariant.
+    data.system.equipped = false;
+    data.system.attuned = false;
     data.system.magicalBonus = draft.template.system?.magicalBonus ?? data.system.magicalBonus ?? "";
     if (valuesOf(draft.template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
     data.system.properties = [...new Set(data.system.properties)];

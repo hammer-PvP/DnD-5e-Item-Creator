@@ -300,44 +300,78 @@ function readSpellSlotLedger(actor) {
 export class ItemCreatorRuntimeEffectService {
   static #syncingItems = new Set();
   static #syncingActors = new Set();
+  static #pendingItemSyncs = new Set();
+  static #pendingActorSyncs = new Set();
+  static #scheduledItemSyncs = new Map();
+  static #scheduledActorSyncs = new Map();
   static #pendingResourceBases = new Map();
+
+  /**
+   * Defer reconciliation until the current Foundry/D&D5e document update stack has
+   * completely settled. Running an Item Creator structural update synchronously from
+   * inside updateItem can cause nested Item preparation while D&D5e is still
+   * recalculating derived Actor data (most visibly the attunement counter).
+   */
+  static #scheduleActorSync(actor) {
+    if (!game.user.isGM || actor?.documentName !== "Actor") return;
+    const key = actor.uuid;
+    if (!key || this.#scheduledActorSyncs.has(key)) return;
+    const timer = setTimeout(() => {
+      this.#scheduledActorSyncs.delete(key);
+      void this.syncActor(actor);
+    }, 0);
+    this.#scheduledActorSyncs.set(key, timer);
+  }
+
+  static #scheduleItemSync(item) {
+    if (!game.user.isGM || !isManagedItem(item)) return;
+    const key = item.uuid;
+    if (!key || this.#scheduledItemSyncs.has(key)) return;
+    const timer = setTimeout(() => {
+      this.#scheduledItemSyncs.delete(key);
+      void this.syncItem(item);
+    }, 0);
+    this.#scheduledItemSyncs.set(key, timer);
+  }
 
   static registerHooks() {
     Hooks.on("createItem", (item, options) => {
       if (options?.itemCreatorRuntime) return;
-      if (item.parent?.documentName === "Actor") void this.syncActor(item.parent);
-      else void this.syncItem(item);
+      if (item.parent?.documentName === "Actor") this.#scheduleActorSync(item.parent);
+      else this.#scheduleItemSync(item);
     });
     Hooks.on("updateItem", (item, changes, options) => {
       if (options?.itemCreatorRuntime) return;
       if (item.parent?.documentName === "Actor") {
         this.#recordExternalResourceBases(item, changes);
-        void this.syncActor(item.parent);
-      } else void this.syncItem(item);
+        this.#scheduleActorSync(item.parent);
+      } else this.#scheduleItemSync(item);
     });
     Hooks.on("deleteItem", item => {
       const actor = item.parent?.documentName === "Actor" ? item.parent : null;
-      void this.removeItemEffects(item);
-      if (actor) setTimeout(() => void this.syncActor(actor), 0);
+      // Cleanup/reconciliation is also deferred so it never mutates the Actor from
+      // inside Foundry's embedded-document deletion stack.
+      setTimeout(() => void this.removeItemEffects(item), 0);
+      if (actor) this.#scheduleActorSync(actor);
     });
     Hooks.on("updateActor", (actor, _changes, options) => {
       if (options?.itemCreatorRuntime) return;
-      void this.syncActor(actor);
+      this.#scheduleActorSync(actor);
     });
     Hooks.on("createActor", (actor, options) => {
       if (options?.itemCreatorRuntime) return;
       // Imported Actors can arrive with managed embedded Items already present.
       // Defer one turn so Foundry has finished constructing those documents.
-      setTimeout(() => void this.syncActor(actor), 0);
+      this.#scheduleActorSync(actor);
     });
     Hooks.on("createActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.#scheduleItemSync(effect.parent);
     });
     Hooks.on("updateActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.#scheduleItemSync(effect.parent);
     });
     Hooks.on("deleteActiveEffect", effect => {
-      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) void this.syncItem(effect.parent);
+      if (effect.parent?.documentName === "Item" && isManagedItem(effect.parent)) this.#scheduleItemSync(effect.parent);
     });
     Hooks.once("ready", async () => {
       if (!game.user.isGM) return;
@@ -355,31 +389,52 @@ export class ItemCreatorRuntimeEffectService {
 
   static async syncActor(actor) {
     if (!game.user.isGM || actor?.documentName !== "Actor") return;
-    if (this.#syncingActors.has(actor.uuid)) return;
-    this.#syncingActors.add(actor.uuid);
+    const key = actor.uuid;
+    if (this.#syncingActors.has(key)) {
+      // Never drop a reconciliation request that arrives while an earlier pass is
+      // still running. The old guard simply returned here, which allowed a real
+      // user update to remain stale until the next world reload/ready sync.
+      this.#pendingActorSyncs.add(key);
+      return;
+    }
+
+    this.#syncingActors.add(key);
     try {
-      for (const item of actor.items ?? []) {
-        if (isManagedItem(item)) await this.syncItem(item);
-      }
-      await this.#syncResourceModifications(actor);
+      do {
+        this.#pendingActorSyncs.delete(key);
+        for (const item of actor.items ?? []) {
+          if (isManagedItem(item)) await this.syncItem(item);
+        }
+        await this.#syncResourceModifications(actor);
+      } while (this.#pendingActorSyncs.has(key));
     } finally {
-      this.#syncingActors.delete(actor.uuid);
+      this.#pendingActorSyncs.delete(key);
+      this.#syncingActors.delete(key);
     }
   }
 
   static async syncItem(item) {
     if (!game.user.isGM || !isManagedItem(item)) return;
-    if (this.#syncingItems.has(item.uuid)) return;
+    const key = item.uuid;
+    if (this.#syncingItems.has(key)) {
+      this.#pendingItemSyncs.add(key);
+      return;
+    }
 
-    this.#syncingItems.add(item.uuid);
+    this.#syncingItems.add(key);
     try {
-      if (item.parent?.documentName === "Actor") await this.#syncStructuralProgression(item);
-      await this.#normalizeGrantedSpellcasting(item);
-      if (item.parent?.documentName !== "Actor") return;
-      await this.#syncGrantedSpellbook(item);
-      await this.#syncGrantedEffects(item);
+      do {
+        this.#pendingItemSyncs.delete(key);
+        if (item.parent?.documentName === "Actor") await this.#syncStructuralProgression(item);
+        await this.#normalizeGrantedSpellcasting(item);
+        if (item.parent?.documentName === "Actor") {
+          await this.#syncGrantedSpellbook(item);
+          await this.#syncGrantedEffects(item);
+        }
+      } while (this.#pendingItemSyncs.has(key));
     } finally {
-      this.#syncingItems.delete(item.uuid);
+      this.#pendingItemSyncs.delete(key);
+      this.#syncingItems.delete(key);
     }
   }
 
@@ -1056,6 +1111,44 @@ export class ItemCreatorRuntimeEffectService {
         .find(effect => effect.getFlag(MODULE_ID, "resourceDieRuntime"))?.getFlag(MODULE_ID, "resourceDieRuntime")
         ? actor.effects.find(effect => effect.getFlag(MODULE_ID, "resourceDieRuntime"))?.flags?.[MODULE_ID] ?? null
         : null)
+    };
+  }
+
+  /**
+   * Lightweight live diagnostic for the v0.7.4 Runtime Integrity pass. This
+   * deliberately does not mutate or "repair" D&D5e derived data; it reports the
+   * persisted Item state beside the Actor's prepared attunement count so a drift
+   * can be captured without requiring a world reload.
+   */
+  static auditRuntime(actor) {
+    if (actor?.documentName !== "Actor") throw new Error("Provide an Actor document to audit Item Creator runtime state.");
+    const attunedItems = (actor.items ?? []).filter(item => Boolean(item.system?.attunement && item.system?.attuned));
+    const preparedValue = Number(actor.system?.attributes?.attunement?.value) || 0;
+    const expectedValue = attunedItems.length;
+    return {
+      actor: { id: actor.id, uuid: actor.uuid, name: actor.name },
+      attunement: {
+        preparedValue,
+        expectedValue,
+        max: Number(actor.system?.attributes?.attunement?.max) || 0,
+        drift: preparedValue - expectedValue,
+        items: attunedItems.map(item => ({
+          id: item.id,
+          uuid: item.uuid,
+          name: item.name,
+          type: item.type,
+          managed: isManagedItem(item),
+          attunement: item.system?.attunement ?? "",
+          attuned: Boolean(item.system?.attuned),
+          sourceAttunement: sourceValue(item, "system.attunement") ?? "",
+          sourceAttuned: Boolean(sourceValue(item, "system.attuned"))
+        }))
+      },
+      reconciliation: {
+        actorSyncing: this.#syncingActors.has(actor.uuid),
+        actorPending: this.#pendingActorSyncs.has(actor.uuid),
+        actorScheduled: this.#scheduledActorSyncs.has(actor.uuid)
+      }
     };
   }
 

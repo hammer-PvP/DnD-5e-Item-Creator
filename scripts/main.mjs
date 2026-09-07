@@ -91,7 +91,9 @@ Hooks.once("init", () => {
       return auditMaterializationRecipes({ profile, level, families });
     },
     auditResources: actor => ItemCreatorRuntimeEffectService.auditResources(actor),
+    auditRuntime: actor => ItemCreatorRuntimeEffectService.auditRuntime(actor),
     syncResources: actor => ItemCreatorRuntimeEffectService.syncActor(actor),
+    syncRuntime: actor => ItemCreatorRuntimeEffectService.syncActor(actor),
     auditTriggeredEffects: actor => ItemCreatorTriggeredEffectService.audit(actor),
     syncTriggeredEffects: actor => ItemCreatorTriggeredEffectService.syncActor(actor),
     reportRollResolutionPending: resolution => ItemCreatorTriggeredEffectService.reportRollResolutionPending(resolution),

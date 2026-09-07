@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.3 Beta Candidate
+**Version:** 0.7.4a Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -389,4 +389,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.3/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.4a/item-creator.zip`
