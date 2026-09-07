@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.4a Beta Candidate
+**Version:** 0.7.5a Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -31,6 +31,14 @@ The assisted Item workflow is:
 7. Review.
 
 Base Items may come from enabled compendiums, existing World Items, or custom data. The final document is created directly in the World Items Directory. Existing supported World Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy.
+
+### Activities v2 — Additional Activities Composer
+
+Starting with v0.7.5a, Weapons, Equipment, and Tools can carry independent native D&D5e Activities beyond the established Weapon Attack Activity editor. The **Additional Activities** Composer currently supports Utility, Damage, Heal, and Saving Throw Activities. Each Activity owns its own activation, range, targeting, duration, Concentration, uses, recovery, and chat flavor.
+
+Utility Activities can expose a native formula roll. Damage Activities can roll a configured formula and damage type. Heal Activities use D&D5e's native healing modes, including normal Healing, Temporary Hit Points, and Maximum Hit Points. Saving Throw Activities can configure ability, DC calculation/formula, optional damage, damage type, and damage on a successful save.
+
+Existing compatible Activities imported from World Items or templates are promoted into this editor while unrepresented native fields remain preserved as passthrough source data. Existing Attack Activities continue to use the dedicated Weapon editor. Restore Resource and Spell-as-Activity are intentionally reserved for the v0.7.6 line, and Consumables keep their existing managed Consume Activity until Consumables v2 in v0.7.7.
 
 ### Supported Item types
 
@@ -389,4 +397,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.4a/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.5a/item-creator.zip`

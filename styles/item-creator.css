@@ -3116,3 +3116,14 @@ body.ic-protected-active { overflow: hidden; }
   .item-creator .ic-attack-activity-grid { grid-template-columns: 1fr; }
   .item-creator .ic-attack-activity-grid .ic-span-two { grid-column: auto; }
 }
+
+
+/* v0.7.5a — native Additional Activities Composer */
+.item-creator .ic-activity-composer-group { display: grid; gap: 12px; }
+.item-creator .ic-composed-activities-list { margin-top: 2px; }
+.item-creator .ic-composed-activity.excluded,
+.item-creator .ic-composed-activity.disabled { opacity: .6; }
+.item-creator .ic-composed-activity .ic-activity-damage-section > header {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+}
+.item-creator .ic-composed-activity .ic-activity-damage-section > header small { opacity: .68; }

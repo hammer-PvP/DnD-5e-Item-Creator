@@ -212,6 +212,7 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
     activity.flags[MODULE_ID] = {
       ...(activity.flags[MODULE_ID] ?? {}),
       importedCustom: true,
+      composedActivity: Boolean(entry.composed),
       importedSourceId: entry.sourceId ?? null,
       normalizedByCreator: true
     };
@@ -1416,7 +1417,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 17,
+      schemaVersion: 18,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1587,7 +1588,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 17,
+      schemaVersion: 18,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1744,7 +1745,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 17,
+      schemaVersion: 18,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1889,7 +1890,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 17,
+      schemaVersion: 18,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),

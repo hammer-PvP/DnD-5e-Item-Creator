@@ -22,6 +22,89 @@ import {
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
+
+const COMPOSABLE_ACTIVITY_TYPES = Object.freeze([
+  ["utility", "Utility"],
+  ["damage", "Damage"],
+  ["heal", "Heal"],
+  ["save", "Saving Throw"]
+]);
+
+function activityTypeLabel(type) {
+  const config = CONFIG.DND5E.activityTypes?.[type];
+  const title = config?.documentClass?.metadata?.title;
+  return title ? game.i18n.localize(title) : String(type || "Activity").replace(/(^|[-_])([a-z])/g, (_m, lead, chr) => `${lead ? " " : ""}${chr.toUpperCase()}`);
+}
+
+function activityCommonSummary(source = {}) {
+  const bits = [];
+  const activation = source.activation?.type;
+  if (activation) bits.push(localizedLabel(CONFIG.DND5E.activityActivationTypes?.[activation], activation));
+  if (source.uses?.max) bits.push(`${source.uses.max} use(s)`);
+  const range = source.range ?? {};
+  if (range.units === "self") bits.push("Self");
+  else if (range.units === "touch") bits.push("Touch");
+  else if (range.value) bits.push(`${range.value} ${range.units || "ft"}`);
+  return bits.join(" · ") || activityTypeLabel(source.type);
+}
+
+function activityPartFormula(part = {}) {
+  if (part?.custom?.enabled) return String(part.custom?.formula ?? "");
+  const number = Number(part?.number);
+  const denomination = Number(part?.denomination);
+  if (!(number > 0) || !(denomination > 0)) return String(part?.bonus ?? "");
+  const bonus = String(part?.bonus ?? "").trim();
+  return `${number}d${denomination}${bonus ? ` + ${bonus}` : ""}`;
+}
+
+function composedActivityView(entry) {
+  const source = entry?.data ?? {};
+  const type = source.type || entry.type || "utility";
+  const damagePart = valuesOf(source.damage?.parts)[0] ?? {};
+  const damageType = valuesOf(damagePart.types)[0] ?? "";
+  const healingType = valuesOf(source.healing?.types)[0] ?? "healing";
+  const activityUseTarget = valuesOf(source.consumption?.targets).find(target => target?.type === "activityUses") ?? null;
+  return {
+    ...entry,
+    type,
+    typeLabel: activityTypeLabel(type),
+    name: String(source.name ?? entry.name ?? activityTypeLabel(type)),
+    img: source.img || entry.img || CONFIG.DND5E.activityTypes?.[type]?.documentClass?.metadata?.img || "systems/dnd5e/icons/svg/activity/utility.svg",
+    summary: activityCommonSummary(source),
+    activationType: source.activation?.type ?? "action",
+    activationValue: source.activation?.value ?? "",
+    activationCondition: source.activation?.condition ?? "",
+    rangeValue: source.range?.value ?? "",
+    rangeUnits: source.range?.units ?? "self",
+    targetType: source.target?.affects?.type ?? "self",
+    targetCount: source.target?.affects?.count ?? "1",
+    targetPrompt: source.target?.prompt !== false,
+    durationValue: source.duration?.value ?? "",
+    durationUnits: source.duration?.units ?? "inst",
+    concentration: Boolean(source.duration?.concentration),
+    usesMax: source.uses?.max ?? "",
+    activityUseCost: activityUseTarget?.value ?? "1",
+    recoveryPeriod: source.uses?.recovery?.[0]?.period ?? "",
+    chatFlavor: source.description?.chatFlavor ?? "",
+    utilityFormula: source.roll?.formula ?? "",
+    utilityRollName: source.roll?.name ?? "",
+    utilityPrompt: Boolean(source.roll?.prompt),
+    utilityVisible: Boolean(source.roll?.visible),
+    damageFormula: activityPartFormula(damagePart),
+    damageType,
+    healingFormula: activityPartFormula(source.healing ?? {}),
+    healingType,
+    saveAbility: valuesOf(source.save?.ability)[0] ?? "dex",
+    saveCalculation: source.save?.dc?.calculation ?? "",
+    saveFormula: source.save?.dc?.formula ?? "",
+    saveOnSuccess: source.damage?.onSave ?? "half",
+    isUtility: type === "utility",
+    isDamage: type === "damage",
+    isHeal: type === "heal",
+    isSave: type === "save"
+  };
+}
+
 function nativeCompendiumBrowserClass() {
   return game.dnd5e?.applications?.CompendiumBrowser
     ?? globalThis.dnd5e?.applications?.CompendiumBrowser
@@ -2035,10 +2118,50 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ...entry,
       technical: JSON.stringify(entry.data ?? {}, null, 2)
     }));
-    const customImportedActivityRows = this.customImportedActivities.map(entry => ({
-      ...entry,
-      technical: JSON.stringify(entry.data ?? {}, null, 2)
-    }));
+    const composableTypes = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
+    const composedActivityRows = this.customImportedActivities
+      .filter(entry => entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type))
+      .map(entry => {
+        const row = composedActivityView(entry);
+        return {
+          ...row,
+          typeOptions: fixedOptions(COMPOSABLE_ACTIVITY_TYPES, row.type),
+          activationOptions: configOptions(CONFIG.DND5E.activityActivationTypes, row.activationType, { blankValue: "", blankLabel: "No Action" }),
+          rangeOptions: [
+            ...configOptions(CONFIG.DND5E.rangeTypes, row.rangeUnits),
+            ...Object.entries(CONFIG.DND5E.movementUnits ?? {}).map(([value, config]) => ({ value, label: localizedLabel(config, value), selected: String(row.rangeUnits) === value }))
+          ],
+          targetOptions: configOptions(CONFIG.DND5E.individualTargetTypes, row.targetType, { blankValue: "", blankLabel: "None" }),
+          durationOptions: [
+            { value: "inst", label: game.i18n.localize("DND5E.TimeInst"), selected: row.durationUnits === "inst" },
+            ...Object.entries(CONFIG.DND5E.scalarTimePeriods ?? {}).map(([value, label]) => ({ value, label: game.i18n.localize(label), selected: row.durationUnits === value })),
+            ...Object.entries(CONFIG.DND5E.permanentTimePeriods ?? {}).map(([value, label]) => ({ value, label: game.i18n.localize(label), selected: row.durationUnits === value })),
+            { value: "spec", label: game.i18n.localize("DND5E.Special"), selected: row.durationUnits === "spec" }
+          ],
+          recoveryOptions: [
+            { value: "", label: "No Recovery", selected: !row.recoveryPeriod },
+            ...Object.entries(CONFIG.DND5E.limitedUsePeriods ?? {}).filter(([, config]) => !config.deprecated).map(([value, config]) => ({
+              value, label: localizedLabel(config, value), selected: row.recoveryPeriod === value
+            }))
+          ],
+          damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, row.damageType, { blankValue: "", blankLabel: "Select Damage Type" }),
+          healingTypeOptions: configOptions(CONFIG.DND5E.healingTypes, row.healingType),
+          saveAbilityOptions: configOptions(CONFIG.DND5E.abilities, row.saveAbility),
+          saveCalculationOptions: [
+            { value: "", label: "Fixed / Formula", selected: row.saveCalculation === "" },
+            { value: "spellcasting", label: "Spellcasting", selected: row.saveCalculation === "spellcasting" },
+            ...Object.entries(CONFIG.DND5E.abilities ?? {}).map(([value, config]) => ({ value, label: `${localizedLabel(config, value)} + Proficiency`, selected: row.saveCalculation === value }))
+          ],
+          saveSuccessOptions: fixedOptions([["none", "No Damage"], ["half", "Half Damage"], ["full", "Full Damage"]], row.saveOnSuccess)
+        };
+      });
+    const composedActivityIds = new Set(composedActivityRows.map(entry => entry.id));
+    const customImportedActivityRows = this.customImportedActivities
+      .filter(entry => !composedActivityIds.has(entry.id))
+      .map(entry => ({
+        ...entry,
+        technical: JSON.stringify(entry.data ?? {}, null, 2)
+      }));
     const importedCustomCount = customImportedEffectRows.filter(entry => entry.included !== false).length
       + customImportedActivityRows.filter(entry => entry.included !== false && !entry.disabled).length;
     const convertedImportedSummary = this.importedBaseSummary.filter(entry =>
@@ -2189,6 +2312,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
       grantedEffects: this.grantedEffects, grantedEffectValues: effectValues,
       grantedEffectCount, levelProgressionCount, grantedEffectsComplete, grantedEffectErrors: grantedEffectValidation.errors,
+      composedActivityRows, composedActivityCount: composedActivityRows.filter(entry => entry.included !== false && !entry.disabled).length,
       customImportedEffectRows, customImportedActivityRows, importedCustomCount,
       importedBaseSummary: this.importedBaseSummary,
       convertedImportedSummary, reviewImportedEffects, reviewImportedActivities,
@@ -2298,6 +2422,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
     root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
     root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
+    root.querySelector('[data-action="add-composed-activity"]')?.addEventListener("click", event => this.#addComposedActivity(event));
+    root.querySelectorAll('[data-action="duplicate-composed-activity"]').forEach(button => button.addEventListener("click", event => this.#duplicateComposedActivity(event)));
+    root.querySelectorAll('[data-action="remove-composed-activity"]').forEach(button => button.addEventListener("click", event => this.#removeComposedActivity(event)));
+    root.querySelectorAll('[data-composed-activity-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateComposedActivity(event));
+    });
+    root.querySelectorAll('[data-composed-activity-details]').forEach(details => details.addEventListener("toggle", event => this.#rememberComposedActivityExpanded(event)));
     root.querySelectorAll('[data-imported-effect-input]').forEach(input => input.addEventListener("change", event => this.#updateImportedEffect(event)));
     root.querySelectorAll('[data-imported-activity-input]').forEach(input => input.addEventListener("change", event => this.#updateImportedActivity(event)));
     root.querySelectorAll('[data-action="remove-imported-effect"]').forEach(button => button.addEventListener("click", event => this.#removeImportedEffect(event)));
@@ -4076,6 +4208,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
     }
     if (this.resourceModifications.some(row => !validateResourceModification(row))) errors.resourceModifications = true;
+    const composableTypes = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
+    const activitiesInvalid = this.customImportedActivities
+      .filter(entry => entry?.included !== false && !entry?.disabled && (entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type)))
+      .some(entry => {
+        const source = entry.data ?? {};
+        const type = source.type ?? entry.type;
+        if (!composableTypes.has(type) || !String(source.name ?? entry.name ?? "").trim()) return true;
+        if (type === "heal" && source.healing?.custom?.enabled && !String(source.healing?.custom?.formula ?? "").trim()) return true;
+        if (["damage", "save"].includes(type)) {
+          const part = valuesOf(source.damage?.parts)[0];
+          if (part?.custom?.enabled && !String(part.custom.formula ?? "").trim()) return true;
+        }
+        if (type === "save" && !valuesOf(source.save?.ability).length) return true;
+        return false;
+      });
+    if (activitiesInvalid) errors.activities = true;
     return { valid: !Object.keys(errors).length, errors };
   }
 
@@ -4229,6 +4377,193 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!entry || !part) return;
     entry[part] = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
     this.#renderPreservingScroll();
+  }
+
+  #activityParentForComposer() {
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const raw = this.selectedWeaponDocument?.toObject?.()
+      ?? this.selectedBaseWeaponDocument?.toObject?.()
+      ?? { name: this.itemName || "Activity Composer", type: this.selectedType || "equipment", system: {} };
+    const source = clone(raw);
+    source.name = this.itemName || source.name || "Activity Composer";
+    source.type = this.selectedType || source.type || "equipment";
+    source.system ??= {};
+    source.system.activities = {};
+    delete source._id;
+    return new ItemClass(source, { temporary: true });
+  }
+
+  #newComposedActivitySource(type = "utility") {
+    const ActivityClass = CONFIG.DND5E.activityTypes?.[type]?.documentClass;
+    if (!ActivityClass) throw new Error(`Unsupported Activity type: ${type}`);
+    const document = new ActivityClass({}, { parent: this.#activityParentForComposer() });
+    const source = clone(document.toObject?.() ?? document._source ?? document);
+    delete source._index;
+    source._id = foundry.utils.randomID();
+    source.type = type;
+    source.name = activityTypeLabel(type);
+    source.img ||= ActivityClass.metadata?.img ?? null;
+    source.activation ??= {};
+    source.activation.type ||= "action";
+    source.activation.override = false;
+    source.duration ??= {};
+    source.duration.units ||= "inst";
+    source.duration.override = false;
+    source.range ??= {};
+    source.range.units ||= "self";
+    source.range.override = false;
+    source.target ??= {};
+    source.target.prompt ??= true;
+    source.target.override = false;
+    source.target.affects ??= {};
+    source.target.affects.type ||= "self";
+    source.target.affects.count ||= "1";
+    source.description ??= {};
+    source.uses ??= { spent: 0, recovery: [] };
+    source.uses.recovery ??= [];
+    return source;
+  }
+
+  #addComposedActivity(event) {
+    event.preventDefault();
+    if (this.selectedType === "consumable") {
+      ui.notifications.info("Consumable Activities are being rebuilt in v0.7.7; v0.7.5 keeps the current managed Consume behavior intact.");
+      return;
+    }
+    const source = this.#newComposedActivitySource("utility");
+    this.customImportedActivities.push({
+      id: foundry.utils.randomID(), sourceId: null, name: source.name, type: source.type, img: source.img,
+      included: true, disabled: false, summary: "Editable native Activity", data: source, composed: true, expanded: true
+    });
+    this.#renderPreservingScroll();
+  }
+
+  #duplicateComposedActivity(event) {
+    event.preventDefault();
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    if (!entry) return;
+    const copy = clone(entry);
+    copy.id = foundry.utils.randomID();
+    copy.sourceId = null;
+    copy.composed = true;
+    copy.name = `${String(entry.data?.name ?? entry.name ?? "Activity")} Copy`;
+    copy.data ??= {};
+    copy.data._id = foundry.utils.randomID();
+    copy.data.name = copy.name;
+    this.customImportedActivities.splice(this.customImportedActivities.indexOf(entry) + 1, 0, copy);
+    this.#renderPreservingScroll();
+  }
+
+  #removeComposedActivity(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.composedActivityId;
+    this.customImportedActivities = this.customImportedActivities.filter(entry => entry.id !== id);
+    this.#renderPreservingScroll();
+  }
+
+  #updateComposedActivity(event) {
+    const id = event.currentTarget.dataset.composedActivityId;
+    const part = event.currentTarget.dataset.composedActivityInput;
+    const entry = this.customImportedActivities.find(row => row.id === id);
+    if (!entry || !part) return;
+    const input = event.currentTarget;
+    let value = input.type === "checkbox" ? input.checked : input.value;
+    const data = entry.data ??= this.#newComposedActivitySource(entry.type || "utility");
+
+    if (part === "type") {
+      const commonKeys = ["activation", "consumption", "description", "duration", "effects", "flags", "range", "target", "uses", "visibility"];
+      const replacement = this.#newComposedActivitySource(value);
+      replacement.name = data.name || activityTypeLabel(value);
+      for (const key of commonKeys) if (data[key] !== undefined) replacement[key] = clone(data[key]);
+      entry.data = replacement; entry.type = value; entry.name = replacement.name; entry.img = replacement.img; entry.composed = true;
+      this.#renderPreservingScroll();
+      return;
+    }
+
+    const set = (path, v) => foundry.utils.setProperty(data, path, v);
+    switch (part) {
+      case "name": data.name = String(value); entry.name = data.name; break;
+      case "included": entry.included = Boolean(value); break;
+      case "disabled": entry.disabled = Boolean(value); break;
+      case "activationType": set("activation.type", value); break;
+      case "activationValue": set("activation.value", value === "" ? null : Number(value)); break;
+      case "activationCondition": set("activation.condition", value); break;
+      case "rangeValue": set("range.value", value === "" ? null : value); break;
+      case "rangeUnits": set("range.units", value); break;
+      case "targetType": set("target.affects.type", value); break;
+      case "targetCount": set("target.affects.count", value); break;
+      case "targetPrompt": set("target.prompt", Boolean(value)); break;
+      case "durationValue": set("duration.value", value === "" ? "" : value); break;
+      case "durationUnits": set("duration.units", value); break;
+      case "concentration": set("duration.concentration", Boolean(value)); break;
+      case "usesMax": {
+        set("uses.max", value);
+        const targets = valuesOf(data.consumption?.targets).filter(target => target?.type !== "activityUses").map(clone);
+        if (String(value).trim()) targets.push({ type: "activityUses", target: "", value: "1", scaling: {} });
+        set("consumption.targets", targets);
+        if (!String(value).trim()) { set("uses.spent", 0); set("uses.recovery", []); }
+        break;
+      }
+      case "activityUseCost": {
+        const targets = valuesOf(data.consumption?.targets).map(clone);
+        const target = targets.find(entry => entry?.type === "activityUses");
+        if (target) target.value = String(value || "1");
+        else if (String(data.uses?.max ?? "").trim()) targets.push({ type: "activityUses", target: "", value: String(value || "1"), scaling: {} });
+        set("consumption.targets", targets);
+        break;
+      }
+      case "recoveryPeriod": set("uses.recovery", value && String(data.uses?.max ?? "").trim() ? [{ period: value, type: "recoverAll" }] : []); break;
+      case "chatFlavor": set("description.chatFlavor", value); break;
+      case "utilityFormula": set("roll.formula", value); break;
+      case "utilityRollName": set("roll.name", value); break;
+      case "utilityPrompt": set("roll.prompt", Boolean(value)); break;
+      case "utilityVisible": set("roll.visible", Boolean(value)); break;
+      case "damageFormula": {
+        const existing = valuesOf(data.damage?.parts)[0] ?? {};
+        const type = valuesOf(existing.types)[0] ?? "";
+        set("damage.parts", value ? [{
+          number: null, denomination: null, bonus: "", types: type ? [type] : [],
+          custom: { enabled: true, formula: String(value) }, scaling: { mode: "", number: null, formula: "" }
+        }] : []);
+        break;
+      }
+      case "damageType": {
+        const existing = valuesOf(data.damage?.parts)[0] ?? {
+          number: null, denomination: null, bonus: "", custom: { enabled: true, formula: "" }, scaling: { mode: "", number: null, formula: "" }
+        };
+        existing.types = value ? [value] : [];
+        set("damage.parts", [existing]);
+        break;
+      }
+      case "healingFormula": {
+        const type = valuesOf(data.healing?.types)[0] ?? "healing";
+        set("healing", {
+          number: null, denomination: null, bonus: "", types: [type],
+          custom: { enabled: true, formula: String(value) }, scaling: { mode: "", number: null, formula: "" }
+        });
+        break;
+      }
+      case "healingType": {
+        data.healing ??= { number: null, denomination: null, bonus: "", custom: { enabled: true, formula: "" }, scaling: { mode: "", number: null, formula: "" } };
+        data.healing.types = value ? [value] : ["healing"];
+        break;
+      }
+      case "saveAbility": set("save.ability", value ? [value] : []); break;
+      case "saveCalculation": set("save.dc.calculation", value); break;
+      case "saveFormula": set("save.dc.formula", value); break;
+      case "saveOnSuccess": set("damage.onSave", value); break;
+      default: return;
+    }
+    entry.type = data.type || entry.type;
+    entry.img = data.img || entry.img;
+    entry.summary = activityCommonSummary(data);
+    entry.composed = true;
+    if (["rangeUnits", "targetType", "durationUnits", "recoveryPeriod", "disabled", "included"].includes(part)) this.#renderPreservingScroll();
+  }
+
+  #rememberComposedActivityExpanded(event) {
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    if (entry) entry.expanded = Boolean(event.currentTarget.open);
   }
 
   #updateImportedActivity(event) {

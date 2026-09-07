@@ -1341,6 +1341,113 @@
         </div>
       </header>
 
+      <section class="ic-enhancement-group ic-activity-composer-group">
+        <header class="ic-attack-activities-header">
+          <div>
+            <span class="ic-kicker">Native D&amp;D5e Activities</span>
+            <h3>Additional Activities</h3>
+            <p>Add independent powers directly to this Item. Weapon attacks remain in Core Weapon Configuration; this Composer handles non-attack actions without replacing existing Activities.</p>
+          </div>
+          <button type="button" class="ic-add-activity-button" data-action="add-composed-activity"><i class="fa-solid fa-plus"></i> Add Activity</button>
+        </header>
+
+        {{#if composedActivityRows.length}}
+        <div class="ic-attack-activities-list ic-composed-activities-list">
+          {{#each composedActivityRows}}
+          <details class="ic-attack-activity ic-composed-activity {{#unless included}}excluded{{/unless}} {{#if disabled}}disabled{{/if}}" data-composed-activity-details data-composed-activity-id="{{id}}" {{#if expanded}}open{{/if}}>
+            <summary>
+              <span class="ic-activity-kind">{{typeLabel}}</span>
+              <strong>{{name}}</strong>
+              <small>{{summary}}{{#if disabled}} · Disabled{{/if}}</small>
+              <i class="fa-solid fa-chevron-down"></i>
+            </summary>
+            <div class="ic-attack-activity-body">
+              <div class="ic-attack-activity-actions">
+                <button type="button" data-action="duplicate-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-copy"></i> Duplicate</button>
+                <button type="button" class="danger" data-action="remove-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
+              </div>
+
+              <div class="ic-attack-activity-grid">
+                <label class="ic-field ic-span-two"><span>Activity Name</span><input type="text" value="{{name}}" maxlength="120" data-composed-activity-input="name" data-composed-activity-id="{{id}}"></label>
+                <label><span>Activity Type</span><select data-composed-activity-input="type" data-composed-activity-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label><span>Activation</span><select data-composed-activity-input="activationType" data-composed-activity-id="{{id}}">{{#each activationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label><span>Activation Cost</span><input type="number" min="0" step="1" value="{{activationValue}}" data-composed-activity-input="activationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>
+                <label><span>Activation Condition</span><input type="text" value="{{activationCondition}}" data-composed-activity-input="activationCondition" data-composed-activity-id="{{id}}" placeholder="Optional"></label>
+
+                <label><span>Range</span><input type="text" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="—"></label>
+                <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label><span>Target Type</span><select data-composed-activity-input="targetType" data-composed-activity-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label><span>Target Count</span><input type="text" value="{{targetCount}}" data-composed-activity-input="targetCount" data-composed-activity-id="{{id}}" placeholder="1"></label>
+                <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="targetPrompt" data-composed-activity-id="{{id}}" {{#if targetPrompt}}checked{{/if}}><span><strong>Prompt for Targets</strong><small>Use the normal D&amp;D5e target selection prompt when this Activity is activated.</small></span></label>
+
+                <label><span>Duration</span><input type="text" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="—"></label>
+                <label><span>Duration Unit</span><select data-composed-activity-input="durationUnits" data-composed-activity-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="concentration" data-composed-activity-id="{{id}}" {{#if concentration}}checked{{/if}}><span><strong>Concentration</strong><small>Marks this Activity as requiring native D&amp;D5e Concentration.</small></span></label>
+
+                <label><span>Activity Uses</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Unlimited"></label>
+                <label><span>Use Cost</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" {{#unless usesMax}}disabled{{/unless}}></label>
+                <label><span>Recover Uses</span><select data-composed-activity-input="recoveryPeriod" data-composed-activity-id="{{id}}" {{#unless usesMax}}disabled{{/unless}}>{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="included" data-composed-activity-id="{{id}}" {{#if included}}checked{{/if}}><span><strong>Include</strong><small>Place this Activity on the final Item.</small></span></label>
+                <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="disabled" data-composed-activity-id="{{id}}" {{#if disabled}}checked{{/if}}><span><strong>Disable</strong><small>Keep the draft but omit it from the final Item.</small></span></label>
+                <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
+              </div>
+
+              {{#if isUtility}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Utility Roll</strong><small>Optional native formula roll for this Activity.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Formula</span><input type="text" value="{{utilityFormula}}" data-composed-activity-input="utilityFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 1d20 + @mod"></label>
+                  <label><span>Roll Name</span><input type="text" value="{{utilityRollName}}" data-composed-activity-input="utilityRollName" data-composed-activity-id="{{id}}" placeholder="Roll"></label>
+                  <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="utilityPrompt" data-composed-activity-id="{{id}}" {{#if utilityPrompt}}checked{{/if}}><span><strong>Configure Roll</strong><small>Open the D&amp;D5e roll dialog.</small></span></label>
+                  <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="utilityVisible" data-composed-activity-id="{{id}}" {{#if utilityVisible}}checked{{/if}}><span><strong>Visible Roll Button</strong><small>Expose the formula roll button to all viewers of the chat card.</small></span></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isDamage}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Damage</strong><small>Simple native Damage Activity. More complex multi-part damage remains preserved when imported and will be expanded in later v0.7.5 builds.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Damage Formula</span><input type="text" value="{{damageFormula}}" data-composed-activity-input="damageFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 2d6 + 3"></label>
+                  <label><span>Damage Type</span><select data-composed-activity-input="damageType" data-composed-activity-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isHeal}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Healing</strong><small>Uses the native D&amp;D5e Heal Activity and healing types.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Healing Formula</span><input type="text" value="{{healingFormula}}" data-composed-activity-input="healingFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 2d4 + 2"></label>
+                  <label><span>Healing Type</span><select data-composed-activity-input="healingType" data-composed-activity-id="{{id}}">{{#each healingTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isSave}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Saving Throw</strong><small>Configure the native Save and optional damage resolved by this Activity.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label><span>Save Ability</span><select data-composed-activity-input="saveAbility" data-composed-activity-id="{{id}}">{{#each saveAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>DC Calculation</span><select data-composed-activity-input="saveCalculation" data-composed-activity-id="{{id}}">{{#each saveCalculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-span-two"><span>Fixed DC / Formula</span><input type="text" value="{{saveFormula}}" data-composed-activity-input="saveFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 15 (used when Fixed / Formula is selected)"></label>
+                  <label class="ic-span-two"><span>Damage Formula</span><input type="text" value="{{damageFormula}}" data-composed-activity-input="damageFormula" data-composed-activity-id="{{id}}" placeholder="Optional, e.g. 3d6"></label>
+                  <label><span>Damage Type</span><select data-composed-activity-input="damageType" data-composed-activity-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>On Successful Save</span><select data-composed-activity-input="saveOnSuccess" data-composed-activity-id="{{id}}">{{#each saveSuccessOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this v0.7.5a editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
+            </div>
+          </details>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="ic-spell-empty-state"><i class="fa-solid fa-bolt"></i><strong>No additional Activities</strong><p>Add a Utility, Damage, Heal, or Saving Throw Activity. Spell/Restore Resource Activities arrive in v0.7.6 as planned.</p></div>
+        {{/if}}
+      </section>
+
       <section class="ic-enhancement-group ic-spellcasting-group">
         <header>
           <span class="ic-kicker">Granted Magic</span>

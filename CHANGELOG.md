@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.5a — Activities v2 Foundation
+
+- Began the v0.7.5 Activities v2 line on top of the validated v0.7.4a Runtime/Attunement baseline. Existing Weapon Attack Activities remain on their established editor and are not rewritten.
+- Added an **Additional Activities** Composer for Weapons, Equipment, and Tools. A single Item can now carry multiple independent native non-attack Activities alongside its existing Attack Activities, passive Effects, Granted Spells, Resource Modifications, and Triggered Effects.
+- v0.7.5a can create and edit native **Utility**, **Damage**, **Heal**, and **Saving Throw** Activities. Each Activity has its own name, activation/cost/condition, range, target/count/prompt, duration, Concentration flag, Activity Uses, recovery period, and chat flavor.
+- Added type-specific controls for Utility formula rolls, simple Damage formulas/types, native Healing formulas including Healing/Temporary HP/Maximum HP modes, and Saving Throw ability/DC/damage-on-save behavior.
+- Compatible imported Utility/Damage/Heal/Save Activities are promoted from opaque Custom Imported Activities into the editable Composer. Native fields not represented by this first editor remain preserved in source passthrough data rather than being discarded.
+- Added duplicate/remove/include/disable controls for composed Activities. Activity-specific uses and recovery remain native D&D5e Activity data instead of being forced into a shared Item-level charge pool.
+- Item Creator document schema advanced to **18** for the Activities v2 foundation.
+- This build deliberately does **not** add Restore Resource or Spell-as-Activity; those remain the planned v0.7.6 scope. Consumables continue using the existing managed Consume model until the planned v0.7.7 Consumables v2 rework.
+
 ## 0.7.4a — Runtime Integrity / Attunement Stabilization
 
 - Began the v0.7.4 Runtime Integrity pass. Runtime reconciliation triggered by `createItem`, `updateItem`, `updateActor`, and managed Item Active Effect changes is now deferred until the current Foundry/D&D5e document-update stack has settled. This prevents Item Creator from performing structural embedded-Item updates recursively inside D&D5e's native update/preparation cycle.
