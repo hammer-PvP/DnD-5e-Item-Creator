@@ -1,0 +1,65 @@
+<section class="ic-settings-shell">
+  <header class="ic-settings-header">
+    <i class="fa-solid fa-books"></i>
+    <div>
+      <span class="ic-kicker">GM Configuration</span>
+      <h1>Content Sources</h1>
+      <p>Enable complete content sources and arrange their priority for Item Creator template lists and icon results.</p>
+    </div>
+  </header>
+
+  <div class="ic-settings-toolbar">
+    <input type="search" data-source-search value="{{search}}" placeholder="Search content sources…" autocomplete="off">
+    <div>
+      <button type="button" data-action="select-all"><i class="fa-solid fa-check-double"></i> Select All</button>
+      <button type="button" data-action="clear-all"><i class="fa-solid fa-xmark"></i> Clear</button>
+    </div>
+  </div>
+
+  <div class="ic-settings-summary">
+    <span>Enabled sources</span>
+    <strong>{{enabledCount}} / {{sourceCount}}</strong>
+  </div>
+
+  <div class="ic-source-list">
+    <section class="ic-source-priority-panel">
+      <header>
+        <span class="ic-kicker">Active Content and Navigation Order</span>
+        <h2>Source Priority</h2>
+        <p>Each row represents the complete source. Item Creator automatically discovers the compatible internal compendiums for the Item type being created.</p>
+      </header>
+
+      <div class="ic-source-priority-list">
+        {{#each sources}}
+        <div class="ic-source-package-row {{#if enabled}}enabled{{/if}}" data-source-row data-search="{{search}}">
+          <strong class="ic-priority-number">{{position}}</strong>
+          <label class="ic-source-package-toggle">
+            <input type="checkbox" name="enabledSources" value="{{id}}" {{#if enabled}}checked{{/if}}>
+            <i class="fa-solid fa-books"></i>
+            <span>
+              <strong>{{label}}</strong>
+              <small>{{itemCount}} supported documents ({{weaponCount}} Weapons · {{equipmentCount}} Equipment) across {{packCount}} compatible compendiums</small>
+              {{#if packageSummary}}<small>{{packageSummary}}</small>{{/if}}
+            </span>
+          </label>
+          <div class="ic-priority-actions">
+            <button type="button" data-action="move-source" data-source-id="{{id}}" data-direction="up" aria-label="Move source up" {{#unless canMoveUp}}disabled{{/unless}}><i class="fa-solid fa-chevron-up"></i></button>
+            <button type="button" data-action="move-source" data-source-id="{{id}}" data-direction="down" aria-label="Move source down" {{#unless canMoveDown}}disabled{{/unless}}><i class="fa-solid fa-chevron-down"></i></button>
+          </div>
+        </div>
+        {{else}}
+        <div class="ic-empty-state">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <strong>No compatible content sources were found</strong>
+          <p>Activate a D&D5e system or module package that contains supported Weapon or Equipment Item documents.</p>
+        </div>
+        {{/each}}
+      </div>
+    </section>
+  </div>
+
+  <footer class="ic-settings-footer">
+    <button type="button" data-action="cancel"><i class="fa-solid fa-xmark"></i> Cancel</button>
+    <button type="button" class="ic-primary-confirm" data-action="save"><i class="fa-solid fa-floppy-disk"></i> Save Sources</button>
+  </footer>
+</section>
