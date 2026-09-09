@@ -3122,7 +3122,7 @@ body.ic-protected-active { overflow: hidden; }
 .item-creator .ic-activity-composer-group { display: grid; gap: 12px; }
 .item-creator .ic-composed-activities-list { margin-top: 2px; }
 .item-creator .ic-composed-activity.excluded,
-.item-creator .ic-composed-activity.disabled { opacity: .6; }
+.item-creator .ic-composed-activity.ic-activity-omitted { opacity: .6; }
 .item-creator .ic-composed-activity .ic-activity-damage-section > header {
   display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
 }
@@ -3146,8 +3146,8 @@ body.ic-protected-active { overflow: hidden; }
   background: rgba(0, 0, 0, .16);
 }
 .item-creator .ic-activity-enabled-toggle input { margin: 0; }
-.item-creator .ic-composed-activity.disabled { opacity: .72; }
-.item-creator .ic-composed-activity.disabled > summary { filter: grayscale(.25); }
+.item-creator .ic-composed-activity.ic-activity-omitted { opacity: .72; }
+.item-creator .ic-composed-activity.ic-activity-omitted > summary { filter: grayscale(.25); }
 .item-creator .ic-activity-config-section {
   display: grid;
   gap: 9px;

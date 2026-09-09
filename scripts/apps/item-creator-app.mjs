@@ -4553,7 +4553,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     // Disabled means "omit this Activity from the final Item", not "disable the editor".
     // Keep the current card fully interactive and update its visual state without
     // forcing an ApplicationV2 rerender from inside the checkbox change event.
-    details.classList.toggle("disabled", Boolean(entry.disabled));
+    details.classList.toggle("ic-activity-omitted", Boolean(entry.disabled));
   }
 
   #insertComposedFormulaToken(event) {

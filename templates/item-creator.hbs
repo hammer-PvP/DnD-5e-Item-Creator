@@ -1354,7 +1354,7 @@
         {{#if composedActivityRows.length}}
         <div class="ic-attack-activities-list ic-composed-activities-list">
           {{#each composedActivityRows}}
-          <details class="ic-attack-activity ic-composed-activity {{#unless enabled}}disabled{{/unless}}" data-composed-activity-details data-composed-activity-id="{{id}}" {{#if expanded}}open{{/if}}>
+          <details class="ic-attack-activity ic-composed-activity {{#unless enabled}}ic-activity-omitted{{/unless}}" data-composed-activity-details data-composed-activity-id="{{id}}" {{#if expanded}}open{{/if}}>
             <summary>
               <span class="ic-activity-kind">{{typeLabel}}</span>
               <strong data-composed-activity-title>{{name}}</strong>
@@ -1456,7 +1456,7 @@
               </section>
               {{/if}}
 
-          {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this v0.7.5c editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
+          {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this v0.7.5d editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
             </div>
           </details>
           {{/each}}

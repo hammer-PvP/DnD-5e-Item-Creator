@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.5d — Activities v2 Disabled-State Hotfix
+
+- Fixed the remaining **Enabled on Item** lockout. v0.7.5c correctly stopped rerendering the Item Creator, but it still applied the generic CSS class `disabled` to the entire composed Activity card. Foundry/system styles can treat that generic class as non-interactive, which also prevents the checkbox inside the card from being clicked again.
+- Composed Activities now use the Item Creator-scoped visual state `ic-activity-omitted` instead. Disabling an Activity omits it from the final Item while keeping the full Activity card, including **Enabled on Item**, interactive so it can be re-enabled immediately.
+- No Activity schema, formula, uses/recovery, ordering, or materialization behavior changed in this hotfix. The Item Creator document schema remains **18**.
+
 ## 0.7.5c — Activities v2 Stability Pass
 
 - Kept the v0.7.5 scope intentionally narrow: this build is a stability pass for the existing Activities v2 foundation and does not add Restore Resource, Spell-as-Activity, Conditional Weapon Bonus, or Consumables v2.
