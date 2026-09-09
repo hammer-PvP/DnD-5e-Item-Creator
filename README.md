@@ -1,6 +1,6 @@
 # Item Creator (DnD 5e)
 
-**Version:** 0.7.5b Beta Candidate
+**Version:** 0.7.5c Beta Candidate
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -36,7 +36,7 @@ Base Items may come from enabled compendiums, existing World Items, or custom da
 
 Starting with v0.7.5, Weapons, Equipment, and Tools can carry independent native D&D5e Activities beyond the established Weapon Attack Activity editor. The **Additional Activities** Composer currently supports Utility, Damage, Heal, and Saving Throw Activities. Each Activity owns its own activation, range, targeting, duration, Concentration, uses, recovery, and chat flavor.
 
-Utility Activities can expose a native formula roll, with common d20/ability presets and modifier helpers so GMs do not need to memorize D&D5e roll-data paths. Damage Activities roll damage directly and are explicitly distinguished from Weapon Attack Activities; special attack rolls remain in the dedicated Weapon Attack editor. Heal Activities use D&D5e's native healing modes, including normal Healing, Temporary Hit Points, and Maximum Hit Points. Saving Throw Activities can configure ability, native DC calculation/formula, optional damage, damage type, and damage on a successful save. Uses/Cost/Recovery are grouped as one Activity-owned resource block and update reactively as soon as Maximum Uses becomes limited.
+Utility Activities can expose a native formula roll, with common d20/ability presets and modifier helpers so GMs do not need to memorize D&D5e roll-data paths. Formula helpers include Strength/Dexterity/Constitution/Intelligence/Wisdom/Charisma, Proficiency, the Actor's Default Spellcasting Modifier, and a Highest Spellcasting Modifier option. Damage Activities roll damage directly and are explicitly distinguished from Weapon Attack Activities; special attack rolls remain in the dedicated Weapon Attack editor. Heal Activities use D&D5e's native healing modes, including normal Healing, Temporary Hit Points, and Maximum Hit Points. Saving Throw Activities can configure ability, native DC calculation/formula, optional damage, damage type, and damage on a successful save. Uses/Cost/Recovery are grouped as one Activity-owned resource block and update reactively as soon as Maximum Uses becomes limited. Disabling **Enabled on Item** only omits that Activity from the final Item and never disables the Item Creator editor itself.
 
 Existing compatible Activities imported from World Items or templates are promoted into this editor while unrepresented native fields remain preserved as passthrough source data. Existing Attack Activities continue to use the dedicated Weapon editor. Restore Resource and Spell-as-Activity are intentionally reserved for the v0.7.6 line, and Consumables keep their existing managed Consume Activity until Consumables v2 in v0.7.7.
 

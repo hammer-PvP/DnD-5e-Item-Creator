@@ -30,6 +30,9 @@ const COMPOSABLE_ACTIVITY_TYPES = Object.freeze([
   ["save", "Saving Throw"]
 ]);
 
+const DEFAULT_SPELLCASTING_MODIFIER_FORMULA = "@attributes.spell.mod";
+const HIGHEST_SPELLCASTING_MODIFIER_FORMULA = "max(@abilities.int.mod, @abilities.wis.mod, @abilities.cha.mod)";
+
 const UTILITY_ROLL_PRESETS = Object.freeze({
   none: "",
   d20: "1d20",
@@ -39,6 +42,8 @@ const UTILITY_ROLL_PRESETS = Object.freeze({
   int: "1d20 + @abilities.int.mod",
   wis: "1d20 + @abilities.wis.mod",
   cha: "1d20 + @abilities.cha.mod",
+  spellcasting: `1d20 + ${DEFAULT_SPELLCASTING_MODIFIER_FORMULA}`,
+  highestSpellcasting: `1d20 + ${HIGHEST_SPELLCASTING_MODIFIER_FORMULA}`,
   prof: "1d20 + @prof"
 });
 
@@ -49,6 +54,8 @@ const FORMULA_TOKEN_OPTIONS = Object.freeze([
   ["@abilities.int.mod", "Intelligence Modifier"],
   ["@abilities.wis.mod", "Wisdom Modifier"],
   ["@abilities.cha.mod", "Charisma Modifier"],
+  [DEFAULT_SPELLCASTING_MODIFIER_FORMULA, "Default Spellcasting Modifier"],
+  [HIGHEST_SPELLCASTING_MODIFIER_FORMULA, "Highest Spellcasting Modifier"],
   ["@prof", "Proficiency Bonus"]
 ]);
 
@@ -587,7 +594,8 @@ function damageDiceOptions(selected) {
 function abilityModifierOptions(selected) {
   return [
     { value: "attack", label: "Attack Ability", selected: selected === "attack" },
-    { value: "spellcasting", label: "Spellcasting Ability", selected: selected === "spellcasting" },
+    { value: "spellcasting", label: "Default Spellcasting Ability", selected: selected === "spellcasting" },
+    { value: "highestSpellcasting", label: "Highest Spellcasting Ability", selected: selected === "highestSpellcasting" },
     ...Object.entries(CONFIG.DND5E.abilities ?? {}).map(([value, entry]) => ({
       value,
       label: localizedLabel(entry, value),
@@ -2188,6 +2196,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
             ["int", "d20 + Intelligence Modifier"],
             ["wis", "d20 + Wisdom Modifier"],
             ["cha", "d20 + Charisma Modifier"],
+            ["spellcasting", "d20 + Default Spellcasting Modifier"],
+            ["highestSpellcasting", "d20 + Highest Spellcasting Modifier"],
             ["prof", "d20 + Proficiency Bonus"],
             ["custom", "Custom Formula"]
           ], row.utilityPreset),
@@ -4540,6 +4550,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (title) title.textContent = String(data.name ?? entry.name ?? activityTypeLabel(data.type));
     const summary = details.querySelector('[data-composed-activity-summary]');
     if (summary) summary.textContent = `${activityCommonSummary(data)}${entry.disabled ? " · Disabled" : ""}`;
+    // Disabled means "omit this Activity from the final Item", not "disable the editor".
+    // Keep the current card fully interactive and update its visual state without
+    // forcing an ApplicationV2 rerender from inside the checkbox change event.
+    details.classList.toggle("disabled", Boolean(entry.disabled));
   }
 
   #insertComposedFormulaToken(event) {
@@ -4662,7 +4676,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     entry.summary = activityCommonSummary(data);
     entry.composed = true;
     this.#syncComposedActivityLiveControls(id, entry, data);
-    if (["rangeUnits", "targetType", "durationUnits", "recoveryPeriod", "enabled", "disabled", "included"].includes(part)) this.#renderPreservingScroll();
+    if (["rangeUnits", "targetType", "durationUnits"].includes(part)) this.#renderPreservingScroll();
   }
 
   #rememberComposedActivityExpanded(event) {

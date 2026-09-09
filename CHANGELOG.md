@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.5c — Activities v2 Stability Pass
+
+- Kept the v0.7.5 scope intentionally narrow: this build is a stability pass for the existing Activities v2 foundation and does not add Restore Resource, Spell-as-Activity, Conditional Weapon Bonus, or Consumables v2.
+- Fixed **Enabled on Item** so disabling a composed Activity only omits that Activity from the final Item. The Activity card remains editable and the Item Creator window is not rerendered from inside the toggle event, avoiding the frozen/disabled-screen behavior seen in live testing.
+- Preserved the v0.7.5b live **Maximum Uses → Cost/Recovery** synchronization. Limited-use controls update immediately from Maximum Uses and remain native Activity Uses with their configured recovery period.
+- Fixed the Weapon Attack Activity **Spellcasting Ability** damage modifier. D&D5e FormulaField does not accept the previous nested `@abilities[@attributes.spellcasting].mod` path in Damage Part bonus formulas; Item Creator now uses the native prepared Actor roll-data path `@attributes.spell.mod`.
+- Added separate **Default Spellcasting Ability** and **Highest Spellcasting Ability** choices to Weapon Damage Part ability modifiers. The highest option resolves through a valid Foundry formula using the highest INT/WIS/CHA modifier.
+- Added **Default Spellcasting Modifier** and **Highest Spellcasting Modifier** to the reusable Formula Helper used by Utility, Damage, Heal, and Save Activities, plus matching Utility d20 presets.
+- Audited Spellcasting modifier insertion across the current v0.7.5 Activity surfaces so generated formulas use FormulaField-compatible syntax instead of the invalid nested path.
+- Hardened native Activity ordering: the Primary Weapon Attack is explicitly sort `0`, managed Alternative Attacks follow it, and composed Additional Activities remain later in the chooser.
+- Kept the v0.7.5b Range/Duration/Uses layout and reactive behavior unchanged except for the stability fixes above.
+- The Item Creator document schema remains **18**.
+
 ## 0.7.5b — Activities v2 Live-Test Polish
 
 - Refined the v0.7.5 Activities Composer from the first live Weapon test without expanding into the planned v0.7.6 Restore Resource / Spell Activity scope.

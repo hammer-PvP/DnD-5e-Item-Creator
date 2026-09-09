@@ -106,8 +106,9 @@ function damagePart({ number = 0, denomination = 0, bonus = "", damageType = "",
   let formula = String(bonus ?? "").trim();
   if (ability) {
     const abilityFormula = ability === "attack" ? "@mod"
-      : ability === "spellcasting" ? "@abilities[@attributes.spellcasting].mod"
-        : `@abilities.${ability}.mod`;
+      : ability === "spellcasting" ? "@attributes.spell.mod"
+        : ability === "highestSpellcasting" ? "max(@abilities.int.mod, @abilities.wis.mod, @abilities.cha.mod)"
+          : `@abilities.${ability}.mod`;
     formula = formula ? `${formula} + ${abilityFormula}` : abilityFormula;
   }
   return {
@@ -962,8 +963,9 @@ function itemPropertyEntries(draft) {
     const text = formatRows((draft.effective?.additionalDamage ?? draft.overrides?.additionalDamage ?? []).filter(row => !settingHasProgression(row)), row => {
       const ability = row.useAbilityModifier
         ? row.ability === "attack" ? " + attack ability modifier"
-          : row.ability === "spellcasting" ? " + spellcasting ability modifier"
-            : ` + ${abilityLabel(row.ability)} modifier`
+          : row.ability === "spellcasting" ? " + default spellcasting ability modifier"
+            : row.ability === "highestSpellcasting" ? " + highest spellcasting ability modifier"
+              : ` + ${abilityLabel(row.ability)} modifier`
         : "";
       return `${Number(row.number) || 0}d${Number(row.denomination) || 0}${ability} ${damageTypeLabel(row.damageType)}`;
     });
@@ -1394,9 +1396,15 @@ export class ItemCreatorItemBuilder {
       }
     }
 
+    // D&D5e's Activity chooser respects native sort values. Keep the Primary
+    // weapon attack first, managed alternative attacks next, and composed
+    // Activities after them regardless of source/template sort values.
+    attack.sort = 0;
     const managedAttackActivities = [attack];
     for (const [index, setting] of activitySettings.slice(1).entries()) {
-      managedAttackActivities.push(buildAlternativeAttackActivity(setting, attack, importedCustom, index + 1));
+      const alternative = buildAlternativeAttackActivity(setting, attack, importedCustom, index + 1);
+      alternative.sort = (index + 1) * 100000;
+      managedAttackActivities.push(alternative);
     }
     const provisionalActivities = [...managedAttackActivities, ...importedCustom.activities];
     data.system.activities = Object.fromEntries(provisionalActivities.map(activity => [activity._id, activity]));
