@@ -3166,3 +3166,4 @@ body.ic-protected-active { overflow: hidden; }
 .item-creator .ic-activity-uses-section { border-color: rgba(102, 180, 130, .25); }
 .item-creator [data-composed-activity-requires-uses]:disabled { opacity: .5; cursor: not-allowed; }
 .item-creator select[data-action="insert-composed-formula-token"] { min-width: 170px; }
+\n.ic-restore-resource-list { display: grid; gap: 10px; }\n.ic-restore-resource-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; padding: 10px; border: 1px solid var(--color-border-light-tertiary); border-radius: 6px; }\n.ic-restore-resource-remove { align-self: end; }\n

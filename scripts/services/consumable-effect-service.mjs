@@ -43,7 +43,8 @@ function consumableRuntime(item) {
 }
 
 function isManagedUseActivity(activity) {
-  return activity?.flags?.[MODULE_ID]?.consumableUse === true;
+  if (activity?.flags?.[MODULE_ID]?.consumableUse === true) return true;
+  return valuesOf(activity?.consumption?.targets).some(target => target?.type === "itemUses");
 }
 
 function effectFlag(effect, key) {
@@ -57,14 +58,31 @@ function appliedEffects(actor, sourceKey = null) {
   });
 }
 
-function activeBlueprints(itemOrEffects, actor) {
+function activityComposerId(activity) {
+  return String(activity?.flags?.[MODULE_ID]?.composerId ?? activity?.flags?.[MODULE_ID]?.importedSourceId ?? activity?.id ?? activity?._id ?? "");
+}
+
+function effectRuntimeConfig(effect, runtime) {
+  const override = effectFlag(effect, "consumableEffect") ?? {};
+  return normalizeConfig({ config: { ...(runtime?.config ?? {}), ...(override ?? {}) } });
+}
+
+function blueprintIdentity(effect) {
+  const flags = effect?.flags?.[MODULE_ID] ?? {};
+  return String(flags.key ?? flags.importedSourceId ?? effect?.name ?? "effect");
+}
+
+function activeBlueprints(itemOrEffects, actor, activity = null) {
   const level = actorLevel(actor);
+  const composerId = activityComposerId(activity);
   const effects = Array.isArray(itemOrEffects) ? itemOrEffects : valuesOf(itemOrEffects?.effects);
   const candidates = effects.filter(effect => {
     const flags = effect?.flags?.[MODULE_ID] ?? {};
     if (effect?.disabled) return false;
     if (flags.consumableBlueprint !== true) return false;
     if (flags.unlockOnLevel && level < (Number(flags.unlockLevel) || 1)) return false;
+    const binding = flags.consumableEffect?.activityIds;
+    if (Array.isArray(binding) && binding.length && !binding.includes("all") && (!composerId || !binding.includes(composerId))) return false;
     return true;
   });
 
@@ -177,6 +195,7 @@ function sourceForActor(effect, item, actor, runtime, config, instanceId) {
     consumableSourceItemName: item.name,
     consumableSourceItemUuid: item.uuid,
     consumableInstanceId: instanceId,
+    consumableBlueprintId: blueprintIdentity(effect),
     ...timingFlags(config, actor)
   };
   return source;
@@ -207,6 +226,42 @@ async function removeExhaustion(actor, config) {
     : Math.max(0, current - Math.max(1, Number.parseInt(config.removeExhaustionAmount, 10) || 1));
   if (next === current) return;
   await actor.update({ "system.attributes.exhaustion": next }, { itemCreatorConsumable: true, render: true });
+}
+
+async function removeActorStatus(actor, statusId) {
+  if (!actor || !statusId) return;
+  if (actor.toggleStatusEffect instanceof Function) {
+    try { await actor.toggleStatusEffect(statusId, { active: false }); return; } catch (_error) { /* fallback below */ }
+  }
+  const matches = valuesOf(actor.effects).filter(effect => {
+    const statuses = effect?.statuses instanceof Set ? [...effect.statuses] : valuesOf(effect?.statuses);
+    return statuses.includes(statusId);
+  });
+  const ids = matches.map(effect => effect?.id).filter(Boolean);
+  if (ids.length) await safeDeleteActiveEffects(actor, ids, { itemCreatorConsumable: true, render: true });
+}
+
+async function applyActorStateChanges(actor, config) {
+  const entries = Array.isArray(config?.entries) ? config.entries : [];
+  for (const entry of entries) {
+    if (entry?.type === "removeExhaustion") {
+      const amountRaw = String(entry.amount ?? "1").trim().toLowerCase();
+      const current = Math.max(0, Number(actor.system?.attributes?.exhaustion) || 0);
+      const next = amountRaw === "all" ? 0 : Math.max(0, current - Math.max(1, Number.parseInt(amountRaw, 10) || 1));
+      if (next !== current) await actor.update({ "system.attributes.exhaustion": next }, { itemCreatorConsumable: true, render: true });
+      continue;
+    }
+    if (entry?.type === "removeStatus") {
+      const status = String(entry.status ?? "").trim();
+      if (!status) continue;
+      if (status === "all") {
+        const ids = new Set();
+        for (const effect of valuesOf(CONFIG.statusEffects)) if (effect?.id) ids.add(effect.id);
+        for (const id of Object.keys(CONFIG.DND5E.conditionTypes ?? {})) ids.add(id);
+        for (const id of ids) await removeActorStatus(actor, id);
+      } else await removeActorStatus(actor, status);
+    }
+  }
 }
 
 async function deleteApplied(actor, effects) {
@@ -364,7 +419,9 @@ export class ItemCreatorConsumableEffectService {
           actor,
           runtime: clone(runtime),
           item: { name: item.name, img: item.img, uuid: item.uuid },
-          effects: valuesOf(item.effects).map(effect => effect.toObject instanceof Function ? effect.toObject(false) : clone(effect))
+          effects: valuesOf(item.effects).map(effect => effect.toObject instanceof Function ? effect.toObject(false) : clone(effect)),
+          activityComposerId: activityComposerId(activity),
+          actorStateChanges: clone(activity?.flags?.[MODULE_ID]?.actorStateChanges ?? null)
         });
       } catch (error) {
         console.warn(`${MODULE_ID} | Unable to snapshot Consumable before native consumption.`, error);
@@ -404,24 +461,31 @@ export class ItemCreatorConsumableEffectService {
     if (!item || !runtime || !actor) return false;
 
     const config = normalizeConfig(runtime);
-    // Instant actions are resolved even if an existing persistent dose is set to
-    // Ignore New Use. The physical consumable was used, so its instant result is real.
+    // Legacy instant state change remains supported for 0.7.7a Items. New
+    // Consumables attach state changes to a specific Activity instead.
     await removeExhaustion(actor, config);
+    const activityState = snapshot?.actorStateChanges ?? activity?.flags?.[MODULE_ID]?.actorStateChanges ?? null;
+    if (activityState) await applyActorStateChanges(actor, activityState);
 
-    const blueprints = activeBlueprints(snapshot?.effects ?? liveItem, actor);
+    const bindingActivity = activityComposerId(activity) ? activity : snapshot?.activityComposerId
+      ? { flags: { [MODULE_ID]: { composerId: snapshot.activityComposerId } } } : activity;
+    const blueprints = activeBlueprints(snapshot?.effects ?? liveItem, actor, bindingActivity);
     if (!blueprints.length) return true;
 
-    const existing = appliedEffects(actor, runtime.key);
-    if (config.stacking === "ignore" && existing.length) return true;
-    if (config.stacking === "replace" && existing.length) await deleteApplied(actor, existing);
-    if (config.stacking === "refresh" && existing.length) {
-      await safeUpdateActiveEffects(actor, refreshUpdates(existing, config, actor), { itemCreatorConsumable: true, render: true });
-      return true;
+    for (const blueprint of blueprints) {
+      const effectConfig = effectRuntimeConfig(blueprint, runtime);
+      const identity = blueprintIdentity(blueprint);
+      const existing = appliedEffects(actor, runtime.key).filter(effect => String(effectFlag(effect, "consumableBlueprintId") ?? blueprintIdentity(effect)) === identity);
+      if (effectConfig.stacking === "ignore" && existing.length) continue;
+      if (effectConfig.stacking === "replace" && existing.length) await deleteApplied(actor, existing);
+      if (effectConfig.stacking === "refresh" && existing.length) {
+        await safeUpdateActiveEffects(actor, refreshUpdates(existing, effectConfig, actor), { itemCreatorConsumable: true, render: true });
+        continue;
+      }
+      const instanceId = foundry.utils.randomID();
+      const source = sourceForActor(blueprint, item, actor, runtime, effectConfig, instanceId);
+      await actor.createEmbeddedDocuments("ActiveEffect", [source], { itemCreatorConsumable: true, render: true });
     }
-
-    const instanceId = foundry.utils.randomID();
-    const create = blueprints.map(effect => sourceForActor(effect, item, actor, runtime, config, instanceId));
-    await actor.createEmbeddedDocuments("ActiveEffect", create, { itemCreatorConsumable: true, render: true });
     return true;
   }
 

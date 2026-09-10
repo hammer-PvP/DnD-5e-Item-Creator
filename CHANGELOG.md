@@ -1,5 +1,92 @@
 # Changelog
 
+## 0.7.7b1 — Consumable Flow Cleanup
+
+- Removed the redundant **Effect Defaults** step from the Consumable workflow. Consumables now follow the clean sequence **Item Type → Base Item → Activities → Granted Effects → Description → Review**.
+- Consumable activation remains owned exclusively by each Activity. Granted Effect duration, stacking, and Activity routing remain owned exclusively by each Granted Effect.
+- New Granted Effects no longer inherit duration/stacking from a hidden global Consumable configuration. They begin with their own local defaults and persist independently.
+- Newly saved Consumables no longer persist global duration/stacking/activation as runtime effect policy; only the legacy Exhaustion compatibility fields remain at the runtime root. Opaque on-use effect blueprints receive their own local lifecycle defaults instead of falling back to a global policy.
+- Managed 0.7.7a/early-0.7.7b Consumables are migrated in memory: when a Granted Effect lacks per-effect lifecycle metadata, the old global duration/stacking is copied into that effect once so existing items keep their intended behavior.
+- Removed hidden Consumable duration validation from the obsolete Enhancements stage. Legacy 0.7.7a instant Exhaustion removal remains readable for backward compatibility, while new state changes belong to Activities.
+- Direct/stale navigation to the removed Consumable Enhancements step redirects to Activities.
+- Runtime schema remains 22; this is a workflow/ownership cleanup before another lifecycle retest.
+
+## 0.7.7b — Consumable Activity & Effect Composer
+
+- Promoted every native Activity inherited from a Consumable Base Item into the editable Activity Composer. Base Heal/Damage/Save/Utility and other native Activity source data can now be edited in-place while unrepresented fields are preserved.
+- Consumable Activities can be added, duplicated, removed, enabled/omitted, and reordered. Rebuilt Activities keep stable composer/source identity so Activity-specific routing survives edit/rebuild cycles.
+- Moved Consumable activation authoring into each Activity. The former global Activation/Instant Effects presentation is replaced by **Effect Defaults** plus the **Activities** step; shared Item charge recharge/depletion remains owned by the Consumable itself.
+- Heal Activities now expose their native/custom healing formula and Formula Helper, allowing a Base Potion formula to be replaced with formulas such as `1d8 + @abilities.cha.mod`. Multiple Heal Activities can coexist with different Action/Bonus Action activation, formulas, targets, and charge costs.
+- Added **Actor State Changes** as an Activity mode. A single activation can remove multiple configured D&D5e/Foundry conditions or registered statuses and/or remove a fixed number or all Exhaustion levels. Missing conditions are ignored safely; a deliberate All Conditions / Statuses option is available for broad cleanses.
+- Granted Effects on Consumables now support **Activity → Granted Effect** routing. Each effect can be applied by all Item Activities or a selected subset and has its own duration and stacking policy.
+- Consumable on-use runtime filters Item Creator Granted Effect blueprints by the Activity that was actually used, including the pre-consumption snapshot path when native depletion destroys the source Item.
+- Permanent consumed Granted Effects are copied onto the Actor without an Active Effect origin dependency on the source Consumable, so depletion/destruction of the Item does not remove the applied permanent effect.
+- Generated Item Properties now describe Actor State Change Activities, custom Heal/Damage formulas, activation, and shared Item charge cost. Consumable runtime description no longer claims a single global Activation or Effect Duration.
+- Hardened re-editing of v0.7.7a managed Consumables so previously generated Activities without a composer id are not hydrated a second time. Legacy v0.7.7a global Exhaustion removal remains supported for compatibility.
+- Consumable document schema advanced to **22**. Triggered Effects lifecycle integration, Spell Activities inside Consumables, and broader subtype/native coverage remain outside this internal build.
+
+## 0.7.7a — Consumables v2 Foundation / Shared Charges
+
+- Began the Consumables v2 line on top of the validated v0.7.6c Activities/Restore Resource/Spell Activity foundation.
+- Consumable rebuilding is now **preserve-first**: native Base Item Activities and Active Effects are retained instead of being discarded and replaced by a generic `Consume` Activity. Unknown third-party/base-item data remains on the cloned source.
+- Added native shared Consumable charges: **Maximum Uses / Charges**, **Destroy When Depleted**, optional **Recharge Trigger**, and **Recharge Amount / Formula**. Recharge formulas use the D&D5e item-use recovery model and may be values such as `1`, `1d4 + 1`, `@prof`, an Ability modifier, or `all`.
+- `Destroy When Depleted = Yes` uses D&D5e's native consumable stack behavior: the exhausted item/stack unit is consumed. `No` keeps the Item at 0 charges so a later recharge can restore it.
+- Enabled the existing Additional Activities Composer for Consumables. New Utility, Restore Resource, Damage, Heal, and Save Activities spend the Consumable's **shared Item charges** by default rather than receiving a separate Activity-use pool. Per-Activity charge cost is configurable.
+- A completely blank custom Consumable still receives a minimal native `Consume` Utility Activity, preserving the simple one-use potion path. When a Base Item or custom Activity already supplies usable Activities, Item Creator no longer forces an extra replacement Activity.
+- Item Creator's consumable runtime now recognizes any Activity that consumes native Item Uses, allowing preserved Base Item Activities and new composed Activities to trigger Item Creator on-use blueprints/instant effects.
+- Managed Consumables now save their composed Activities in the draft so Heal/Damage/Utility/Restore Resource configurations survive edit/rebuild cycles.
+- Generated Consumable description text now reports charge maximum, recharge formula/trigger, and depletion behavior.
+- Item Creator document schema advanced to **21**. This is an internal test build; Spell Activities inside Consumables, full native subtype coverage, and broader Consumables v2 integration remain for later v0.7.7 builds.
+
+## 0.7.6c — Integration / Stability
+
+- Consolidated the validated Restore Resource and Spell-as-Activity implementations without adding a new gameplay feature.
+- Granted Spell Cast Activities now keep a stable native Activity id across Review, Save, re-edit, and rebuild cycles. Imported Cast Activities reuse their original id whenever it is safe to do so.
+- Cast Activity ids are checked against already-built Activities before materialization, preventing accidental id collisions in multifunction Items.
+- Cast Activities now receive their sort range after the Activities already present on the Item, keeping the Primary Attack and composed Activities in deterministic order.
+- Item Creator-generated Item Properties now include a compact summary for Spells exposed as Item Activities, including cast level, uses/recharge, and availability.
+- Level-unlocked Spell Activities are labeled as Item Spell Activities in generated progression text instead of generic Granted Spellcasting.
+- The cycle-safe document sanitization from v0.7.6b1 remains in place for imported Effects/Activities.
+- Runtime schema remains 20. This build is an integration/stability pass only.
+
+## 0.7.6b1 — Cycle-safe Imported Effect Hotfix
+
+- Fixed Review/Save crashing with `RangeError: Maximum call stack size exceeded` when a preserved imported Active Effect contains a transient/circular Foundry reference.
+- `cleanDocumentSource()` is now cycle-safe and omits only back-references that cannot exist in serializable Item JSON, while preserving normal repeated data and all ordinary Effect/Activity source fields.
+- Added explicit Set/Map sanitization alongside the existing `_index` cleanup.
+- No Spell-as-Activity, Restore Resource, Uses/Recharge, schema, or gameplay behavior changed. Runtime schema remains 20.
+
+## 0.7.6b — Spell as Activity
+
+- Granted Spellcasting now supports **Expose as Item Activity** per Spell.
+- Item Activity mode reuses the existing cast-level, uses/recovery, availability, spellcasting ability, and fixed attack/save configuration.
+- Item Activity mode is intentionally restrictive: it never consumes or falls back to Actor Spell Slots. Cast Level controls resolution level only.
+- The existing Granted Spell / Spellbook path remains available and backward-compatible.
+- Imported Cast Activities infer their exposure intent when possible and preserve existing source data.
+- Generated Item Properties now describe Item Creator-composed Activities instead of labeling them as generic `Imported Activity`; odd single-property rows use the full available width.
+- Restore Resource runtime behavior from v0.7.6a1 is unchanged.
+- Runtime schema advanced to 20.
+
+## 0.7.6a1 — Activity Recharge Formula / Restore Resource UX
+
+- Internal refinement of the v0.7.6a Restore Resource foundation; no Spell-as-Activity work is included yet.
+- Renamed ambiguous Activity fields: `Activation Cost` → `Action Cost`, `Cost per Activation` → `Uses Spent per Activation`, and `Recovery` → `Recharge Trigger`.
+- Added native D&D5e Activity recharge formulas. Limited Activities can now recover a fixed number or roll formula such as `2`, `1d4`, `1 + 1d4`, `1d6 + @prof`, or `1 + @abilities.cha.mod` on the configured recharge trigger. Native recovery clamps at the Activity maximum.
+- Added a Recharge Formula Helper for ability modifiers, Default/Highest Spellcasting Modifier, and Proficiency Bonus.
+- Restore Resource Activities now default to a minimally functional configuration when first selected: Action Cost 1, Maximum Uses 1, Uses Spent 1, Long Rest recharge, Recharge Amount 1.
+- Clarified `Resource Amount Restored` as the separate amount restored to the Actor resource when the Activity is activated.
+
+## 0.7.6a — Restore Resource Foundation
+
+- Began the v0.7.6 line on top of the validated v0.7.5d Activities v2 baseline. This internal build focuses only on the Restore Resource foundation; Spell-as-Activity remains for the next internal build.
+- Added **Restore Resource** as a new Item Creator composed Activity type. It materializes as a native D&D5e Utility Activity carrying Item Creator recovery metadata, so normal Activity activation/uses/recovery remain system-native while the recovery itself is handled safely after use.
+- A Restore Resource Activity can contain multiple recovery rows. Initial resource targets are **Spell Slots (levels 1–9)**, **Pact Magic**, **Hit Dice (any or d6/d8/d10/d12)**, and known **class/subclass resource uses** from the existing Item Creator resource registry (Bardic Inspiration, Rage, Wild Shape, Channel Divinity, Second Wind, and other registered resources).
+- Recovery amount supports **Flat Amount**, **Formula**, and **Recover All**. Formula recovery uses the Item owner's Actor roll data.
+- Recovery is bounded and never exceeds the native resource limit: Spell/Pact Slots clamp to their prepared maximum; Feature/Activity uses and Hit Dice reduce `spent` only as far as zero. The runtime intentionally does not use negative D&D5e consumption values.
+- Restore Resource currently targets the **Item Owner** only. Target-creature recovery and arbitrary custom resource paths are intentionally deferred until they are needed and can be integrated safely.
+- Multiple recoveries in one Activity are supported from the first schema, avoiding a later migration for combined resource-restoration powers.
+- Item Creator document schema advanced to **19** for Restore Resource Activity metadata. Existing schema-18 Activities remain readable and unchanged.
+
 ## 0.7.5d — Activities v2 Disabled-State Hotfix
 
 - Fixed the remaining **Enabled on Item** lockout. v0.7.5c correctly stopped rerendering the Item Creator, but it still applied the generic CSS class `disabled` to the entire composed Activity card. Foundry/system styles can treat that generic class as non-interactive, which also prevents the checkbox inside the card from being clicked again.

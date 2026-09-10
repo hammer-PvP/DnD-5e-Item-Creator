@@ -6,6 +6,7 @@ import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
 import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
+import { ItemCreatorRestoreResourceService } from "./services/restore-resource-service.mjs";
 import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
@@ -34,6 +35,7 @@ Hooks.once("init", () => {
   ItemCreatorRuntimeEffectService.registerHooks();
   ItemCreatorTriggeredEffectService.registerHooks();
   ItemCreatorConsumableEffectService.registerHooks();
+  ItemCreatorRestoreResourceService.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, "sourceSettings", {

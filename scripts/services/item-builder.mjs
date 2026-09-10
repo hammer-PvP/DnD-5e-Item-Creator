@@ -2,7 +2,7 @@ import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
 import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
 import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
 import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
-import { resourceModificationLabel } from "./resource-modification-registry.mjs";
+import { getResourceDefinition, resourceModificationLabel } from "./resource-modification-registry.mjs";
 import { triggeredEffectSummary } from "./triggered-effect-registry.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
@@ -121,20 +121,60 @@ function damagePart({ number = 0, denomination = 0, bonus = "", damageType = "",
   };
 }
 
-function stripTransientIndices(value) {
-  if (Array.isArray(value)) return value.map(entry => stripTransientIndices(entry));
+const OMIT_TRANSIENT = Symbol("omit-transient-reference");
+
+function stripTransientIndices(value, ancestors = new WeakSet()) {
   if (!value || typeof value !== "object") return value;
 
-  const clean = {};
-  for (const [key, entry] of Object.entries(value)) {
-    if (key === "_index") continue;
-    clean[key] = stripTransientIndices(entry);
+  // Foundry Documents/DataModels may expose transient parent/cache references.
+  // Document source must always be a serializable tree, so any back-reference
+  // encountered on the current traversal path is intentionally omitted.
+  if (ancestors.has(value)) return OMIT_TRANSIENT;
+  ancestors.add(value);
+
+  try {
+    if (Array.isArray(value)) {
+      const clean = [];
+      for (const entry of value) {
+        const result = stripTransientIndices(entry, ancestors);
+        if (result !== OMIT_TRANSIENT) clean.push(result);
+      }
+      return clean;
+    }
+
+    if (value instanceof Set) {
+      const clean = [];
+      for (const entry of value) {
+        const result = stripTransientIndices(entry, ancestors);
+        if (result !== OMIT_TRANSIENT) clean.push(result);
+      }
+      return clean;
+    }
+
+    if (value instanceof Map) {
+      const clean = {};
+      for (const [key, entry] of value.entries()) {
+        const result = stripTransientIndices(entry, ancestors);
+        if (result !== OMIT_TRANSIENT) clean[key] = result;
+      }
+      return clean;
+    }
+
+    const clean = {};
+    for (const [key, entry] of Object.entries(value)) {
+      if (key === "_index") continue;
+      const result = stripTransientIndices(entry, ancestors);
+      if (result !== OMIT_TRANSIENT) clean[key] = result;
+    }
+    return clean;
+  } finally {
+    ancestors.delete(value);
   }
-  return clean;
 }
 
 function cleanDocumentSource(source) {
-  return stripTransientIndices(clone(source ?? {}));
+  const clean = stripTransientIndices(clone(source ?? {}));
+  return clean === OMIT_TRANSIENT ? {} : clean;
 }
 
 function sanitizeDocumentData(source) {
@@ -201,10 +241,14 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
 
   const activities = [];
   let composedOrder = 0;
+  const usedActivityIds = new Set();
   for (const entry of customActivities ?? []) {
     if (entry?.included === false || entry?.disabled || !entry?.data) continue;
     const activity = cleanDocumentSource(entry.data);
-    activity._id = foundry.utils.randomID();
+    let activityId = String(entry.activityId ?? activity._id ?? entry.sourceId ?? "").trim();
+    if (!activityId || usedActivityIds.has(activityId)) activityId = foundry.utils.randomID();
+    usedActivityIds.add(activityId);
+    activity._id = activityId;
     // New/composed Activities should follow a Weapon's managed Attack Activities
     // in the native D&D5e chooser. Imported opaque Activities preserve their
     // source sort whenever possible.
@@ -219,6 +263,7 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
       ...(activity.flags[MODULE_ID] ?? {}),
       importedCustom: true,
       composedActivity: Boolean(entry.composed),
+      composerId: entry.id ?? activity.flags?.[MODULE_ID]?.composerId ?? null,
       importedSourceId: entry.sourceId ?? null,
       normalizedByCreator: true
     };
@@ -245,7 +290,7 @@ export function buildGrantedEffects(enabled, values) {
   const addEffect = (key, label, availability, changes, description = "") => {
     if (!changes.length) return;
     const setting = values[key] ?? {};
-    effects.push(effectData({
+    const effect = effectData({
       key, label, availability, changes, description,
       progression: {
         unlockOnLevel: Boolean(setting.unlockOnLevel),
@@ -253,7 +298,12 @@ export function buildGrantedEffects(enabled, values) {
         progressionGroupId: setting.progressionGroupId || `effect:${key}`,
         tierId: "base", tierOrder: 0
       }
-    }));
+    });
+    if (setting.consumable) {
+      effect.flags ??= {}; effect.flags[MODULE_ID] ??= {};
+      effect.flags[MODULE_ID].consumableEffect = cleanDocumentSource(setting.consumable);
+    }
+    effects.push(effect);
   };
   const add = MODES().ADD;
   const override = MODES().OVERRIDE;
@@ -478,7 +528,7 @@ export function buildGrantedEffects(enabled, values) {
     for (const [index, tier] of (setting.tiers ?? []).entries()) {
       const changes = tierChanges(key, tier);
       if (!changes.length) continue;
-      effects.push(effectData({
+      const effect = effectData({
         key, label: `${label} — Tier ${index + 2}`,
         availability: tier.availability ?? setting.availability ?? "equipped",
         changes,
@@ -489,7 +539,12 @@ export function buildGrantedEffects(enabled, values) {
           tierId: tier.id ?? `tier-${index + 1}`,
           tierOrder: index + 1
         }
-      }));
+      });
+      if (setting.consumable) {
+        effect.flags ??= {}; effect.flags[MODULE_ID] ??= {};
+        effect.flags[MODULE_ID].consumableEffect = cleanDocumentSource(setting.consumable);
+      }
+      effects.push(effect);
     }
   }
 
@@ -628,28 +683,42 @@ function availabilityFlags(availability) {
   };
 }
 
-async function buildCastActivities(parentItem, spells = []) {
+function nextActivitySort(activities, floor = 400000) {
+  const sorts = valuesOf(activities).map(activity => Number(activity?.sort)).filter(Number.isFinite);
+  const maxSort = sorts.length ? Math.max(...sorts) : -100000;
+  const next = Math.ceil((maxSort + 1) / 100000) * 100000;
+  return Math.max(Number(floor) || 0, next);
+}
+
+async function buildCastActivities(parentItem, spells = [], { reservedIds = [], sortBase = 400000 } = {}) {
   const activities = [];
-  for (const spell of spells) {
+  const usedIds = new Set(valuesOf(reservedIds).map(String).filter(Boolean));
+  for (const [index, spell] of spells.entries()) {
     const ActivityClass = CONFIG.DND5E.activityTypes?.cast?.documentClass;
     const recovery = recoveryData(spell);
+    const activityMode = Boolean(spell.exposeAsActivity);
+    const consumeSlot = !activityMode && Boolean(spell.consumeSlot);
     const ability = ["int", "wis", "cha"].includes(spell.spellcastingMode) ? spell.spellcastingMode : "";
     const fixedChallenge = spell.spellcastingMode === "fixed";
     const castLevel = spell.castLevelMode === "fixed" ? Number(spell.fixedCastLevel) : Number(spell.level);
     const consumptionTargets = [...recovery.targets];
-    if (spell.consumeSlot && Number(spell.level) > 0) consumptionTargets.push({
+    if (consumeSlot && Number(spell.level) > 0) consumptionTargets.push({
       type: "spellSlots",
       target: String(Math.max(1, castLevel || Number(spell.level) || 1)),
       value: "1",
       scaling: { mode: spell.castLevelMode === "slot" ? "level" : "", formula: "" }
     });
+    const preferredId = String(spell.activityId ?? spell.importedActivityId ?? "").trim();
+    const activityId = preferredId && !usedIds.has(preferredId) ? preferredId : foundry.utils.randomID();
+    usedIds.add(activityId);
     const source = {
-      _id: foundry.utils.randomID(),
+      _id: activityId,
       type: "cast",
       name: spell.name,
       img: spell.img,
+      sort: Number(sortBase) + (index * 100000),
       consumption: {
-        scaling: { allowed: spell.castLevelMode === "slot", max: spell.castLevelMode === "slot" ? String(9 - Number(spell.level)) : "" },
+        scaling: { allowed: consumeSlot && spell.castLevelMode === "slot", max: consumeSlot && spell.castLevelMode === "slot" ? String(9 - Number(spell.level)) : "" },
         spellSlot: false,
         targets: consumptionTargets
       },
@@ -666,7 +735,7 @@ async function buildCastActivities(parentItem, spells = []) {
         // D&D5e caches linked spells for every Cast Activity, but only lists a
         // cached spell when this field is true. World items therefore start
         // conditional grants hidden until their Actor copy becomes available.
-        spellbook: Boolean(spell.showInSpellbook && spell.availability === "owned" && !spell.unlockOnLevel),
+        spellbook: Boolean(!activityMode && spell.showInSpellbook && spell.availability === "owned" && !spell.unlockOnLevel),
         uuid: spell.uuid
       },
       uses: recovery.uses,
@@ -675,13 +744,14 @@ async function buildCastActivities(parentItem, spells = []) {
         [MODULE_ID]: {
           grantedSpell: true,
           sourceSpellUuid: spell.uuid,
-          showInSpellbook: Boolean(spell.showInSpellbook),
-          eligibility: spell.eligibility,
-          consumeSlot: Boolean(spell.consumeSlot),
+          exposeAsActivity: activityMode,
+          showInSpellbook: Boolean(!activityMode && spell.showInSpellbook),
+          eligibility: activityMode && spell.eligibility === "compatibleSlot" ? "independent" : spell.eligibility,
+          consumeSlot,
           availability: spell.availability,
           spellcastingMode: spell.spellcastingMode,
           baseLevel: Number(spell.level),
-          castLevelMode: spell.castLevelMode,
+          castLevelMode: activityMode && spell.castLevelMode === "slot" ? "base" : spell.castLevelMode,
           unlockOnLevel: Boolean(spell.unlockOnLevel),
           unlockLevel: Number(spell.unlockLevel) || 1,
           progressionGroupId: spell.progressionGroupId || `spell:${spell.uuid}`
@@ -789,7 +859,7 @@ function eligibilitySentence(spell) {
 }
 
 function spellbookSentence(spell) {
-  if (!spell.showInSpellbook) return "";
+  if (spell.exposeAsActivity || !spell.showInSpellbook) return "";
   if (Number(spell.level) === 0) {
     return "The cantrip is always available to you and does not count against the number of cantrips you know.";
   }
@@ -798,6 +868,11 @@ function spellbookSentence(spell) {
 
 function useSentence(spell) {
   const level = Number(spell.level) || 0;
+  if (spell.exposeAsActivity) {
+    const count = spell.useLimit === "limited" ? useCountPhrase(spell.maxUses) : "at will";
+    const recharge = spell.useLimit === "limited" ? ` You regain all expended uses when you finish ${recoveryPhrase(spell.recovery)}.` : "";
+    return `You can activate this Spell from the item ${count} without expending a spell slot.${recharge}`;
+  }
   const slotLevel = Math.max(1, Number(spell.fixedCastLevel) || level || 1);
   const slotRequirement = `a spell slot of ${ordinalLevel(slotLevel)} or higher`;
 
@@ -819,9 +894,11 @@ function useSentence(spell) {
 function fullGrantedSpellText(spell) {
   const level = Number(spell.level) || 0;
   const lead = availabilityLead(spell.availability);
-  const grant = level === 0
-    ? `${lead}, this item grants you the ${spellReference(spell)} cantrip.`
-    : `${lead}, this item grants you access to ${spellReference(spell)}.`;
+  const grant = spell.exposeAsActivity
+    ? `${lead}, you can activate ${spellReference(spell)} directly from this item.`
+    : level === 0
+      ? `${lead}, this item grants you the ${spellReference(spell)} cantrip.`
+      : `${lead}, this item grants you access to ${spellReference(spell)}.`;
   return [
     grant,
     spellbookSentence(spell),
@@ -841,8 +918,9 @@ function chatGrantedSpellText(spell) {
   const uses = spell.useLimit === "limited"
     ? `${useCountPhrase(spell.maxUses)} per ${spell.recovery === "shortRest" ? "Short Rest" : "Long Rest"}`
     : "at will";
-  const slot = spell.consumeSlot && Number(spell.level) > 0 ? "consumes a compatible spell slot" : "does not expend a spell slot";
-  return `${spellReference(spell)} — ${availability}; ${uses}; ${slot}.`;
+  const exposure = spell.exposeAsActivity ? "Item Activity" : "Granted Spell";
+  const slot = (!spell.exposeAsActivity && spell.consumeSlot && Number(spell.level) > 0) ? "consumes a compatible spell slot" : "does not expend a spell slot";
+  return `${spellReference(spell)} — ${exposure}; ${availability}; ${uses}; ${slot}.`;
 }
 
 function stripGeneratedSection(html, key) {
@@ -928,6 +1006,14 @@ function conditionLabel(key) {
   return configLabel(CONFIG.DND5E.conditionTypes, key, titleCase(key));
 }
 
+function statusEffectLabel(key) {
+  if (key === "all") return "All Conditions / Statuses";
+  const condition = CONFIG.DND5E.conditionTypes?.[key];
+  if (condition) return localizedLabel(condition, key);
+  const status = valuesOf(CONFIG.statusEffects).find(entry => String(entry?.id ?? entry?._id ?? "") === String(key ?? ""));
+  return status ? localizedLabel(status, key) : titleCase(key);
+}
+
 function conditionalAdvantageEntries(setting) {
   if (Array.isArray(setting?.entries)) return setting.entries;
   if (setting && ["supported", "conditionSave", "custom"].includes(setting.mode)) return [setting];
@@ -945,6 +1031,115 @@ function senseLabel(key) {
 
 function formatRows(rows, formatter) {
   return (rows ?? []).map(formatter).filter(Boolean).join("; ");
+}
+
+
+function activityUsesSummary(activity) {
+  const targets = valuesOf(activity?.consumption?.targets);
+  const itemTarget = targets.find(entry => entry?.type === "itemUses");
+  const max = String(activity?.uses?.max ?? "").trim();
+  const pieces = [];
+  if (itemTarget) {
+    const cost = String(itemTarget?.value ?? "1").trim() || "1";
+    pieces.push(`spends ${cost} Item charge${cost === "1" ? "" : "s"}`);
+  }
+  if (!max) return pieces.join("; ");
+  const target = targets.find(entry => entry?.type === "activityUses");
+  const cost = String(target?.value ?? "1").trim() || "1";
+  const recovery = valuesOf(activity?.uses?.recovery)[0] ?? null;
+  if (!recovery) {
+    pieces.push(`${max} activity uses; ${cost} spent per activation`);
+    return pieces.join("; ");
+  }
+  const period = recovery.period === "sr" ? "Short Rest" : recovery.period === "lr" ? "Long Rest"
+    : recovery.period === "dawn" ? "Dawn" : recovery.period === "dusk" ? "Dusk" : titleCase(recovery.period || "recharge");
+  const amount = recovery.type === "recoverAll" ? max : String(recovery.formula ?? "").trim();
+  pieces.push(`${max} activity uses; ${cost} spent per activation${amount ? `; recovers ${amount} on ${period}` : `; recharges on ${period}`}`);
+  return pieces.join("; ");
+}
+
+function restoreResourceEntrySummary(entry) {
+  const amount = entry?.amountMode === "all" ? "all"
+    : String(entry?.amount ?? "1").trim() || "1";
+  if (entry?.kind === "spellSlot") return `${amount} level ${Number(entry.spellLevel) || 1} Spell Slot${amount === "1" ? "" : "s"}`;
+  if (entry?.kind === "pactSlot") return `${amount} Pact Magic Slot${amount === "1" ? "" : "s"}`;
+  if (entry?.kind === "hitDice") return `${amount} ${entry.hitDie && entry.hitDie !== "any" ? `${entry.hitDie} ` : ""}Hit Dice`;
+  if (entry?.kind === "feature") {
+    const label = getResourceDefinition(entry.resourceId)?.label ?? entry.resourceId ?? "Feature Resource";
+    return `${amount} ${label}`;
+  }
+  return `${amount} resource use${amount === "1" ? "" : "s"}`;
+}
+
+function activityPartText(part = {}) {
+  if (part?.custom?.enabled) return String(part.custom.formula ?? "").trim();
+  return [part?.number && part?.denomination ? `${part.number}d${part.denomination}` : "", String(part?.bonus ?? "").trim()].filter(Boolean).join(" + ");
+}
+
+function activityActivationSummary(activity = {}) {
+  const type = String(activity?.activation?.type ?? "").trim();
+  if (!type) return "No Action";
+  const value = activity?.activation?.value;
+  const label = configLabel(CONFIG.DND5E.activityActivationTypes, type, titleCase(type));
+  return value === null || value === undefined || value === "" || Number(value) === 1 ? label : `${value} ${label}`;
+}
+
+function composedActivityProperty(entry) {
+  const activity = entry?.data ?? {};
+  const flags = activity?.flags?.[MODULE_ID] ?? {};
+  const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState" : (activity.type ?? entry.type ?? "utility");
+  const name = String(activity.name ?? entry.name ?? "Activity").trim() || "Activity";
+  const pieces = [activityActivationSummary(activity)];
+  if (type === "restoreResource") {
+    const recoveries = (flags.restoreResource?.entries ?? []).map(restoreResourceEntrySummary).filter(Boolean);
+    pieces.push(recoveries.length ? `Restores ${recoveries.join("; ")}` : "Restores a resource");
+  } else if (type === "actorState") {
+    const changes = (flags.actorStateChanges?.entries ?? []).map(change => {
+      if (change?.type === "removeExhaustion") {
+        const amount = String(change?.amount ?? "1").trim().toLowerCase();
+        return amount === "all" ? "Removes all Exhaustion" : `Removes ${amount || "1"} Exhaustion level${amount === "1" ? "" : "s"}`;
+      }
+      if (change?.type === "removeStatus") return change?.status === "all"
+        ? "Removes all Conditions / Statuses"
+        : `Removes ${statusEffectLabel(change?.status)}`;
+      return "Changes Actor state";
+    }).filter(Boolean);
+    pieces.push(changes.length ? changes.join("; ") : "Changes Actor state");
+  } else if (type === "damage") {
+    const part = valuesOf(activity.damage?.parts)[0] ?? null;
+    if (part) {
+      const formula = activityPartText(part);
+      const damageType = damageTypeLabel(valuesOf(part.types)[0] ?? "");
+      pieces.push(`${formula || "Damage"}${damageType ? ` ${damageType}` : ""}`);
+    } else pieces.push("Damage Activity");
+  } else if (type === "heal") {
+    const healing = activity.healing ?? {};
+    const formula = activityPartText(healing);
+    pieces.push(`Restores ${formula || "Hit Points"}`);
+  } else if (type === "save") {
+    const ability = valuesOf(activity.save?.ability)[0];
+    pieces.push(`${ability ? abilityLabel(ability) : "Saving Throw"} Save Activity`);
+  } else {
+    const formula = String(activity.roll?.formula ?? "").trim();
+    pieces.push(formula ? `Utility roll: ${formula}` : "Utility Activity");
+  }
+  const uses = activityUsesSummary(activity);
+  if (uses) pieces.push(uses);
+  return { label: name, value: pieces.join(" · ") };
+}
+
+function grantedSpellActivityProperty(spell) {
+  if (!spell?.exposeAsActivity) return null;
+  const level = spell.castLevelMode === "fixed" ? Number(spell.fixedCastLevel) : Number(spell.level);
+  const cast = Number(spell.level) === 0 ? "Cantrip" : `Cast at ${ordinalLevel(level || spell.level)}`;
+  const uses = spell.useLimit === "limited"
+    ? `${Number(spell.maxUses) || 1} use${Number(spell.maxUses) === 1 ? "" : "s"}; recharges on ${spell.recovery === "shortRest" ? "Short Rest" : "Long Rest"}`
+    : "At will";
+  return {
+    label: String(spell.name || "Spell Activity"),
+    value: `Spell Activity · ${cast} · ${uses}`,
+    availability: spell.availability || "equipped"
+  };
 }
 
 function itemPropertyEntries(draft) {
@@ -1097,13 +1292,24 @@ function itemPropertyEntries(draft) {
     add("Triggered Effect", `${trigger.name || "Triggered Effect"}: ${triggeredEffectSummary(trigger)}`, trigger.availability ?? "equipped");
   }
 
+  if (draft.enhancements?.grantedSpellcasting) {
+    for (const spell of draft.enhancementValues?.grantedSpellcasting?.spells ?? []) {
+      if (spell?.unlockOnLevel) continue;
+      const property = grantedSpellActivityProperty(spell);
+      if (property) add(property.label, property.value, property.availability);
+    }
+  }
+
   for (const entry of draft.customImportedEffects ?? []) {
     if (entry?.included === false) continue;
     add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`);
   }
   for (const entry of draft.customImportedActivities ?? []) {
     if (entry?.included === false || entry?.disabled) continue;
-    add("Imported Activity", `${entry.name || "Custom Activity"} (${entry.type || "activity"})`);
+    if (entry?.composed) {
+      const property = composedActivityProperty(entry);
+      add(property.label, property.value);
+    } else add("Imported Activity", `${entry.name || "Custom Activity"} (${entry.type || "activity"})`);
   }
 
   return entries;
@@ -1166,7 +1372,7 @@ function levelProgressionEntries(draft) {
       if (!spell.unlockOnLevel) continue;
       groups.push({
         label: spell.name || "Granted Spell",
-        lines: [{ level: Number(spell.unlockLevel) || 1, value: "Granted Spellcasting becomes available" }]
+        lines: [{ level: Number(spell.unlockLevel) || 1, value: spell.exposeAsActivity ? "Item Spell Activity becomes available" : "Granted Spellcasting becomes available" }]
       });
     }
   }
@@ -1210,10 +1416,14 @@ function composeLevelProgressionText(data, draft) {
 }
 
 function propertyGridHtml(entries) {
-  const cells = entries.map(entry => `<td><strong>${escapeHtml(entry.label)}</strong><small>${escapeHtml(entry.value)}</small></td>`);
-  if (cells.length % 2) cells.push('<td aria-hidden="true"></td>');
   const rows = [];
-  for (let index = 0; index < cells.length; index += 2) rows.push(`<tr>${cells[index]}${cells[index + 1]}</tr>`);
+  for (let index = 0; index < entries.length; index += 2) {
+    const left = entries[index];
+    const right = entries[index + 1];
+    const leftCell = `<td${right ? "" : ' colspan="2"'}><strong>${escapeHtml(left.label)}</strong><small>${escapeHtml(left.value)}</small></td>`;
+    const rightCell = right ? `<td><strong>${escapeHtml(right.label)}</strong><small>${escapeHtml(right.value)}</small></td>` : "";
+    rows.push(`<tr>${leftCell}${rightCell}</tr>`);
+  }
   return `<table class="item-creator-property-grid"><tbody>${rows.join("")}</tbody></table>`;
 }
 
@@ -1416,7 +1626,10 @@ export class ItemCreatorItemBuilder {
     if (enhancements.grantedSpellcasting) {
       const provisionalSource = cleanDocumentSource(data);
       const provisionalItem = new ItemClass(provisionalSource, { temporary: true });
-      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting.spells ?? []);
+      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting.spells ?? [], {
+        reservedIds: Object.keys(data.system.activities ?? {}),
+        sortBase: nextActivitySort(data.system.activities ?? {})
+      });
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
@@ -1430,7 +1643,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 18,
+      schemaVersion: 21,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1587,7 +1800,10 @@ export class ItemCreatorItemBuilder {
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     if (enhancements.grantedSpellcasting) {
       const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
-      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? []);
+      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? [], {
+        reservedIds: Object.keys(data.system.activities ?? {}),
+        sortBase: nextActivitySort(data.system.activities ?? {})
+      });
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
@@ -1601,7 +1817,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 18,
+      schemaVersion: 21,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1744,7 +1960,10 @@ export class ItemCreatorItemBuilder {
 
     if (enhancements.grantedSpellcasting) {
       const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
-      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? []);
+      const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? [], {
+        reservedIds: Object.keys(data.system.activities ?? {}),
+        sortBase: nextActivitySort(data.system.activities ?? {})
+      });
       for (const activity of castActivities) data.system.activities[activity._id] = cleanDocumentSource(activity);
     }
 
@@ -1758,7 +1977,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 18,
+      schemaVersion: 21,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1807,6 +2026,22 @@ export class ItemCreatorItemBuilder {
     return { data: finalData, temporary };
   }
 
+  static #isCreatorGeneratedConsumableActivity(activity) {
+    const flags = activity?.flags?.[MODULE_ID] ?? {};
+    return flags.consumableUse === true
+      || flags.composedActivity === true
+      || flags.importedCustom === true
+      || flags.grantedSpell === true;
+  }
+
+  static #isCreatorGeneratedConsumableEffect(effect) {
+    const flags = effect?.flags?.[MODULE_ID] ?? {};
+    return flags.consumableBlueprint === true
+      || flags.importedCustom === true
+      || flags.blueprint === true
+      || flags.grantedEffect === true;
+  }
+
   static async #buildConsumable(draft) {
     if (!draft?.template || !draft?.effective) throw new Error("Template and effective Consumable values are required.");
 
@@ -1815,6 +2050,13 @@ export class ItemCreatorItemBuilder {
     const data = sanitizeDocumentData(template.toObject());
     const effective = clone(draft.effective);
     const config = plain(draft.consumableConfig ?? {});
+    // v0.7.7b1: duration/stacking/activity routing are per Granted Effect.
+    // The consumable runtime root retains only the old instant-Exhaustion
+    // fields so legacy 0.7.7a Items can still be edited without data loss.
+    const legacyRuntimeConfig = {
+      removeExhaustion: Boolean(config.removeExhaustion),
+      removeExhaustionAmount: String(config.removeExhaustionAmount ?? "1")
+    };
 
     data.name = draft.itemName.trim();
     data.img = draft.icon || template.img || baseConsumable.img || "systems/dnd5e/icons/svg/items/consumable.svg";
@@ -1824,11 +2066,8 @@ export class ItemCreatorItemBuilder {
     data.system.description.value = draft.description ?? "";
     data.system.description.chat = data.system.description.chat ?? "";
 
-    // Consumables are never passive equipment. Their configured Active Effects
-    // remain blueprints on the Item until the managed Use activity completes.
-    data.system.attunement = "";
-    data.system.attuned = false;
-    data.system.equipped = false;
+    // Consumables v2 are preserve-first. Physical/equippable fields inherited
+    // from a Base Item survive unless the GM explicitly overrides them.
     data.system.quantity = Math.max(1, Number(effective.quantity) || 1);
     data.system.weight = { value: Math.max(0, Number(effective.weight?.value) || 0), units: effective.weight?.units || "lb" };
     data.system.price = { value: Math.max(0, Number(effective.price?.value) || 0), denomination: effective.price?.denomination || "gp" };
@@ -1839,52 +2078,91 @@ export class ItemCreatorItemBuilder {
     data.system.properties = [...new Set(effective.properties ?? [])].filter(Boolean);
     if (effective.magical || valuesOf(template.system?.properties).includes("mgc")) data.system.properties.push("mgc");
     data.system.properties = [...new Set(data.system.properties)];
+
+    const usesMax = String(effective.uses?.max ?? "1").trim() || "1";
+    const recoveryPeriod = String(effective.uses?.recoveryPeriod ?? "").trim();
+    const recoveryAmount = String(effective.uses?.recoveryAmount ?? "").trim();
+    const recovery = [];
+    if (recoveryPeriod) {
+      if (recoveryAmount.toLowerCase() === "all") recovery.push({ period: recoveryPeriod, type: "recoverAll", formula: "" });
+      else recovery.push({ period: recoveryPeriod, type: "formula", formula: recoveryAmount || "1" });
+    }
     data.system.uses = {
-      max: String(Math.max(1, Number(effective.uses?.max) || 1)),
+      max: usesMax,
       spent: 0,
-      recovery: [],
+      recovery,
       autoDestroy: effective.uses?.autoDestroy !== false && effective.uses?.autoDestroy !== "false"
     };
 
-    // A Consumable always gets one Item Creator managed usage Activity. Imported
-    // Activities are intentionally not copied because they could apply template
-    // effects before/alongside the new persistent Consumable lifecycle.
-    data.system.activities = {};
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
-    const UtilityClass = CONFIG.DND5E.activityTypes?.utility?.documentClass;
-    if (!UtilityClass) throw new Error("D&D5e Utility Activity support is unavailable.");
-    const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
-    const activityDocument = new UtilityClass({}, { parent: provisionalItem });
-    const activity = cleanDocumentSource(activityDocument.toObject?.() ?? activityDocument);
-    activity._id = foundry.utils.randomID();
-    activity.type = "utility";
-    activity.name = "Consume";
-    activity.activation ??= {};
-    activity.activation.type = config.activation === "none" ? "" : (config.activation || "action");
-    activity.activation.value = null;
-    activity.activation.override = false;
-    activity.activation.condition = ["reaction", "special"].includes(config.activation)
-      ? String(config.reactionTrigger ?? "") : "";
-    activity.consumption ??= {};
-    activity.consumption.targets = [{ type: "itemUses", target: "", value: "1", scaling: {} }];
-    activity.consumption.scaling = { allowed: false };
-    activity.consumption.spellSlot = false;
-    activity.target ??= {};
-    activity.target.prompt = false;
-    activity.target.override = false;
-    activity.target.affects ??= {};
-    activity.target.affects.choice = false;
-    activity.target.affects.count = "1";
-    activity.target.affects.type = "self";
-    activity.range ??= {};
-    activity.range.override = false;
-    activity.range.units = "self";
-    activity.flags ??= {};
-    activity.flags[MODULE_ID] = { ...(activity.flags[MODULE_ID] ?? {}), consumableUse: true };
-    data.system.activities[activity._id] = activity;
+    const rebuildingSelf = Boolean(draft.editingSourceUuid && template.uuid === draft.editingSourceUuid);
 
-    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, []);
-    data.effects = [
+    // Preserve native Base Item content exactly. When the current world Item is
+    // itself the fallback template (custom shells / unresolved old source UUID),
+    // remove only Item Creator generated embedded documents before rebuilding
+    // them from the saved draft, preventing duplicate Activities/Effects.
+    const replacedSourceIds = new Set((draft.customImportedActivities ?? [])
+      .filter(entry => entry?.sourceId)
+      .map(entry => String(entry.sourceId)));
+    const preservedActivities = valuesOf(data.system.activities)
+      .map(activity => cleanDocumentSource(activity))
+      .filter(activity => !replacedSourceIds.has(String(activity?._id ?? "")))
+      .filter(activity => !rebuildingSelf || !this.#isCreatorGeneratedConsumableActivity(activity));
+    const preservedEffects = valuesOf(data.effects)
+      .map(effect => cleanDocumentSource(effect))
+      .filter(effect => !rebuildingSelf || !this.#isCreatorGeneratedConsumableEffect(effect));
+
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    for (const activity of importedCustom.activities) {
+      activity.flags ??= {};
+      activity.flags[MODULE_ID] = {
+        ...(activity.flags[MODULE_ID] ?? {}),
+        consumableUse: valuesOf(activity.consumption?.targets).some(target => target?.type === "itemUses")
+          || activity.flags?.[MODULE_ID]?.consumableUse === true
+      };
+    }
+
+    const activities = [...preservedActivities, ...importedCustom.activities];
+    if (!activities.length) {
+      // A completely blank Consumable still receives a minimal native Use
+      // Activity so 1-use traditional consumables remain one-click usable.
+      const UtilityClass = CONFIG.DND5E.activityTypes?.utility?.documentClass;
+      if (!UtilityClass) throw new Error("D&D5e Utility Activity support is unavailable.");
+      const provisionalData = clone(data);
+      provisionalData.system.activities = {};
+      const provisionalItem = new ItemClass(cleanDocumentSource(provisionalData), { temporary: true });
+      const activityDocument = new UtilityClass({}, { parent: provisionalItem });
+      const activity = cleanDocumentSource(activityDocument.toObject?.() ?? activityDocument);
+      activity._id = foundry.utils.randomID();
+      activity.type = "utility";
+      activity.name = "Consume";
+      activity.activation ??= {};
+      activity.activation.type = config.activation === "none" ? "" : (config.activation || "action");
+      activity.activation.value = null;
+      activity.activation.override = false;
+      activity.activation.condition = ["reaction", "special"].includes(config.activation)
+        ? String(config.reactionTrigger ?? "") : "";
+      activity.consumption ??= {};
+      activity.consumption.targets = [{ type: "itemUses", target: "", value: "1", scaling: {} }];
+      activity.consumption.scaling = { allowed: false };
+      activity.consumption.spellSlot = false;
+      activity.target ??= {};
+      activity.target.prompt = false;
+      activity.target.override = false;
+      activity.target.affects ??= {};
+      activity.target.affects.choice = false;
+      activity.target.affects.count = "1";
+      activity.target.affects.type = "self";
+      activity.range ??= {};
+      activity.range.override = false;
+      activity.range.units = "self";
+      activity.flags ??= {};
+      activity.flags[MODULE_ID] = { ...(activity.flags[MODULE_ID] ?? {}), consumableUse: true };
+      activities.push(activity);
+    }
+    data.system.activities = Object.fromEntries(activities.map(activity => [activity._id || foundry.utils.randomID(), activity]));
+
+    const addedEffects = [
       ...importedCustom.effects,
       ...buildGrantedEffects(draft.grantedEffects ?? {}, draft.grantedEffectValues ?? {})
     ].map(effect => {
@@ -1895,15 +2173,22 @@ export class ItemCreatorItemBuilder {
         ...(source.flags[MODULE_ID] ?? {}),
         consumableBlueprint: true
       };
+      source.flags[MODULE_ID].consumableEffect ??= {
+        activityIds: ["all"],
+        durationMode: "longRest",
+        durationValue: 1,
+        stacking: "replace"
+      };
       return source;
     });
+    data.effects = [...preservedEffects, ...addedEffects];
 
     const pricing = finalizeRarityAndPricing(data, draft);
     const materializationCore = finalizeCoreIdentity(data);
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 18,
+      schemaVersion: 22,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1915,16 +2200,17 @@ export class ItemCreatorItemBuilder {
       runtime: {
         consumable: {
           key: String(draft.consumableKey || foundry.utils.randomID()),
-          config
+          config: legacyRuntimeConfig
         }
       },
       draft: plain({
         customized: draft.customized,
         overrides: draft.overrides,
-        consumableConfig: config,
+        consumableConfig: legacyRuntimeConfig,
         grantedEffects: draft.grantedEffects,
         grantedEffectValues: draft.grantedEffectValues,
         customImportedEffects: draft.customImportedEffects,
+        customImportedActivities: draft.customImportedActivities,
         importedBaseSummary: draft.importedBaseSummary,
         descriptionCustomized: draft.descriptionCustomized
       })
@@ -1933,20 +2219,23 @@ export class ItemCreatorItemBuilder {
     // Make the non-runtime semantics visible on the Item itself. The Active
     // Effect blueprints are described as On Use instead of While Owned.
     composeItemPropertiesText(data, { ...draft, itemType: "consumable" });
-    const durationLabels = {
-      permanent: "Permanent",
-      shortOrLongRest: "Until next Short or Long Rest",
-      longRest: "Until next Long Rest",
-      rounds: `${Math.max(1, Number(config.durationValue) || 1)} round(s)`,
-      turns: `${Math.max(1, Number(config.durationValue) || 1)} owner turn(s)`,
-      minutes: `${Math.max(1, Number(config.durationValue) || 1)} minute(s)`,
-      hours: `${Math.max(1, Number(config.durationValue) || 1)} hour(s)`
-    };
     const current = stripGeneratedSection(data.system.description.value, "consumable-runtime");
     const currentChat = stripGeneratedSection(data.system.description.chat, "consumable-runtime");
-    const exhaustion = config.removeExhaustion
-      ? `<li><strong>Instant:</strong> Remove ${escapeHtml(String(config.removeExhaustionAmount ?? "1"))} Exhaustion level(s), minimum 0.</li>` : "";
-    const runtimeSection = `<section class="item-creator-generated" data-item-creator-generated="consumable-runtime"><h3>Consumable Use</h3><ul><li><strong>Activation:</strong> ${escapeHtml(titleCase(config.activation || "action"))}.</li><li><strong>Effect Duration:</strong> ${escapeHtml(durationLabels[config.durationMode] ?? "Until next Long Rest")}.</li>${exhaustion}</ul></section>`;
+    const useRecovery = valuesOf(data.system.uses?.recovery)[0] ?? null;
+    const recoveryText = useRecovery
+      ? useRecovery.type === "recoverAll"
+        ? `Recover all charges on ${titleCase(useRecovery.period)}`
+        : `Recover ${String(useRecovery.formula || "1")} charge(s) on ${titleCase(useRecovery.period)}`
+      : "No recharge";
+    const depletionText = data.system.uses?.autoDestroy
+      ? "Destroy/decrement stack when depleted"
+      : "Remain at 0 charges when depleted";
+    const activityCount = valuesOf(data.system.activities).length;
+    const effectCount = addedEffects.length;
+    const legacyExhaustion = config.removeExhaustion
+      ? `<li><strong>Legacy Instant State Change:</strong> Remove ${escapeHtml(String(config.removeExhaustionAmount ?? "1"))} Exhaustion level(s), minimum 0.</li>`
+      : "";
+    const runtimeSection = `<section class="item-creator-generated" data-item-creator-generated="consumable-runtime"><h3>Consumable Use</h3><ul><li><strong>Charges:</strong> ${escapeHtml(String(data.system.uses?.max ?? "1"))}. ${escapeHtml(recoveryText)}. ${escapeHtml(depletionText)}.</li><li><strong>Activities:</strong> ${activityCount} configured. Activation, targeting, resolution, and charge cost are defined by each Activity.</li>${effectCount ? `<li><strong>On-use Granted Effects:</strong> ${effectCount}. Activity routing, duration, and stacking are configured per effect.</li>` : ""}${legacyExhaustion}</ul></section>`;
     data.system.description.value = appendGeneratedSection(current, runtimeSection);
     data.system.description.chat = appendGeneratedSection(currentChat, runtimeSection);
 

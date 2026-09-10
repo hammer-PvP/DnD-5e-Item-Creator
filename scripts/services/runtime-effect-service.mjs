@@ -77,6 +77,7 @@ function equalData(left, right) {
 }
 
 function intendedSpellbookState(item, activity, config) {
+  if (config.exposeAsActivity) return false;
   if (typeof config.showInSpellbook === "boolean") return config.showInSpellbook;
 
   const sourceUuid = config.sourceSpellUuid ?? activity.spell?.uuid;
@@ -1286,7 +1287,8 @@ export class ItemCreatorRuntimeEffectService {
     }
 
     const level = Number(config.baseLevel ?? 0);
-    if (config.eligibility === "spellLevelAccess" && level > 0) {
+    const activityMode = Boolean(config.exposeAsActivity);
+    if (!activityMode && config.eligibility === "spellLevelAccess" && level > 0) {
       const slotAccess = Object.values(actor.system.spells ?? {}).some(slot => Number(slot.level) >= level && Number(slot.max) > 0);
       const arcanumAccess = actor.items.some(entry => {
         const text = `${entry.name} ${entry.system?.description?.value ?? ""}`;
@@ -1298,7 +1300,7 @@ export class ItemCreatorRuntimeEffectService {
       }
     }
 
-    if (config.consumeSlot && level > 0) {
+    if (!activityMode && config.consumeSlot && level > 0) {
       const hasSlot = Object.values(actor.system.spells ?? {}).some(slot => Number(slot.level) >= level && Number(slot.value) > 0);
       if (!hasSlot) {
         ui.notifications.warn(`${actor.name} has no compatible spell slot available.`);

@@ -1,6 +1,7 @@
 # Item Creator (DnD 5e)
+> **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.7.5c Beta Candidate
+**Version:** 0.7.7b1 Internal Test
 **Compatibility:** Foundry VTT 14.365 / D&D5e 5.3.3
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
@@ -11,6 +12,18 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, mat
 - **Materialization Core** shared by manual creation, pricing, and automatic stock materialization.
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
+
+## Consumables v2 Activity & Effect Composer (v0.7.7b1)
+
+Consumables keep the shared native Item Uses model validated in v0.7.7a: a traditional potion can use **1 charge + no recharge + Destroy When Depleted**, while reusable consumables can carry multiple charges, recover a formula such as `1d4 + 1` on a rest, and remain at 0 charges when depletion destruction is disabled.
+
+v0.7.7b1 makes the functional content of a Consumable editable instead of merely preserving it. Every native Activity inherited from the Base Item is promoted into the same Activity Composer used for new powers. A Potion of Healing's native Heal Activity can therefore be renamed, changed from its original formula to a custom formula such as `1d8 + @abilities.cha.mod`, given a different activation or target, duplicated, reordered, removed, or combined with additional Heal, Damage, Save, Utility, Restore Resource, and Actor State Changes Activities. Fields not represented by Item Creator remain preserved in the native Activity source.
+
+Consumable Activities spend the shared Item charge pool with an independent **Charges Spent per Activation** value. **Actor State Changes** is an immediate Utility-backed Activity mode that can remove multiple configured conditions/statuses and/or Exhaustion in one use; missing states are safe no-ops. Registered Foundry/D&D5e statuses are exposed to the GM, including a deliberate broad-cleanse option for all registered conditions/statuses.
+
+Granted Effects are now routed by Activity. Each enabled On Use effect can apply from all Activities or a selected subset, and owns its own duration and stacking policy. This allows one Activity to heal only while another Activity from the same Consumable heals and also grants movement, senses, resistances, ability changes, or other existing Item Creator effects. Permanent effects are materialized onto the Actor as independent applied effects and do not require the consumed source Item to remain in inventory.
+
+The old Consumable-wide Activation/Instant Effects split is no longer the authoring model: **Activation belongs to each Activity**, while effect duration and stacking belong to each Granted Effect. Legacy v0.7.7a instant Exhaustion data remains runtime-compatible when older managed Items are reopened. Triggered Effects and the broader global lifecycle rewrite remain outside this patch and continue on their existing paths.
 
 ## World Items Directory entry points
 
@@ -30,15 +43,19 @@ The assisted Item workflow is:
 6. Description;
 7. Review.
 
+For **Consumables v2**, the specialized flow is **Item Type → Base Item → Effect Defaults → Activities → Granted Effects → Description → Review**. Effect Defaults supplies initial duration/stacking values only; each Activity owns activation/target/charge cost, and every On Use Granted Effect can override lifecycle and select which Activities apply it.
+
 Base Items may come from enabled compendiums, existing World Items, or custom data. The final document is created directly in the World Items Directory. Existing supported World Items can be reopened through **Edit with Item Creator**, then updated in place or saved as a copy.
 
 ### Activities v2 — Additional Activities Composer
 
-Starting with v0.7.5, Weapons, Equipment, and Tools can carry independent native D&D5e Activities beyond the established Weapon Attack Activity editor. The **Additional Activities** Composer currently supports Utility, Damage, Heal, and Saving Throw Activities. Each Activity owns its own activation, range, targeting, duration, Concentration, uses, recovery, and chat flavor.
+Starting with v0.7.5, Weapons, Equipment, and Tools can carry independent native D&D5e Activities beyond the established Weapon Attack Activity editor. In v0.7.6c the **Additional Activities** Composer supports Utility, Restore Resource, Damage, Heal, and Saving Throw Activities. Each Activity owns its own activation, range, targeting, duration, Concentration, uses, recovery, and chat flavor.
 
 Utility Activities can expose a native formula roll, with common d20/ability presets and modifier helpers so GMs do not need to memorize D&D5e roll-data paths. Formula helpers include Strength/Dexterity/Constitution/Intelligence/Wisdom/Charisma, Proficiency, the Actor's Default Spellcasting Modifier, and a Highest Spellcasting Modifier option. Damage Activities roll damage directly and are explicitly distinguished from Weapon Attack Activities; special attack rolls remain in the dedicated Weapon Attack editor. Heal Activities use D&D5e's native healing modes, including normal Healing, Temporary Hit Points, and Maximum Hit Points. Saving Throw Activities can configure ability, native DC calculation/formula, optional damage, damage type, and damage on a successful save. Uses/Cost/Recovery are grouped as one Activity-owned resource block and update reactively as soon as Maximum Uses becomes limited. Disabling **Enabled on Item** only omits that Activity from the final Item and never disables the Item Creator editor itself.
 
-Existing compatible Activities imported from World Items or templates are promoted into this editor while unrepresented native fields remain preserved as passthrough source data. Existing Attack Activities continue to use the dedicated Weapon editor. Restore Resource and Spell-as-Activity are intentionally reserved for the v0.7.6 line, and Consumables keep their existing managed Consume Activity until Consumables v2 in v0.7.7.
+Existing compatible Activities imported from World Items or templates are promoted into this editor while unrepresented native fields remain preserved as passthrough source data. Existing Attack Activities continue to use the dedicated Weapon editor. **Restore Resource** supports native fixed/formula recharge amounts. v0.7.6c adds **Expose as Item Activity** to Granted Spellcasting: the linked Spell resolves from the Item at the configured cast level using the Activity's own Uses/Recharge, never falling back to Actor Spell Slots. The established Spellbook path remains available when Activity exposure is disabled. Consumables v2 began in v0.7.7a with preserve-first Base Items and shared native charges. v0.7.7b1 promotes Base Consumable Activities into the editable composer, adds Actor State Changes, Activity ordering, and Activity-specific routing/lifecycle for Granted Effects.
+
+The v0.7.6c integration pass keeps Spell Activity ids stable across rebuilds, orders them deterministically after existing Item Activities, and includes exposed Spell Activities in generated Item Properties summaries.
 
 ### Supported Item types
 
@@ -185,11 +202,22 @@ The GM's flavor text remains at the top of the Item description. Item Creator ma
 
 The dedicated **Spells & Resources** step contains two independent systems.
 
+
+### Restore Resource Activities
+
+A **Restore Resource** Activity is a native Utility Activity with Item Creator recovery metadata. It can restore the Item owner's Spell Slots, Pact Magic, Hit Dice, or a known class/subclass resource located through the same registry used by Resource Modifications. Each Activity may restore multiple resources and may use a flat amount, a formula, or Recover All.
+
+Recovery is bounded: slot values never exceed their native maximum, and spent-use/Hit-Die counters never go below zero. Activity Uses and their Short Rest/Long Rest/Dawn/etc. recovery remain native D&D5e Activity data.
+
+The current v0.7.6 line intentionally does not add target-creature recovery or arbitrary raw data paths. Spell-as-Activity is available through Granted Spellcasting and remains separate from Restore Resource.
+
 ### Granted Spellcasting
 
 Items can grant existing Spells with independent uses, recovery, slot consumption, cast level, spellcasting calculation, Spellbook visibility, availability, and level requirements.
 
 Adding the first granted Spell marks the Item as magical. It does not automatically add a `+1`, `+2`, or `+3` enchantment and does not require Attunement unless the GM chooses those options separately.
+
+Each granted Spell can be exposed directly as an **Item Activity**. In that mode the Spell does not need to appear in the Actor Spellbook, its own Activity Uses/Recharge are authoritative, and it never falls back to Actor Spell Slots. Cast Level controls how the linked Spell resolves rather than which Actor slot is spent.
 
 ### Resource Modifications
 
@@ -397,4 +425,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.5b/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.7b1/item-creator.zip`

@@ -658,7 +658,17 @@
             <section class="ic-override-card {{#if custom.consumableType}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="consumableType" {{#if custom.consumableType}}checked{{/if}}><span><strong>Customize Type</strong><small>Potion, Food, Poison, Wand, Rod, Wondrous, and other native D&amp;D5e consumable categories.</small></span></label><select data-override-input="consumableType" {{#unless custom.consumableType}}disabled{{/unless}}>{{#each consumableTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
             <section class="ic-override-card {{#if custom.consumableSubtype}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="consumableSubtype" {{#if custom.consumableSubtype}}checked{{/if}}><span><strong>Customize Subtype</strong><small>Optional subtype supplied by the selected native category.</small></span></label><select data-override-input="consumableSubtype" {{#unless custom.consumableSubtype}}disabled{{/unless}}>{{#each consumableSubtypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
             <section class="ic-override-card {{#if custom.quantity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="quantity" {{#if custom.quantity}}checked{{/if}}><span><strong>Customize Quantity</strong><small>Initial physical stack quantity.</small></span></label><input type="number" min="1" step="1" value="{{effective.quantity}}" data-override-input="quantity" data-value-type="number" {{#unless custom.quantity}}disabled{{/unless}}></section>
-            <section class="ic-override-card {{#if custom.uses}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="uses" {{#if custom.uses}}checked{{/if}}><span><strong>Customize Uses</strong><small>Each Use Activity spends one charge. Auto Destroy removes one physical item when its charges are exhausted.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Uses per Item</span><input type="number" min="1" step="1" value="{{effective.uses.max}}" data-override-input="uses" data-override-part="max" data-value-type="number" {{#unless custom.uses}}disabled{{/unless}}></label><label><span>Auto Destroy</span><select data-override-input="uses" data-override-part="autoDestroy" {{#unless custom.uses}}disabled{{/unless}}><option value="true" {{#if effective.uses.autoDestroy}}selected{{/if}}>Yes</option><option value="false" {{#unless effective.uses.autoDestroy}}selected{{/unless}}>No</option></select></label></div></section>
+            <section class="ic-override-card ic-span-two {{#if custom.uses}}enabled{{/if}}">
+              <label class="ic-override-heading"><input type="checkbox" data-override-toggle="uses" {{#if custom.uses}}checked{{/if}}><span><strong>Consumable Charges & Depletion</strong><small>Shared Item charges used by Consumable Activities. One-use potions, rechargeable bottles, and charge-based consumables all use the same native D&amp;D5e structure.</small></span></label>
+              <div class="ic-enhancement-fields two-columns">
+                <label><span>Maximum Uses / Charges</span><input type="text" value="{{effective.uses.max}}" data-override-input="uses" data-override-part="max" placeholder="1" {{#unless custom.uses}}disabled{{/unless}}></label>
+                <label><span>Destroy When Depleted</span><select data-override-input="uses" data-override-part="autoDestroy" {{#unless custom.uses}}disabled{{/unless}}><option value="true" {{#if effective.uses.autoDestroy}}selected{{/if}}>Yes — consume item / stack unit</option><option value="false" {{#unless effective.uses.autoDestroy}}selected{{/unless}}>No — keep item at 0 charges</option></select></label>
+                <label><span>Recharge Trigger</span><select data-override-input="uses" data-override-part="recoveryPeriod" {{#unless custom.uses}}disabled{{/unless}}><option value="" {{#unless effective.uses.recoveryPeriod}}selected{{/unless}}>No Recharge</option><option value="sr" {{#if (eq effective.uses.recoveryPeriod "sr")}}selected{{/if}}>Short Rest</option><option value="lr" {{#if (eq effective.uses.recoveryPeriod "lr")}}selected{{/if}}>Long Rest</option><option value="dawn" {{#if (eq effective.uses.recoveryPeriod "dawn")}}selected{{/if}}>Dawn</option><option value="dusk" {{#if (eq effective.uses.recoveryPeriod "dusk")}}selected{{/if}}>Dusk</option><option value="day" {{#if (eq effective.uses.recoveryPeriod "day")}}selected{{/if}}>Day</option></select></label>
+                <label><span>Recharge Amount / Formula</span><input type="text" value="{{effective.uses.recoveryAmount}}" data-override-input="uses" data-override-part="recoveryAmount" placeholder="1d4 + 1 or all" {{#unless custom.uses}}disabled{{/unless}} {{#unless effective.uses.recoveryPeriod}}disabled{{/unless}}></label>
+                <label class="ic-span-two"><span>Recharge Formula Helper</span><select data-action="insert-consumable-recharge-formula-token" {{#unless custom.uses}}disabled{{/unless}} {{#unless effective.uses.recoveryPeriod}}disabled{{/unless}}><option value="">Insert Modifier…</option><option value="@abilities.str.mod">Strength Modifier</option><option value="@abilities.dex.mod">Dexterity Modifier</option><option value="@abilities.con.mod">Constitution Modifier</option><option value="@abilities.int.mod">Intelligence Modifier</option><option value="@abilities.wis.mod">Wisdom Modifier</option><option value="@abilities.cha.mod">Charisma Modifier</option><option value="@attributes.spell.mod">Default Spellcasting Modifier</option><option value="max(@abilities.int.mod, @abilities.wis.mod, @abilities.cha.mod)">Highest Spellcasting Modifier</option><option value="@prof">Proficiency Bonus</option></select></label>
+                <aside class="ic-resource-result ic-span-two"><i class="fa-solid fa-battery-three-quarters"></i><span><strong>Traditional consumable:</strong> 1 charge, no recharge, Destroy When Depleted = Yes. <strong>Rechargeable item:</strong> multiple charges, a recharge formula such as 1d4 + 1, and Destroy When Depleted = No. Enter <strong>all</strong> to recover all charges.</span></aside>
+              </div>
+            </section>
             <section class="ic-override-card {{#if custom.weight}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="weight" {{#if custom.weight}}checked{{/if}}><span><strong>Customize Weight</strong><small>Weight of one consumable.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.weight.value}}" data-override-input="weight" data-override-part="value" data-value-type="number" {{#unless custom.weight}}disabled{{/unless}}></label><label><span>Unit</span><select data-override-input="weight" data-override-part="units" {{#unless custom.weight}}disabled{{/unless}}>{{#each weightUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
             <section class="ic-override-card {{#if custom.price}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="price" {{#if custom.price}}checked{{/if}}><span><strong>Customize Price</strong><small>Market value and currency.</small></span></label><div class="ic-inline-fields"><label class="ic-grow"><span>Value</span><input type="number" min="0" step="0.01" value="{{effective.price.value}}" data-override-input="price" data-override-part="value" data-value-type="number" {{#unless custom.price}}disabled{{/unless}}></label><label><span>Currency</span><select data-override-input="price" data-override-part="denomination" {{#unless custom.price}}disabled{{/unless}}>{{#each currencyOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
             <section class="ic-override-card {{#if custom.rarity}}enabled{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-override-toggle="rarity" {{#if custom.rarity}}checked{{/if}}><span><strong>Customize Rarity</strong><small>Native D&amp;D5e rarity used by the Item and Item Creator pricing.</small></span></label><select data-override-input="rarity" {{#unless custom.rarity}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></section>
@@ -792,21 +802,6 @@
       <section class="ic-enhancement-group"><header><span class="ic-kicker">Magical Configuration</span><h3>Magical Nature</h3></header><div class="ic-enhancement-grid">
         <section class="ic-enhancement-card ic-span-two {{#if enhancement.magicalTool}}enabled{{/if}} {{#if enhancementErrors.magicalTool}}invalid{{/if}}"><label class="ic-override-heading"><input type="checkbox" data-enhancement-toggle="magicalTool" {{#if enhancement.magicalTool}}checked{{/if}}><span><strong>Magical Tool</strong><small>Set rarity and optional attunement without adding any weapon or armor enchantment.</small></span></label>{{#if magicalAutoFromGrantedSpellcasting}}<small class="ic-mechanical-note"><i class="fa-solid fa-wand-magic-sparkles"></i> Enabled automatically by Granted Spellcasting. No enchantment bonus or attunement is added.</small>{{/if}}<div class="ic-enhancement-fields two-columns"><label><span>Rarity</span><select data-enhancement-input="magicalTool" data-enhancement-part="rarity" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each rarityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label><label><span>Attunement</span><select data-enhancement-input="magicalTool" data-enhancement-part="attunement" {{#unless enhancement.magicalTool}}disabled{{/unless}}>{{#each attunementOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label></div></section>
       </div></section>
-      {{else if isConsumable}}
-      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Creation</span><h2>Use and Duration</h2><p>Configure the native Use Activity and the lifecycle of effects applied by this Consumable. Application never requires combat.</p></div></header>
-      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-clock"></i><div><strong>Persistent Consumable Runtime</strong><p>Rounds equal 6 seconds outside combat. World Time, combat turns, and completed rests can all expire the applied Actor effects without relying on a browser timer.</p></div></aside>
-      <section class="ic-enhancement-group"><header><span class="ic-kicker">Consumption</span><h3>Activation, Duration, and Stacking</h3></header><div class="ic-enhancement-grid">
-        <section class="ic-enhancement-card ic-span-two enabled"><div class="ic-enhancement-fields two-columns">
-          <label><span>Activation</span><select data-consumable-input="activation">{{#each consumableActivationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-          <label><span>Effect Duration</span><select data-consumable-input="durationMode">{{#each consumableDurationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-          {{#if (eq consumableConfig.activation "reaction")}}<label class="ic-span-two"><span>Reaction Trigger</span><textarea rows="2" maxlength="300" data-consumable-input="reactionTrigger" placeholder="When you would take Lightning damage…">{{consumableConfig.reactionTrigger}}</textarea></label>{{else if (eq consumableConfig.activation "special")}}<label class="ic-span-two"><span>Special Activation</span><textarea rows="2" maxlength="300" data-consumable-input="reactionTrigger" placeholder="Describe when or how this consumable is used…">{{consumableConfig.reactionTrigger}}</textarea></label>{{/if}}
-          {{#if (eq consumableConfig.durationMode "rounds")}}<label><span>Number of Rounds</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
-          {{#if (eq consumableConfig.durationMode "turns")}}<label><span>Number of Owner Turns</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
-          {{#if (eq consumableConfig.durationMode "minutes")}}<label><span>Minutes</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
-          {{#if (eq consumableConfig.durationMode "hours")}}<label><span>Hours</span><input type="number" min="1" step="1" value="{{consumableConfig.durationValue}}" data-consumable-input="durationValue" data-value-type="number"></label>{{/if}}
-          <label><span>Stacking</span><select data-consumable-input="stacking">{{#each consumableStackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-        </div></section>
-      </div></section>
       {{/if}}
 
       {{#unless isConsumable}}
@@ -881,7 +876,7 @@
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
       <button type="button" class="ic-primary-continue" data-action="continue" {{#unless enhancementsComplete}}disabled{{/unless}}>
-        <span>Granted Effects</span><i class="fa-solid fa-chevron-right"></i>
+        <span>{{#if isConsumable}}Activities{{else}}Granted Effects{{/if}}</span><i class="fa-solid fa-chevron-right"></i>
       </button>
     </footer>
     {{/if}}
@@ -899,10 +894,37 @@
       <aside class="ic-alpha-note ic-effect-note">
         <i class="fa-solid fa-shield-heart"></i>
         <div>
-          <strong>Availability-aware effects</strong>
-          <p>Each effect can apply while owned, equipped, or equipped and attuned. Unlock on Level adds the Actor's total character level as a second requirement, and progression tiers replace earlier values instead of stacking them.</p>
+          <strong>{{#if isConsumable}}Activity-bound effects{{else}}Availability-aware effects{{/if}}</strong>
+          <p>{{#if isConsumable}}Granted Effects are copied onto the consumer only when one of their selected Activities is used. Duration and stacking are configured per effect; carrying the Consumable grants nothing.{{else}}Each effect can apply while owned, equipped, or equipped and attuned. Unlock on Level adds the Actor's total character level as a second requirement, and progression tiers replace earlier values instead of stacking them.{{/if}}</p>
         </div>
       </aside>
+
+      {{#if isConsumable}}
+      <section class="ic-effect-group ic-consumable-effect-bindings">
+        <header><span class="ic-kicker">On Use Routing</span><h3>Activity → Granted Effect</h3><p>Enable effects below as usual, then decide exactly which Item Activities apply each effect and how long that effect lasts.</p></header>
+        {{#if consumableGrantedEffectRows.length}}
+        <div class="ic-imported-custom-list">
+          {{#each consumableGrantedEffectRows}}
+          <article class="ic-imported-custom-card">
+            <header><span><strong>{{label}}</strong><small>Applied on use by the selected Activity or Activities.</small></span></header>
+            <div class="ic-effect-choice-grid">
+              {{#each activityOptions}}
+              <label class="ic-property-option {{#if selected}}selected{{/if}}"><input type="checkbox" data-consumable-effect-activity="{{../key}}" data-activity-id="{{value}}" {{#if selected}}checked{{/if}}><span>{{label}}</span></label>
+              {{/each}}
+            </div>
+            <div class="ic-enhancement-fields two-columns">
+              <label><span>Effect Duration</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="durationMode">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Stacking</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="stacking">{{#each stackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{#if durationNeedsValue}}<label><span>Duration Value</span><input type="number" min="1" step="1" value="{{durationValue}}" data-consumable-effect-input="{{key}}" data-consumable-effect-part="durationValue" data-value-type="number"></label>{{/if}}
+            </div>
+          </article>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="ic-spell-empty-state"><i class="fa-solid fa-link"></i><strong>No Granted Effects enabled yet</strong><p>Enable any Granted Effect below. Its Activity binding and lifecycle controls will appear here automatically.</p></div>
+        {{/if}}
+      </section>
+      {{/if}}
 
       <section class="ic-effect-group">
         <header><span class="ic-kicker">Defensive Effects</span><h3>Armor, Saves, Resistances, and Immunities</h3></header>
@@ -1318,35 +1340,21 @@
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless grantedEffectsComplete}}disabled{{/unless}}><span>{{#if isConsumable}}Instant Effects{{else}}Spells &amp; Resources{{/if}}</span><i class="fa-solid fa-chevron-right"></i></button>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless grantedEffectsComplete}}disabled{{/unless}}><span>{{#if isConsumable}}Description{{else}}Spells &amp; Resources{{/if}}</span><i class="fa-solid fa-chevron-right"></i></button>
     </footer>
     {{/if}}
 
     {{#if (eq step "spellsResources")}}
     <section class="ic-step-content ic-spells-resources-step">
       {{#if isConsumable}}
-      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Powers</span><h2>Instant Effects</h2><p>Configure results that happen immediately when the managed Use Activity completes. These are independent from the duration-based Active Effects configured on the previous step.</p></div></header>
-      <section class="ic-enhancement-group"><header><span class="ic-kicker">Immediate Resolution</span><h3>Actor State Changes</h3></header><div class="ic-enhancement-grid">
-        <section class="ic-enhancement-card ic-span-two {{#if consumableConfig.removeExhaustion}}enabled{{/if}} {{#if spellsResourcesErrors.removeExhaustion}}invalid{{/if}}">
-          <label class="ic-override-heading"><input type="checkbox" data-consumable-input="removeExhaustion" {{#if consumableConfig.removeExhaustion}}checked{{/if}}><span><strong>Remove Exhaustion Levels</strong><small>Reduce the Actor's current Exhaustion immediately on use. The final value is never lower than 0.</small></span></label>
-          <div class="ic-enhancement-fields two-columns"><label><span>Amount</span><input type="text" value="{{consumableConfig.removeExhaustionAmount}}" placeholder="1 or all" data-consumable-input="removeExhaustionAmount" {{#unless consumableConfig.removeExhaustion}}disabled{{/unless}}></label><aside class="ic-resource-result"><i class="fa-solid fa-heart-pulse"></i><span>Default: 1. Enter any positive integer or <strong>all</strong>. Item Creator deliberately does not cap this at the native six levels so worlds using expanded Exhaustion remain supported.</span></aside></div>
-        </section>
-      </div></section>
-      {{else}}
-      <header class="ic-section-header">
-        <div>
-          <span class="ic-kicker">Item Powers</span>
-          <h2>Spells &amp; Resources</h2>
-          <p>Grant native Spells and modify class, subclass, spell-slot, Pact Magic, and resource-die pools. Balance is controlled by the GM; Item Creator focuses on applying and removing the configured power safely.</p>
-        </div>
-      </header>
-
+      <header class="ic-section-header"><div><span class="ic-kicker">Consumable Powers</span><h2>Activities</h2><p>The Base Item's Activities are now editable draft Activities. Change the original Heal formula, activation, target, or charge cost; duplicate it; remove it; or add entirely new Activities.</p></div></header>
+      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-wand-magic-sparkles"></i><div><strong>Activity-centric Consumables</strong><p>Activation belongs here. Heal, Damage, Save, Utility, Restore Resource, and Actor State Changes can coexist and spend the same shared Item charges.</p></div></aside>
       <section class="ic-enhancement-group ic-activity-composer-group">
         <header class="ic-attack-activities-header">
           <div>
             <span class="ic-kicker">Native D&amp;D5e Activities</span>
-            <h3>Additional Activities</h3>
-            <p>Add independent non-attack powers directly to this Item. Weapon attacks remain in Core Weapon Configuration; Damage Activities roll damage directly and do not perform attack rolls.</p>
+            <h3>Item Activities</h3>
+            <p>Edit imported Base Item Activities or add native D&amp;D5e powers to this Consumable. New Activities spend the shared Item charges configured in Base Item; Damage Activities roll damage directly and Heal Activities can model traditional potions.</p>
           </div>
           <button type="button" class="ic-add-activity-button" data-action="add-composed-activity"><i class="fa-solid fa-plus"></i> Add Activity</button>
         </header>
@@ -1364,6 +1372,8 @@
             <div class="ic-attack-activity-body">
               <div class="ic-attack-activity-actions ic-composed-activity-actions">
                 <label class="ic-activity-enabled-toggle"><input type="checkbox" data-composed-activity-input="enabled" data-composed-activity-id="{{id}}" {{#if enabled}}checked{{/if}}><span>Enabled on Item</span></label>
+                <button type="button" data-action="move-composed-activity" data-activity-move="up" data-composed-activity-id="{{id}}" title="Move Activity up"><i class="fa-solid fa-arrow-up"></i> Up</button>
+                <button type="button" data-action="move-composed-activity" data-activity-move="down" data-composed-activity-id="{{id}}" title="Move Activity down"><i class="fa-solid fa-arrow-down"></i> Down</button>
                 <button type="button" data-action="duplicate-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-copy"></i> Duplicate</button>
                 <button type="button" class="danger" data-action="remove-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
               </div>
@@ -1374,7 +1384,7 @@
                   <label class="ic-field ic-span-two"><span>Activity Name</span><input type="text" value="{{name}}" maxlength="120" data-composed-activity-input="name" data-composed-activity-id="{{id}}"></label>
                   <label><span>Activity Type</span><select data-composed-activity-input="type" data-composed-activity-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Activation</span><select data-composed-activity-input="activationType" data-composed-activity-id="{{id}}">{{#each activationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  <label><span>Activation Cost</span><input type="number" min="0" step="1" value="{{activationValue}}" data-composed-activity-input="activationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>
+                  <label><span>Action Cost</span><input type="number" min="0" step="1" value="{{activationValue}}" data-composed-activity-input="activationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>
                   <label><span>Activation Condition</span><input type="text" value="{{activationCondition}}" data-composed-activity-input="activationCondition" data-composed-activity-id="{{id}}" placeholder="Optional"></label>
                 </div>
               </section>
@@ -1394,14 +1404,67 @@
               </section>
 
               <section class="ic-activity-config-section ic-activity-uses-section">
-                <header><strong>Uses & Recovery</strong><small>Leave Maximum Uses blank for unlimited use. Limited Activities consume their own native Activity Uses and recover independently.</small></header>
+                <header><strong>Consumable Charge Cost</strong><small>This Activity spends the shared Item charges configured on the Base Item. Recharge and Destroy When Depleted belong to the Consumable, not to this individual Activity.</small></header>
                 <div class="ic-attack-activity-grid">
-                  <label><span>Maximum Uses</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Unlimited or formula"></label>
-                  <label><span>Cost per Activation</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}></label>
-                  <label class="ic-span-two"><span>Recovery</span><select data-composed-activity-input="recoveryPeriod" data-composed-activity-id="{{id}}" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}>{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="usesItemCharges" data-composed-activity-id="{{id}}" {{#if usesItemCharges}}checked{{/if}}><span><strong>Spend Shared Item Charges</strong><small>When enabled, this Activity consumes the Consumable's shared charge pool. Disable it for a zero-charge utility/power that should still trigger its configured on-use effects.</small></span></label>
+                  {{#if usesItemCharges}}<label><span>Charges Spent per Activation</span><input type="text" value="{{itemUseCost}}" data-composed-activity-input="itemUseCost" data-composed-activity-id="{{id}}" placeholder="1"></label>{{/if}}
                   <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
                 </div>
               </section>
+
+              {{#if isActorState}}
+              <section class="ic-activity-damage-section ic-restore-resource-section">
+                <header>
+                  <div><strong>Actor State Changes</strong><small>Resolve immediate changes on the Activity user. Missing conditions are ignored safely.</small></div>
+                  <button type="button" data-action="add-actor-state-row" data-composed-activity-id="{{id}}"><i class="fa-solid fa-plus"></i> Add State Change</button>
+                </header>
+                <div class="ic-restore-resource-list">
+                  {{#each actorStateRows}}
+                  <div class="ic-restore-resource-row">
+                    <div class="ic-attack-activity-grid">
+                      <label><span>State Change</span><select data-actor-state-input="type" data-composed-activity-id="{{../id}}" data-actor-state-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if isStatus}}<label><span>Condition / Status</span><select data-actor-state-input="status" data-composed-activity-id="{{../id}}" data-actor-state-id="{{id}}">{{#each statusOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                      {{#if isExhaustion}}<label><span>Levels Removed</span><input type="text" value="{{amount}}" data-actor-state-input="amount" data-composed-activity-id="{{../id}}" data-actor-state-id="{{id}}" placeholder="1 or all"></label>{{/if}}
+                    </div>
+                    <button type="button" class="danger ic-restore-resource-remove" data-action="remove-actor-state-row" data-composed-activity-id="{{../id}}" data-actor-state-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
+                  </div>
+                  {{/each}}
+                </div>
+                <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Use this for immediate cleanup such as Prone, Blinded, Poisoned, Restrained, registered module statuses, or Exhaustion. Select All Conditions / Statuses only when the consumable is intentionally a broad cleanse.</span></aside>
+              </section>
+              {{/if}}
+
+              {{#if isRestoreResource}}
+              <section class="ic-activity-damage-section ic-restore-resource-section">
+                <header>
+                  <div><strong>Restore Resource</strong><small>Recover expended Actor resources when this Activity is used. Recovery is clamped to the resource maximum.</small></div>
+                  <button type="button" data-action="add-restore-resource-row" data-composed-activity-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Recovery</button>
+                </header>
+                <div class="ic-restore-resource-list">
+                  {{#each restoreResourceRows}}
+                  <div class="ic-restore-resource-row">
+                    <div class="ic-attack-activity-grid">
+                      <label><span>Resource Type</span><select data-restore-resource-input="kind" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each kindOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if isSpellSlot}}
+                      <label><span>Spell Slot</span><select data-restore-resource-input="spellLevel" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each spellLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{/if}}
+                      {{#if isHitDice}}
+                      <label><span>Hit Die</span><select data-restore-resource-input="hitDie" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each hitDieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{/if}}
+                      {{#if isFeature}}
+                      <label class="ic-span-two"><span>Resource</span><select data-restore-resource-input="resourceId" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each featureGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+                      {{/if}}
+                      <label><span>Resource Amount Restored</span><select data-restore-resource-input="amountMode" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each amountModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if amountIsFlat}}<label><span>Amount</span><input type="number" min="1" step="1" value="{{amount}}" data-restore-resource-input="amount" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}"></label>{{/if}}
+                      {{#if amountIsFormula}}<label class="ic-span-two"><span>Formula</span><input type="text" value="{{amount}}" data-restore-resource-input="amount" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}" placeholder="1d4"></label>{{/if}}
+                    </div>
+                    <button type="button" class="danger ic-restore-resource-remove" data-action="remove-restore-resource-row" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
+                  </div>
+                  {{/each}}
+                </div>
+                <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>This build restores the Item owner's Spell Slots, Pact Magic, Hit Dice, or known class/subclass resource uses. Target-creature recovery and custom arbitrary resource paths are reserved for later integration if needed.</span></aside>
+              </section>
+              {{/if}}
 
               {{#if isUtility}}
               <section class="ic-activity-damage-section">
@@ -1456,13 +1519,181 @@
               </section>
               {{/if}}
 
-          {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this v0.7.5d editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
+          {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
             </div>
           </details>
           {{/each}}
         </div>
         {{else}}
-        <div class="ic-spell-empty-state"><i class="fa-solid fa-bolt"></i><strong>No additional Activities</strong><p>Add a Utility, Damage, Heal, or Saving Throw Activity. Spell/Restore Resource Activities arrive in v0.7.6 as planned.</p></div>
+        <div class="ic-spell-empty-state"><i class="fa-solid fa-flask"></i><strong>No custom Consumable Activities</strong><p>Add a Heal, Damage, Utility, Restore Resource, or Saving Throw Activity. A completely blank Consumable still receives a minimal Consume Activity when built.</p></div>
+        {{/if}}
+      </section>
+
+      {{else}}
+      <header class="ic-section-header">
+        <div>
+          <span class="ic-kicker">Item Powers</span>
+          <h2>Spells &amp; Resources</h2>
+          <p>Grant native Spells and modify class, subclass, spell-slot, Pact Magic, and resource-die pools. Balance is controlled by the GM; Item Creator focuses on applying and removing the configured power safely.</p>
+        </div>
+      </header>
+
+      <section class="ic-enhancement-group ic-activity-composer-group">
+        <header class="ic-attack-activities-header">
+          <div>
+            <span class="ic-kicker">Native D&amp;D5e Activities</span>
+            <h3>Additional Activities</h3>
+            <p>Add independent non-attack powers directly to this Item. Weapon attacks remain in Core Weapon Configuration; Damage Activities roll damage directly and do not perform attack rolls.</p>
+          </div>
+          <button type="button" class="ic-add-activity-button" data-action="add-composed-activity"><i class="fa-solid fa-plus"></i> Add Activity</button>
+        </header>
+
+        {{#if composedActivityRows.length}}
+        <div class="ic-attack-activities-list ic-composed-activities-list">
+          {{#each composedActivityRows}}
+          <details class="ic-attack-activity ic-composed-activity {{#unless enabled}}ic-activity-omitted{{/unless}}" data-composed-activity-details data-composed-activity-id="{{id}}" {{#if expanded}}open{{/if}}>
+            <summary>
+              <span class="ic-activity-kind">{{typeLabel}}</span>
+              <strong data-composed-activity-title>{{name}}</strong>
+              <small data-composed-activity-summary>{{summary}}{{#unless enabled}} · Disabled{{/unless}}</small>
+              <i class="fa-solid fa-chevron-down"></i>
+            </summary>
+            <div class="ic-attack-activity-body">
+              <div class="ic-attack-activity-actions ic-composed-activity-actions">
+                <label class="ic-activity-enabled-toggle"><input type="checkbox" data-composed-activity-input="enabled" data-composed-activity-id="{{id}}" {{#if enabled}}checked{{/if}}><span>Enabled on Item</span></label>
+                <button type="button" data-action="duplicate-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-copy"></i> Duplicate</button>
+                <button type="button" class="danger" data-action="remove-composed-activity" data-composed-activity-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
+              </div>
+
+              <section class="ic-activity-config-section">
+                <header><strong>Identity & Activation</strong><small>What this power is called and how the player activates it.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-field ic-span-two"><span>Activity Name</span><input type="text" value="{{name}}" maxlength="120" data-composed-activity-input="name" data-composed-activity-id="{{id}}"></label>
+                  <label><span>Activity Type</span><select data-composed-activity-input="type" data-composed-activity-id="{{id}}">{{#each typeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Activation</span><select data-composed-activity-input="activationType" data-composed-activity-id="{{id}}">{{#each activationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Action Cost</span><input type="number" min="0" step="1" value="{{activationValue}}" data-composed-activity-input="activationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>
+                  <label><span>Activation Condition</span><input type="text" value="{{activationCondition}}" data-composed-activity-input="activationCondition" data-composed-activity-id="{{id}}" placeholder="Optional"></label>
+                </div>
+              </section>
+
+              <section class="ic-activity-config-section">
+                <header><strong>Targeting & Timing</strong><small>Self/Touch/Special ranges do not require a numeric Range value. Instant durations do not require a Duration value.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="30"></label>{{/if}}
+                  <label><span>Target Type</span><select data-composed-activity-input="targetType" data-composed-activity-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Target Count</span><input type="text" value="{{targetCount}}" data-composed-activity-input="targetCount" data-composed-activity-id="{{id}}" placeholder="1"></label>
+                  <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="targetPrompt" data-composed-activity-id="{{id}}" {{#if targetPrompt}}checked{{/if}}><span><strong>Prompt for Targets</strong><small>Use the normal D&amp;D5e target selection prompt when this Activity is activated.</small></span></label>
+                  <label><span>Duration Unit</span><select data-composed-activity-input="durationUnits" data-composed-activity-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if durationNeedsValue}}<label><span>Duration</span><input type="number" min="0" step="1" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>{{/if}}
+                  <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="concentration" data-composed-activity-id="{{id}}" {{#if concentration}}checked{{/if}}><span><strong>Concentration</strong><small>Marks this Activity as requiring native D&amp;D5e Concentration.</small></span></label>
+                </div>
+              </section>
+
+              <section class="ic-activity-config-section ic-activity-uses-section">
+                <header><strong>Activity Uses & Recharge</strong><small>These are the Activity's own charges. Leave Maximum Uses blank for unlimited use. Recharge Amount accepts a number or D&amp;D5e roll formula and never restores above the maximum.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label><span>Maximum Uses / Charges</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Unlimited or formula"></label>
+                  <label><span>Uses Spent per Activation</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}></label>
+                  <label><span>Recharge Trigger</span><select data-composed-activity-input="recoveryPeriod" data-composed-activity-id="{{id}}" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}>{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>{{#if recoveryIsRecharge}}Recharge Roll{{else}}Recharge Amount / Formula{{/if}}</span><input type="text" value="{{recoveryFormula}}" data-composed-activity-input="recoveryFormula" data-composed-activity-id="{{id}}" placeholder="{{#if recoveryIsRecharge}}6{{else}}1 + 1d4{{/if}}" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}></label>
+                  {{#unless recoveryIsRecharge}}<label class="ic-span-two"><span>Recharge Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="recoveryFormula" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}>{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>{{/unless}}
+                  <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
+                </div>
+              </section>
+
+              {{#if isRestoreResource}}
+              <section class="ic-activity-damage-section ic-restore-resource-section">
+                <header>
+                  <div><strong>Restore Resource</strong><small>Recover expended Actor resources when this Activity is used. Recovery is clamped to the resource maximum.</small></div>
+                  <button type="button" data-action="add-restore-resource-row" data-composed-activity-id="{{id}}"><i class="fa-solid fa-plus"></i> Add Recovery</button>
+                </header>
+                <div class="ic-restore-resource-list">
+                  {{#each restoreResourceRows}}
+                  <div class="ic-restore-resource-row">
+                    <div class="ic-attack-activity-grid">
+                      <label><span>Resource Type</span><select data-restore-resource-input="kind" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each kindOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if isSpellSlot}}
+                      <label><span>Spell Slot</span><select data-restore-resource-input="spellLevel" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each spellLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{/if}}
+                      {{#if isHitDice}}
+                      <label><span>Hit Die</span><select data-restore-resource-input="hitDie" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each hitDieOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{/if}}
+                      {{#if isFeature}}
+                      <label class="ic-span-two"><span>Resource</span><select data-restore-resource-input="resourceId" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each featureGroups}}<optgroup label="{{label}}">{{#each items}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</optgroup>{{/each}}</select></label>
+                      {{/if}}
+                      <label><span>Resource Amount Restored</span><select data-restore-resource-input="amountMode" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}">{{#each amountModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if amountIsFlat}}<label><span>Amount</span><input type="number" min="1" step="1" value="{{amount}}" data-restore-resource-input="amount" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}"></label>{{/if}}
+                      {{#if amountIsFormula}}<label class="ic-span-two"><span>Formula</span><input type="text" value="{{amount}}" data-restore-resource-input="amount" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}" placeholder="1d4"></label>{{/if}}
+                    </div>
+                    <button type="button" class="danger ic-restore-resource-remove" data-action="remove-restore-resource-row" data-composed-activity-id="{{../id}}" data-restore-resource-id="{{id}}"><i class="fa-solid fa-trash"></i> Remove</button>
+                  </div>
+                  {{/each}}
+                </div>
+                <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>This build restores the Item owner's Spell Slots, Pact Magic, Hit Dice, or known class/subclass resource uses. Target-creature recovery and custom arbitrary resource paths are reserved for later integration if needed.</span></aside>
+              </section>
+              {{/if}}
+
+              {{#if isUtility}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Utility Roll</strong><small>A Utility Activity can simply activate effects, or optionally expose a generic formula roll.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Roll Preset</span><select data-composed-activity-input="utilityPreset" data-composed-activity-id="{{id}}">{{#each utilityPresetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-span-two"><span>Formula</span><input type="text" value="{{utilityFormula}}" data-composed-activity-input="utilityFormula" data-composed-activity-id="{{id}}" placeholder="Optional custom formula, e.g. 1d20 + @abilities.str.mod"></label>
+                  <label><span>Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="utilityFormula">{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>
+                  <label><span>Roll Name</span><input type="text" value="{{utilityRollName}}" data-composed-activity-input="utilityRollName" data-composed-activity-id="{{id}}" placeholder="Roll"></label>
+                  <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="utilityPrompt" data-composed-activity-id="{{id}}" {{#if utilityPrompt}}checked{{/if}}><span><strong>Configure Roll</strong><small>Open the D&amp;D5e roll dialog.</small></span></label>
+                  <label class="ic-activity-toggle"><input type="checkbox" data-composed-activity-input="utilityVisible" data-composed-activity-id="{{id}}" {{#if utilityVisible}}checked{{/if}}><span><strong>Visible Roll Button</strong><small>Expose the formula roll button to all viewers of the chat card.</small></span></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isDamage}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Damage Roll</strong><small>Rolls damage directly; it does not make an attack roll. For a special attack, use the Weapon Attack Activities editor in Base Item.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Damage Formula</span><input type="text" value="{{damageFormula}}" data-composed-activity-input="damageFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 3d6"></label>
+                  <label><span>Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="damageFormula">{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>
+                  <label><span>Damage Type</span><select data-composed-activity-input="damageType" data-composed-activity-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isHeal}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Healing</strong><small>Uses the native D&amp;D5e Heal Activity and healing types.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label class="ic-span-two"><span>Healing Formula</span><input type="text" value="{{healingFormula}}" data-composed-activity-input="healingFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 2d4 + 2"></label>
+                  <label><span>Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="healingFormula">{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>
+                  <label><span>Healing Type</span><select data-composed-activity-input="healingType" data-composed-activity-id="{{id}}">{{#each healingTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+              {{#if isSave}}
+              <section class="ic-activity-damage-section">
+                <header><strong>Saving Throw</strong><small>Configure the native Save DC and optional damage resolved by this Activity.</small></header>
+                <div class="ic-attack-activity-grid">
+                  <label><span>Save Ability</span><select data-composed-activity-input="saveAbility" data-composed-activity-id="{{id}}">{{#each saveAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>DC Calculation</span><select data-composed-activity-input="saveCalculation" data-composed-activity-id="{{id}}">{{#each saveCalculationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label class="ic-span-two"><span>Fixed DC / Custom Formula</span><input type="text" value="{{saveFormula}}" data-composed-activity-input="saveFormula" data-composed-activity-id="{{id}}" placeholder="e.g. 15"></label>
+                  <label><span>Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="saveFormula">{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>
+                  <span></span>
+                  <label class="ic-span-two"><span>Damage Formula</span><input type="text" value="{{damageFormula}}" data-composed-activity-input="damageFormula" data-composed-activity-id="{{id}}" placeholder="Optional, e.g. 3d6"></label>
+                  <label><span>Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="damageFormula">{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>
+                  <label><span>Damage Type</span><select data-composed-activity-input="damageType" data-composed-activity-id="{{id}}">{{#each damageTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>On Successful Save</span><select data-composed-activity-input="saveOnSuccess" data-composed-activity-id="{{id}}">{{#each saveSuccessOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                </div>
+              </section>
+              {{/if}}
+
+          {{#if sourceId}}<aside class="ic-alpha-note"><i class="fa-solid fa-shield"></i><div><strong>Imported Activity Preserved</strong><p>Fields not represented by this editor remain in the native source data and are rebuilt with the Activity.</p></div></aside>{{/if}}
+            </div>
+          </details>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="ic-spell-empty-state"><i class="fa-solid fa-bolt"></i><strong>No additional Activities</strong><p>Add a Utility, Restore Resource, Damage, Heal, or Saving Throw Activity here. Spells exposed as Item Activities are configured in Granted Spellcasting below.</p></div>
         {{/if}}
       </section>
 
@@ -1474,7 +1705,7 @@
         <section class="ic-enhancement-card ic-span-two ic-granted-spellcasting-card {{#if enhancement.grantedSpellcasting}}enabled{{/if}} {{#if spellsResourcesErrors.grantedSpellcasting}}invalid{{/if}}">
           <label class="ic-override-heading">
             <input type="checkbox" data-enhancement-toggle="grantedSpellcasting" {{#if enhancement.grantedSpellcasting}}checked{{/if}}>
-            <span><strong>Granted Spellcasting</strong><small>Grant one or more existing Spells through this item. Each Spell has independent uses, recovery, slot consumption, eligibility, cast level, spellcasting calculation, spellbook visibility, and availability.</small></span>
+            <span><strong>Granted Spellcasting</strong><small>Grant existing Spells through this item or expose them directly as Item Activities. Each Spell keeps independent uses, recovery, cast level, spellcasting calculation, exposure, and availability.</small></span>
           </label>
 
           <div class="ic-spell-drop-zone {{#unless enhancement.grantedSpellcasting}}disabled{{/unless}}" data-spell-drop-zone>
@@ -1517,17 +1748,18 @@
                     {{else}}
                     <small class="ic-field-note">Unlimited means the item has no charge limit. Spell-slot consumption can still limit actual use.</small>
                     {{/if}}
-                    <label class="ic-checkbox-line {{#if isCantrip}}disabled{{/if}}">
-                      <input type="checkbox" data-granted-spell-input="consumeSlot" data-spell-id="{{id}}" {{#if consumeSlot}}checked{{/if}} {{#if isCantrip}}disabled{{/if}}>
-                      <span><strong>Consume a Spell Slot</strong><small>{{#if isCantrip}}Cantrips never consume spell slots.{{else}}Require and consume a compatible slot for every cast.{{/if}}</small></span>
+                    <label class="ic-checkbox-line {{#if isCantrip}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}}">
+                      <input type="checkbox" data-granted-spell-input="consumeSlot" data-spell-id="{{id}}" {{#if consumeSlot}}checked{{/if}} {{#if isCantrip}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}}>
+                      <span><strong>Consume a Spell Slot</strong><small>{{#if isCantrip}}Cantrips never consume spell slots.{{else}}{{#if activityExposure}}Item Activity mode uses only the Activity's own Uses and never falls back to Actor Spell Slots.{{else}}Require and consume a compatible slot for every cast.{{/if}}{{/if}}</small></span>
                     </label>
                   </section>
 
                   <section class="ic-spell-config-panel">
                     <h4>Eligibility and Cast Level</h4>
-                    <label><span>Casting Eligibility</span><select data-granted-spell-input="eligibility" data-spell-id="{{id}}" {{#if consumeSlot}}disabled{{/if}}>{{#each eligibilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                    {{#if consumeSlot}}<small class="ic-field-note">Spell-slot consumption automatically requires a compatible spell slot.</small>{{/if}}
+                    <label><span>Casting Eligibility</span><select data-granted-spell-input="eligibility" data-spell-id="{{id}}" {{#if consumeSlot}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}}>{{#each eligibilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if activityExposure}}<small class="ic-field-note">Item Activity mode grants independent casting through the item; class spell-list access and Spell Slots are not required.</small>{{else}}{{#if consumeSlot}}<small class="ic-field-note">Spell-slot consumption automatically requires a compatible spell slot.</small>{{/if}}{{/if}}
                     <label><span>Cast Level</span><select data-granted-spell-input="castLevelMode" data-spell-id="{{id}}">{{#each castLevelModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if activityExposure}}<small class="ic-field-note">Cast Level controls how the linked Spell resolves; it does not spend a Spell Slot.</small>{{/if}}
                     {{#if (eq castLevelMode "fixed")}}
                     <label><span>Fixed Cast Level</span><select data-granted-spell-input="fixedCastLevel" data-spell-id="{{id}}" data-value-type="number">{{#each fixedCastLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     {{/if}}
@@ -1546,11 +1778,15 @@
                   </section>
 
                   <section class="ic-spell-config-panel">
-                    <h4>Availability</h4>
+                    <h4>Availability & Exposure</h4>
                     <label><span>Available While</span><select data-granted-spell-input="availability" data-spell-id="{{id}}">{{#each availabilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     <label class="ic-checkbox-line">
-                      <input type="checkbox" data-granted-spell-input="showInSpellbook" data-spell-id="{{id}}" {{#if showInSpellbook}}checked{{/if}}>
-                      <span><strong>Show Granted Spell in Spellbook</strong><small>Expose the linked Spell in the Actor spellbook while the item grants it.</small></span>
+                      <input type="checkbox" data-granted-spell-input="exposeAsActivity" data-spell-id="{{id}}" {{#if exposeAsActivity}}checked{{/if}}>
+                      <span><strong>Expose as Item Activity</strong><small>Use the Spell directly from this Item. Its own Uses/Recharge are authoritative and there is no Spell Slot fallback.</small></span>
+                    </label>
+                    <label class="ic-checkbox-line {{#if activityExposure}}disabled{{/if}}">
+                      <input type="checkbox" data-granted-spell-input="showInSpellbook" data-spell-id="{{id}}" {{#if showInSpellbook}}checked{{/if}} {{#if activityExposure}}disabled{{/if}}>
+                      <span><strong>Show Granted Spell in Spellbook</strong><small>{{#if activityExposure}}Disabled while the Spell is exposed as an Item Activity.{{else}}Expose the linked Spell in the Actor spellbook while the item grants it.{{/if}}</small></span>
                     </label>
                   </section>
                 </div>
@@ -1633,7 +1869,7 @@
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless spellsResourcesComplete}}disabled{{/unless}}><span>Description</span><i class="fa-solid fa-chevron-right"></i></button>
+      <button type="button" class="ic-primary-continue" data-action="continue" {{#unless spellsResourcesComplete}}disabled{{/unless}}><span>{{#if isConsumable}}Granted Effects{{else}}Description{{/if}}</span><i class="fa-solid fa-chevron-right"></i></button>
     </footer>
     {{/if}}
 

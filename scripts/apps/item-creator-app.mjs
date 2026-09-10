@@ -25,6 +25,8 @@ const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applicat
 
 const COMPOSABLE_ACTIVITY_TYPES = Object.freeze([
   ["utility", "Utility"],
+  ["actorState", "Actor State Changes"],
+  ["restoreResource", "Restore Resource"],
   ["damage", "Damage"],
   ["heal", "Heal"],
   ["save", "Saving Throw"]
@@ -66,6 +68,8 @@ function utilityRollPreset(formula) {
 }
 
 function activityTypeLabel(type) {
+  if (type === "restoreResource") return "Restore Resource";
+  if (type === "actorState") return "Actor State Changes";
   const config = CONFIG.DND5E.activityTypes?.[type];
   const title = config?.documentClass?.metadata?.title;
   return title ? game.i18n.localize(title) : String(type || "Activity").replace(/(^|[-_])([a-z])/g, (_m, lead, chr) => `${lead ? " " : ""}${chr.toUpperCase()}`);
@@ -92,21 +96,119 @@ function activityPartFormula(part = {}) {
   return `${number}d${denomination}${bonus ? ` + ${bonus}` : ""}`;
 }
 
+function defaultRestoreResourceEntry() {
+  return {
+    id: foundry.utils.randomID(),
+    kind: "pactSlot",
+    amountMode: "flat",
+    amount: "1",
+    spellLevel: 1,
+    hitDie: "any",
+    resourceId: "bardic-inspiration"
+  };
+}
+
+function normalizeRestoreResourceConfig(config = {}) {
+  const entries = Array.isArray(config?.entries) && config.entries.length ? config.entries : [defaultRestoreResourceEntry()];
+  return {
+    version: 1,
+    recipient: "owner",
+    entries: entries.map(row => ({ ...defaultRestoreResourceEntry(), ...clone(row), id: row?.id || foundry.utils.randomID() }))
+  };
+}
+
+function restoreResourceConfig(source = {}) {
+  return normalizeRestoreResourceConfig(source?.flags?.[MODULE_ID]?.restoreResource ?? {});
+}
+
+function defaultActorStateChangeEntry() {
+  return { id: foundry.utils.randomID(), type: "removeStatus", status: "prone", amount: "1" };
+}
+
+function normalizeActorStateChangesConfig(config = {}) {
+  const entries = Array.isArray(config?.entries) && config.entries.length ? config.entries : [defaultActorStateChangeEntry()];
+  return {
+    version: 1,
+    recipient: "owner",
+    entries: entries.map(row => ({ ...defaultActorStateChangeEntry(), ...clone(row), id: row?.id || foundry.utils.randomID() }))
+  };
+}
+
+function actorStateChangesConfig(source = {}) {
+  return normalizeActorStateChangesConfig(source?.flags?.[MODULE_ID]?.actorStateChanges ?? {});
+}
+
+function normalizeConsumableEffectConfig(value = {}) {
+  // Consumables v2 owns lifecycle per Granted Effect. There is intentionally
+  // no hidden/global Effect Defaults layer: new effects start from a neutral
+  // local default and then persist their own routing, duration, and stacking.
+  const source = {
+    activityIds: ["all"],
+    durationMode: "longRest",
+    durationValue: 1,
+    stacking: "replace",
+    ...(value ?? {})
+  };
+  source.activityIds = Array.isArray(source.activityIds) && source.activityIds.length ? [...new Set(source.activityIds.map(String))] : ["all"];
+  if (source.activityIds.includes("all")) source.activityIds = ["all"];
+  if (!["permanent", "shortOrLongRest", "longRest", "rounds", "turns", "minutes", "hours"].includes(source.durationMode)) source.durationMode = "longRest";
+  if (!["replace", "refresh", "ignore", "stack"].includes(source.stacking)) source.stacking = "replace";
+  source.durationValue = Math.max(1, Number(source.durationValue) || 1);
+  return source;
+}
+
+function ensureRestoreResourceActivityDefaults(source = {}) {
+  source.activation ??= {};
+  source.activation.type ||= "action";
+  if (source.activation.value === null || source.activation.value === undefined || source.activation.value === "") source.activation.value = 1;
+
+  source.consumption ??= {};
+  source.consumption.targets = Array.isArray(source.consumption.targets) ? source.consumption.targets : [];
+
+  source.uses ??= {};
+  source.uses.spent ??= 0;
+  if (!String(source.uses.max ?? "").trim()) source.uses.max = "1";
+  source.uses.recovery = Array.isArray(source.uses.recovery) ? source.uses.recovery : [];
+  if (!source.uses.recovery.length) source.uses.recovery = [{ period: "lr", type: "formula", formula: "1" }];
+
+  const activityUseTarget = source.consumption.targets.find(target => target?.type === "activityUses");
+  if (activityUseTarget) activityUseTarget.value ||= "1";
+  else source.consumption.targets.push({ type: "activityUses", target: "", value: "1", scaling: {} });
+
+  source.range ??= {};
+  source.range.units ||= "self";
+  source.target ??= {};
+  source.target.affects ??= {};
+  source.target.affects.type ||= "self";
+  source.target.affects.count ||= "1";
+  return source;
+}
+
 function composedActivityView(entry) {
   const source = entry?.data ?? {};
-  const type = source.type || entry.type || "utility";
+  const restoreConfig = source?.flags?.[MODULE_ID]?.restoreResource ? restoreResourceConfig(source) : null;
+  const actorStateConfig = source?.flags?.[MODULE_ID]?.actorStateChanges ? actorStateChangesConfig(source) : null;
+  const type = restoreConfig ? "restoreResource" : actorStateConfig ? "actorState" : (source.type || entry.type || "utility");
   const damagePart = valuesOf(source.damage?.parts)[0] ?? {};
   const damageType = valuesOf(damagePart.types)[0] ?? "";
   const healingType = valuesOf(source.healing?.types)[0] ?? "healing";
-  const activityUseTarget = valuesOf(source.consumption?.targets).find(target => target?.type === "activityUses") ?? null;
+  const consumptionTargets = valuesOf(source.consumption?.targets);
+  const activityUseTarget = consumptionTargets.find(target => target?.type === "activityUses") ?? null;
+  const itemUseTarget = consumptionTargets.find(target => target?.type === "itemUses") ?? null;
+  const recoveryProfile = source.uses?.recovery?.[0] ?? null;
+  const recoveryFormula = recoveryProfile?.type === "recoverAll"
+    ? String(source.uses?.max ?? "")
+    : String(recoveryProfile?.formula ?? "");
   return {
     ...entry,
     type,
     typeLabel: activityTypeLabel(type),
     name: String(source.name ?? entry.name ?? activityTypeLabel(type)),
     enabled: entry.included !== false && !entry.disabled,
-    img: source.img || entry.img || CONFIG.DND5E.activityTypes?.[type]?.documentClass?.metadata?.img || "systems/dnd5e/icons/svg/activity/utility.svg",
-    summary: activityCommonSummary(source),
+    img: (type === "restoreResource" ? (source.img || "icons/svg/regen.svg") : source.img) || entry.img || CONFIG.DND5E.activityTypes?.[source.type]?.documentClass?.metadata?.img || "systems/dnd5e/icons/svg/activity/utility.svg",
+    summary: type === "restoreResource"
+      ? `${activityCommonSummary(source)} · ${restoreConfig?.entries?.length ?? 0} recovery`
+      : type === "actorState" ? `${activityCommonSummary(source)} · ${actorStateConfig?.entries?.length ?? 0} state change(s)` : activityCommonSummary(source),
     activationType: source.activation?.type ?? "action",
     activationValue: source.activation?.value ?? "",
     activationCondition: source.activation?.condition ?? "",
@@ -123,7 +225,11 @@ function composedActivityView(entry) {
     usesMax: source.uses?.max ?? "",
     hasLimitedUses: Boolean(String(source.uses?.max ?? "").trim()),
     activityUseCost: activityUseTarget?.value ?? "1",
-    recoveryPeriod: source.uses?.recovery?.[0]?.period ?? "",
+    itemUseCost: itemUseTarget?.value ?? "1",
+    usesItemCharges: Boolean(itemUseTarget),
+    recoveryPeriod: recoveryProfile?.period ?? "",
+    recoveryFormula,
+    recoveryIsRecharge: recoveryProfile?.period === "recharge",
     chatFlavor: source.description?.chatFlavor ?? "",
     utilityFormula: source.roll?.formula ?? "",
     utilityPreset: utilityRollPreset(source.roll?.formula),
@@ -138,6 +244,10 @@ function composedActivityView(entry) {
     saveCalculation: source.save?.dc?.calculation ?? "",
     saveFormula: source.save?.dc?.formula ?? "",
     saveOnSuccess: source.damage?.onSave ?? "half",
+    restoreResources: restoreConfig?.entries ?? [],
+    actorStateChanges: actorStateConfig?.entries ?? [],
+    isRestoreResource: type === "restoreResource",
+    isActorState: type === "actorState",
     isUtility: type === "utility",
     isDamage: type === "damage",
     isHeal: type === "heal",
@@ -525,6 +635,11 @@ function normalizeConsumableConfig(value = {}) {
 function consumableSourceData(document) {
   if (!document) return null;
   const system = document.system ?? {};
+  const rawUses = document?._source?.system?.uses ?? system.uses ?? {};
+  const recovery = valuesOf(rawUses.recovery)[0] ?? null;
+  const recoveryAmount = recovery?.type === "recoverAll"
+    ? "all"
+    : String(recovery?.formula ?? "");
   return {
     consumableType: system.type?.value ?? "potion",
     consumableSubtype: system.type?.subtype ?? "",
@@ -535,8 +650,10 @@ function consumableSourceData(document) {
     properties: valuesOf(system.properties).filter(property => property !== "mgc"),
     magical: valuesOf(system.properties).includes("mgc"),
     uses: {
-      max: Math.max(1, Number(system.uses?.max) || 1),
-      autoDestroy: system.uses?.autoDestroy !== false
+      max: String(rawUses.max ?? system.uses?.max ?? "1") || "1",
+      autoDestroy: rawUses.autoDestroy !== false,
+      recoveryPeriod: String(recovery?.period ?? ""),
+      recoveryAmount
     }
   };
 }
@@ -738,11 +855,15 @@ async function grantedSpellFromCastActivity(activity) {
     spellcastingMode: moduleFlags.spellcastingMode ?? (fixedChallenge ? "fixed" : activity?.spell?.ability || "actorDefault"),
     fixedAttackBonus: attack !== null && Number.isFinite(attack) ? attack : 5,
     fixedSaveDc: save !== null && Number.isFinite(save) ? save : 13,
+    exposeAsActivity: typeof moduleFlags.exposeAsActivity === "boolean"
+      ? moduleFlags.exposeAsActivity
+      : (!spellbookIntent(activity) && !consumeSlot),
     showInSpellbook: spellbookIntent(activity),
     availability: inferredAvailability(activity),
     unlockOnLevel: Boolean(moduleFlags.unlockOnLevel),
     unlockLevel: clampCharacterLevel(moduleFlags.unlockLevel),
     progressionGroupId: moduleFlags.progressionGroupId ?? foundry.utils.randomID(),
+    activityId: activity?._id ?? activity?.id ?? null,
     importedActivityId: activity?._id ?? activity?.id ?? null
   };
 }
@@ -1039,10 +1160,10 @@ function senseTypeOptions(selected) {
 
 function conditionTypeOptions(selectedValues = []) {
   const selected = new Set(selectedValues ?? []);
-  const source = CONFIG.DND5E.conditionTypes ?? CONFIG.statusEffects?.reduce((acc, effect) => {
-    if (effect?.id) acc[effect.id] = effect.name ?? effect.label ?? effect.id;
-    return acc;
-  }, {}) ?? {};
+  const source = { ...(CONFIG.DND5E.conditionTypes ?? {}) };
+  for (const effect of valuesOf(CONFIG.statusEffects)) {
+    if (effect?.id && !(effect.id in source)) source[effect.id] = effect.name ?? effect.label ?? effect.id;
+  }
   return Object.entries(source).map(([value, entry]) => ({
     value,
     label: localizedLabel(entry, value),
@@ -1154,6 +1275,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.managedEffectIds = [];
     this.customImportedEffects = [];
     this.customImportedActivities = [];
+    this.consumableActivitiesDirty = false;
     this.importedBaseSummary = [];
     this.step = editItem ? "baseItem" : "itemType";
     this.selectedType = null;
@@ -1459,10 +1581,24 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.overrides = clone(savedDraft.overrides ?? {});
         this.grantedEffects = clone(savedDraft.grantedEffects ?? {});
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
+        // Migrate 0.7.7a/early-0.7.7b global lifecycle defaults into each
+        // enabled Granted Effect exactly once. From this point forward every
+        // effect owns its own duration/stacking/activity routing.
+        for (const [key, enabled] of Object.entries(this.grantedEffects)) {
+          if (!enabled) continue;
+          const setting = this.grantedEffectValues[key] ??= {};
+          if (!setting.consumable) {
+            setting.consumable = normalizeConsumableEffectConfig({
+              activityIds: ["all"],
+              durationMode: this.consumableConfig.durationMode,
+              durationValue: this.consumableConfig.durationValue,
+              stacking: this.consumableConfig.stacking
+            });
+          } else setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+        }
         this.customImportedEffects = clone(savedDraft.customImportedEffects ?? []);
         this.customImportedActivities = clone(savedDraft.customImportedActivities ?? []);
         this.importedBaseSummary = clone(savedDraft.importedBaseSummary ?? []);
-        await this.#translateDocumentMechanics(item, { merge: true, ignoreGenerated: true });
       } else {
         this.customized = {};
         this.overrides = {};
@@ -1471,15 +1607,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.customImportedEffects = [];
         this.customImportedActivities = [];
         this.importedBaseSummary = [];
-        await this.#translateDocumentMechanics(item);
       }
 
-      // Consumable Activities are rebuilt as a single managed Use activity.
-      // Imported Active Effects remain available as on-use blueprints. Native
-      // cast Activities are not silently promoted into passive Granted Spells.
+      // Consumables v2 are preserve-first. Native Base Item Activities are
+      // surfaced in the Activity Composer while opaque fields remain preserved.
+      // Older 0.7.7a drafts are upgraded in-memory by adding any native
+      // Activities that were previously hidden from the editor.
+      this.#hydrateConsumableActivities(item, { merge: this.editingManagedItem });
       this.enhancements = {};
       this.enhancementValues = consumableEnhancementDefaults();
-      this.customImportedActivities = [];
       this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
       this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
       this.descriptionCustomized = this.editingManagedItem ? Boolean(savedDraft?.descriptionCustomized) : true;
@@ -1690,6 +1826,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const isEquipment = this.selectedType === "equipment";
     const isTool = this.selectedType === "tool";
     const isConsumable = this.selectedType === "consumable";
+    // v0.7.7b1 removes the legacy Effect Defaults stage. If an already-open
+    // draft/render points at it, redirect to Activities instead of exposing a
+    // dead/redundant screen.
+    if (isConsumable && this.step === "enhancements") this.step = "spellsResources";
     const itemTypeLabel = isEquipment ? "Equipment" : isTool ? "Tool" : isConsumable ? "Consumable" : "Weapon";
     const source = isEquipment ? equipmentSourceData(this.selectedBaseWeaponDocument)
       : isTool ? toolSourceData(this.selectedBaseWeaponDocument)
@@ -1704,11 +1844,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       && this.itemName.trim() && additionalDamageValid && attackActivitiesValid);
     const enhancementValidation = this.#validateEnhancements();
     const enhancementsComplete = baseComplete && enhancementValidation.valid;
-    const grantedEffectValidation = this.#validateGrantedEffects();
-    const grantedEffectsComplete = enhancementsComplete && grantedEffectValidation.valid;
     const spellsResourcesValidation = this.#validateSpellsResources();
-    const spellsResourcesComplete = grantedEffectsComplete && spellsResourcesValidation.valid;
-    const descriptionComplete = spellsResourcesComplete;
+    // Consumables v2 has no separate Enhancements / Effect Defaults stage.
+    // Activities follow Base Item directly; lifecycle belongs to each Granted Effect.
+    const activitiesComplete = (isConsumable ? baseComplete : enhancementsComplete) && spellsResourcesValidation.valid;
+    const grantedEffectValidation = this.#validateGrantedEffects();
+    const grantedEffectsComplete = (isConsumable ? activitiesComplete : enhancementsComplete) && grantedEffectValidation.valid;
+    const spellsResourcesComplete = isConsumable ? activitiesComplete : grantedEffectsComplete && spellsResourcesValidation.valid;
+    const descriptionComplete = isConsumable ? grantedEffectsComplete : spellsResourcesComplete;
 
     let reviewData = null;
     let reviewChatCard = "";
@@ -1725,23 +1868,26 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       }
     }
     const reviewComplete = Boolean(reviewData) && !reviewError;
-    const steps = STEPS.map(step => ({
+    const stepSource = isConsumable
+      ? ["itemType", "baseItem", "spellsResources", "grantedEffects", "description", "review"].map(id => STEPS.find(step => step.id === id)).filter(Boolean)
+      : STEPS;
+    const steps = stepSource.map(step => ({
       ...step,
-      label: isConsumable && step.id === "spellsResources" ? "Instant Effects" : step.label,
+      label: isConsumable && step.id === "spellsResources" ? "Activities" : step.label,
       active: step.id === this.step,
       complete: step.id === "itemType" ? typeComplete
         : step.id === "baseItem" ? baseComplete
           : step.id === "enhancements" ? enhancementsComplete
-            : step.id === "grantedEffects" ? grantedEffectsComplete
-              : step.id === "spellsResources" ? spellsResourcesComplete
+            : step.id === "spellsResources" ? spellsResourcesComplete
+              : step.id === "grantedEffects" ? grantedEffectsComplete
                 : step.id === "description" ? descriptionComplete
                   : step.id === "review" ? reviewComplete : false,
       locked: !step.available
         || (step.id === "baseItem" && !typeComplete)
         || (step.id === "enhancements" && !baseComplete)
-        || (step.id === "grantedEffects" && !enhancementsComplete)
-        || (step.id === "spellsResources" && !grantedEffectsComplete)
-        || (step.id === "description" && !spellsResourcesComplete)
+        || (step.id === "spellsResources" && !(isConsumable ? baseComplete : grantedEffectsComplete))
+        || (step.id === "grantedEffects" && !(isConsumable ? spellsResourcesComplete : enhancementsComplete))
+        || (step.id === "description" && !(isConsumable ? grantedEffectsComplete : spellsResourcesComplete))
         || (step.id === "review" && !descriptionComplete)
     }));
 
@@ -1900,6 +2046,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         fixedCastLevelOptions: castLevelOptions,
         spellcastingModeOptions: fixedOptions([["actorDefault", "Actor Default Spellcasting"], ["highest", "Highest Spellcasting"], ["int", "Intelligence + Proficiency"], ["wis", "Wisdom + Proficiency"], ["cha", "Charisma + Proficiency"], ["fixed", "Fixed Item Spellcasting Values"]], row.spellcastingMode),
         availabilityOptions: effectAvailabilityOptions(row.availability),
+        activityExposure: Boolean(row.exposeAsActivity),
         invalid: !this.#validateGrantedSpell(row)
       };
     });
@@ -2161,12 +2308,48 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }));
     const composableTypes = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
     const composedActivityRows = this.customImportedActivities
-      .filter(entry => entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type))
+      .filter(entry => !entry?.removed && (entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type)))
       .map(entry => {
         const row = composedActivityView(entry);
+        const restoreResourceRows = (row.restoreResources ?? []).map(resource => ({
+          ...resource,
+          kindOptions: fixedOptions([
+            ["spellSlot", "Spell Slot"],
+            ["pactSlot", "Pact Magic Slot"],
+            ["hitDice", "Hit Dice"],
+            ["feature", "Class / Subclass Resource"]
+          ], resource.kind),
+          amountModeOptions: fixedOptions([["flat", "Flat Amount"], ["formula", "Formula"], ["all", "Recover All"]], resource.amountMode),
+          spellLevelOptions: Array.from({ length: 9 }, (_, index) => ({ value: index + 1, label: `Level ${index + 1}`, selected: Number(resource.spellLevel) === index + 1 })),
+          hitDieOptions: fixedOptions([["any", "Any Hit Die"], ["d6", "d6"], ["d8", "d8"], ["d10", "d10"], ["d12", "d12"]], resource.hitDie),
+          featureGroups: resourceGroups().map(group => ({
+            label: group.label,
+            items: group.items.map(item => ({ value: item.id, label: item.label, selected: item.id === resource.resourceId }))
+          })),
+          isSpellSlot: resource.kind === "spellSlot",
+          isHitDice: resource.kind === "hitDice",
+          isFeature: resource.kind === "feature",
+          amountIsFlat: resource.amountMode === "flat",
+          amountIsFormula: resource.amountMode === "formula"
+        }));
+        const actorStateRows = (row.actorStateChanges ?? []).map(change => ({
+          ...change,
+          typeOptions: fixedOptions([["removeStatus", "Remove Condition / Status"], ["removeExhaustion", "Remove Exhaustion"]], change.type),
+          statusOptions: [
+            { value: "all", label: "All Conditions / Statuses", selected: change.status === "all" },
+            ...conditionTypeOptions([change.status])
+          ],
+          isStatus: change.type === "removeStatus",
+          isExhaustion: change.type === "removeExhaustion"
+        }));
+        const currentNativeType = row.type;
+        const typeChoices = COMPOSABLE_ACTIVITY_TYPES.some(([value]) => value === currentNativeType)
+          ? COMPOSABLE_ACTIVITY_TYPES
+          : [[currentNativeType, `${activityTypeLabel(currentNativeType)} (Native / Preserved)`], ...COMPOSABLE_ACTIVITY_TYPES];
         return {
           ...row,
-          typeOptions: fixedOptions(COMPOSABLE_ACTIVITY_TYPES, row.type),
+          restoreResourceRows, actorStateRows,
+          typeOptions: fixedOptions(typeChoices, row.type),
           activationOptions: configOptions(CONFIG.DND5E.activityActivationTypes, row.activationType, { blankValue: "", blankLabel: "No Action" }),
           rangeOptions: [
             ...configOptions(CONFIG.DND5E.rangeTypes, row.rangeUnits),
@@ -2250,7 +2433,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       toolType: isTool ? localizedLabel(CONFIG.DND5E.toolTypes?.[reviewItem.system?.type?.value], reviewItem.system?.type?.value ?? "Tool") : null,
       toolBonus: isTool ? String(reviewItem.system?.bonus ?? "") || "None" : null,
       consumableType: isConsumable ? localizedLabel(CONFIG.DND5E.consumableTypes?.[reviewItem.system?.type?.value], reviewItem.system?.type?.value ?? "Consumable") : null,
-      consumableUses: isConsumable ? `${Math.max(0, Number(reviewItem.system?.uses?.max) || 1)} use(s) per item` : null,
+      consumableUses: isConsumable ? `${String(reviewItem.system?.uses?.max ?? "1")} use(s) per item` : null,
       properties: reviewProperties, activities: reviewActivities,
       effects: reviewItem.effects?.size ?? reviewItem.effects?.length ?? 0,
       magical: valuesOf(reviewItem.system?.properties).includes("mgc")
@@ -2279,25 +2462,39 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const consumableTypeOptions = configOptions(CONFIG.DND5E.consumableTypes, effective?.consumableType);
     const consumableSubtypeConfig = CONFIG.DND5E.consumableTypes?.[effective?.consumableType]?.subtypes ?? {};
     const consumableSubtypeOptions = configOptions(consumableSubtypeConfig, effective?.consumableSubtype, { blankValue: "", blankLabel: "None" });
-    const consumableDurationOptions = fixedOptions([
-      ["permanent", "Permanent"],
-      ["shortOrLongRest", "Until next Short or Long Rest"],
-      ["longRest", "Until next Long Rest"],
-      ["rounds", "Rounds (6 seconds each)"],
-      ["turns", "Owner Turns (6 seconds each outside combat)"],
-      ["minutes", "Minutes"],
-      ["hours", "Hours"]
-    ], this.consumableConfig.durationMode);
-    const consumableActivationOptions = fixedOptions([
-      ["action", "Action"], ["bonus", "Bonus Action"], ["reaction", "Reaction"],
-      ["special", "Special"], ["none", "No Action"]
-    ], this.consumableConfig.activation);
-    const consumableStackingOptions = fixedOptions([
-      ["replace", "No Stacking — Replace Existing"],
-      ["refresh", "No Stacking — Refresh Duration"],
-      ["ignore", "No Stacking — Ignore New Use"],
-      ["stack", "Allow Stacking"]
-    ], this.consumableConfig.stacking);
+    const grantedEffectLabels = {
+      armorClassBonus: "Armor Class Bonus", weaponAttackBonus: "Weapon Attack Roll Bonus", weaponDamageBonus: "Weapon Damage Roll Bonus",
+      criticalThreshold: "Actor Critical Threshold", savingThrowBonus: "Saving Throw Bonus", savingThrowAdvantage: "Saving Throw Advantage",
+      abilityScoreAdjustment: "Ability Score Adjustment", abilityCheckBonus: "Ability Check Bonus", skillBonus: "Skill Bonus", skillProficiency: "Skill Proficiency",
+      abilityCheckAdvantage: "Ability Check Advantage", damageResistance: "Damage Resistance", damageImmunity: "Damage Immunity",
+      damageVulnerability: "Damage Vulnerability", conditionImmunity: "Condition Immunity", initiativeBonus: "Initiative Bonus", initiativeAdvantage: "Initiative Advantage",
+      proficiencyBonusModifier: "Proficiency Bonus Modifier", maximumHitPointsBonus: "Maximum Hit Points Bonus", movementBonus: "Movement Bonus",
+      grantMovementType: "Granted Movement Type", grantedSense: "Granted Sense", spellAttackBonus: "Spell Attack Bonus", spellSaveDcBonus: "Spell Save DC Bonus",
+      passiveScoreBonus: "Passive Score Bonus"
+    };
+    const activeConsumableActivities = composedActivityRows.filter(row => row.enabled).map(row => ({ value: row.id, label: row.name }));
+    const consumableGrantedEffectRows = isConsumable ? Object.entries(this.grantedEffects).filter(([, enabled]) => enabled).map(([key]) => {
+      const setting = this.grantedEffectValues[key] ??= {};
+      setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+      const config = setting.consumable;
+      const selected = new Set(config.activityIds ?? ["all"]);
+      return {
+        key, label: grantedEffectLabels[key] ?? titleCase(key),
+        activityOptions: [
+          { value: "all", label: "All Item Activities", selected: selected.has("all") },
+          ...activeConsumableActivities.map(activity => ({ ...activity, selected: selected.has(activity.value) }))
+        ],
+        durationMode: config.durationMode, durationValue: config.durationValue, stacking: config.stacking,
+        durationNeedsValue: ["rounds", "turns", "minutes", "hours"].includes(config.durationMode),
+        durationOptions: fixedOptions([
+          ["permanent", "Permanent"], ["shortOrLongRest", "Until next Short or Long Rest"], ["longRest", "Until next Long Rest"],
+          ["rounds", "Rounds"], ["turns", "Owner Turns"], ["minutes", "Minutes"], ["hours", "Hours"]
+        ], config.durationMode),
+        stackingOptions: fixedOptions([
+          ["replace", "Replace Existing"], ["refresh", "Refresh Duration"], ["ignore", "Ignore New Use"], ["stack", "Allow Stacking"]
+        ], config.stacking)
+      };
+    }) : [];
 
     return {
       stage: MODULE_STAGE, version: MODULE_VERSION,
@@ -2339,8 +2536,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       equipmentForm: this.equipmentForm, equipmentFormOptions, equipmentTypeOptions, armorTypeOptions,
       isArmorForm, isShieldForm, hasArmorFields,
       toolTypeOptions, toolAbilityOptions, baseToolOptions,
-      consumableTypeOptions, consumableSubtypeOptions, consumableDurationOptions, consumableActivationOptions, consumableStackingOptions,
-      consumableConfig: this.consumableConfig,
+      consumableTypeOptions, consumableSubtypeOptions, consumableGrantedEffectRows,
       equipmentFormLabel: EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment",
       armorDexFull: effective?.armor?.dex === null || effective?.armor?.dex === undefined,
       armorDexValue: effective?.armor?.dex ?? 0,
@@ -2429,10 +2625,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="custom-equipment"]')?.addEventListener("click", event => this.#createCustomEquipment(event));
     root.querySelector('[data-action="custom-tool"]')?.addEventListener("click", event => this.#createCustomTool(event));
     root.querySelector('[data-action="custom-consumable"]')?.addEventListener("click", event => this.#createCustomConsumable(event));
-    root.querySelectorAll('[data-consumable-input]').forEach(input => {
-      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
-      input.addEventListener(eventName, event => this.#updateConsumableConfig(event));
-    });
+    root.querySelector('[data-action="insert-consumable-recharge-formula-token"]')?.addEventListener("change", event => this.#insertConsumableRechargeFormulaToken(event));
     root.querySelector('[data-template-category]')?.addEventListener("change", event => this.#filterTemplates(event));
     root.querySelector('[data-template-select]')?.addEventListener("change", event => this.#selectTemplate(event));
     root.querySelector('[data-base-weapon-select]')?.addEventListener("change", event => this.#selectBaseWeapon(event));
@@ -2484,11 +2677,23 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       input.addEventListener(eventName, event => this.#updateGrantedEffect(event));
     });
     root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
+    root.querySelectorAll('[data-consumable-effect-input]').forEach(input => input.addEventListener("change", event => this.#updateConsumableEffectConfig(event)));
+    root.querySelectorAll('[data-consumable-effect-activity]').forEach(input => input.addEventListener("change", event => this.#updateConsumableEffectActivityBinding(event)));
     root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
     root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
     root.querySelector('[data-action="add-composed-activity"]')?.addEventListener("click", event => this.#addComposedActivity(event));
     root.querySelectorAll('[data-action="duplicate-composed-activity"]').forEach(button => button.addEventListener("click", event => this.#duplicateComposedActivity(event)));
+    root.querySelectorAll('[data-action="move-composed-activity"]').forEach(button => button.addEventListener("click", event => this.#moveComposedActivity(event)));
     root.querySelectorAll('[data-action="remove-composed-activity"]').forEach(button => button.addEventListener("click", event => this.#removeComposedActivity(event)));
+    root.querySelectorAll('[data-action="add-actor-state-row"]').forEach(button => button.addEventListener("click", event => this.#addActorStateRow(event)));
+    root.querySelectorAll('[data-action="remove-actor-state-row"]').forEach(button => button.addEventListener("click", event => this.#removeActorStateRow(event)));
+    root.querySelectorAll('[data-actor-state-input]').forEach(input => input.addEventListener("change", event => this.#updateActorStateRow(event)));
+    root.querySelectorAll('[data-action="add-restore-resource-row"]').forEach(button => button.addEventListener("click", event => this.#addRestoreResourceRow(event)));
+    root.querySelectorAll('[data-action="remove-restore-resource-row"]').forEach(button => button.addEventListener("click", event => this.#removeRestoreResourceRow(event)));
+    root.querySelectorAll('[data-restore-resource-input]').forEach(input => {
+      const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
+      input.addEventListener(eventName, event => this.#updateRestoreResourceRow(event));
+    });
     root.querySelectorAll('[data-composed-activity-input]').forEach(input => {
       const eventName = input.matches("select, input[type=checkbox]") ? "change" : "input";
       input.addEventListener(eventName, event => this.#updateComposedActivity(event));
@@ -3158,25 +3363,25 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (this.step === "baseItem" && this.#isBaseComplete()) {
       this.restoreScrollTop = null;
-      this.step = "enhancements";
+      this.step = this.selectedType === "consumable" ? "spellsResources" : "enhancements";
       this.render({ force: true });
       return;
     }
     if (this.step === "enhancements" && this.#isBaseComplete() && this.#validateEnhancements().valid) {
       this.restoreScrollTop = null;
-      this.step = "grantedEffects";
-      this.render({ force: true });
-      return;
-    }
-    if (this.step === "grantedEffects" && this.#validateGrantedEffects().valid) {
-      this.restoreScrollTop = null;
-      this.step = "spellsResources";
+      this.step = this.selectedType === "consumable" ? "spellsResources" : "grantedEffects";
       this.render({ force: true });
       return;
     }
     if (this.step === "spellsResources" && this.#validateSpellsResources().valid) {
       this.restoreScrollTop = null;
-      this.step = "description";
+      this.step = this.selectedType === "consumable" ? "grantedEffects" : "description";
+      this.render({ force: true });
+      return;
+    }
+    if (this.step === "grantedEffects" && this.#validateGrantedEffects().valid) {
+      this.restoreScrollTop = null;
+      this.step = this.selectedType === "consumable" ? "description" : "spellsResources";
       this.render({ force: true });
       return;
     }
@@ -3198,19 +3403,19 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (this.step === "description") {
       this.restoreScrollTop = null;
-      this.step = "spellsResources";
-      this.render({ force: true });
-      return;
-    }
-    if (this.step === "spellsResources") {
-      this.restoreScrollTop = null;
-      this.step = "grantedEffects";
+      this.step = this.selectedType === "consumable" ? "grantedEffects" : "spellsResources";
       this.render({ force: true });
       return;
     }
     if (this.step === "grantedEffects") {
       this.restoreScrollTop = null;
-      this.step = "enhancements";
+      this.step = this.selectedType === "consumable" ? "spellsResources" : "enhancements";
+      this.render({ force: true });
+      return;
+    }
+    if (this.step === "spellsResources") {
+      this.restoreScrollTop = null;
+      this.step = this.selectedType === "consumable" ? "baseItem" : "grantedEffects";
       this.render({ force: true });
       return;
     }
@@ -3391,7 +3596,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedIcon = source.img;
     this.templateCategory = "potion";
     this.customized = { consumableType: true, consumableSubtype: true, quantity: true, uses: true };
-    this.overrides = { consumableType: "potion", consumableSubtype: "", quantity: 1, uses: { max: 1, autoDestroy: true } };
+    this.overrides = { consumableType: "potion", consumableSubtype: "", quantity: 1, uses: { max: "1", autoDestroy: true, recoveryPeriod: "", recoveryAmount: "" } };
     this.consumableConfig = defaultConsumableConfig();
     this.consumableKey = foundry.utils.randomID();
     this.#resetEnhancements();
@@ -3407,17 +3612,17 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
-  #updateConsumableConfig(event) {
-    if (this.selectedType !== "consumable") return;
-    const field = event.currentTarget.dataset.consumableInput;
-    if (!field) return;
-    let value;
-    if (event.currentTarget.type === "checkbox") value = Boolean(event.currentTarget.checked);
-    else if (event.currentTarget.dataset.valueType === "number") value = event.currentTarget.value === "" ? 1 : Number(event.currentTarget.value);
-    else value = event.currentTarget.value;
-    this.consumableConfig = normalizeConsumableConfig({ ...this.consumableConfig, [field]: value });
-    if (["activation", "durationMode", "removeExhaustion"].includes(field)) this.#renderPreservingScroll();
+  #insertConsumableRechargeFormulaToken(event) {
+    const select = event.currentTarget;
+    const token = String(select.value ?? "").trim();
+    if (!token || !this.customized.uses) { select.value = ""; return; }
+    this.overrides.uses ??= clone(this.#sourceValues()?.uses ?? { max: "1", autoDestroy: true, recoveryPeriod: "", recoveryAmount: "" });
+    const current = String(this.overrides.uses.recoveryAmount ?? "").trim();
+    this.overrides.uses.recoveryAmount = current && current.toLowerCase() !== "all" ? `${current} + ${token}` : token;
+    select.value = "";
+    this.#renderPreservingScroll();
   }
+
 
   #selectEquipmentForm(event) {
     if (this.selectedType !== "equipment") return;
@@ -3571,13 +3776,20 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (consumable) this.consumableConfig = defaultConsumableConfig();
       this.#resetEnhancements();
       this.#resetGrantedEffects();
-      await this.#translateDocumentMechanics(document);
-      if (!equipment && !tool && !consumable) this.#hydrateAttackActivities(document);
       if (consumable) {
+        // Consumables v2 remain preserve-first, but native Activities are now
+        // surfaced as editable draft Activities. Unrepresented native fields
+        // remain on the Activity source until the GM changes them.
+        this.customImportedEffects = [];
+        this.customImportedActivities = [];
+        this.importedBaseSummary = [];
         this.enhancements = {};
         this.enhancementValues = consumableEnhancementDefaults();
-        this.customImportedActivities = [];
+        this.#hydrateConsumableActivities(document);
+      } else {
+        await this.#translateDocumentMechanics(document);
       }
+      if (!equipment && !tool && !consumable) this.#hydrateAttackActivities(document);
       this.templateDescriptionRaw = rawTemplateDescription(document);
       this.templateDescription = cleanTemplateDescription(document);
       this.customDescription = this.templateDescriptionRaw;
@@ -3626,6 +3838,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       || this.resourceModifications.length > 0
       || this.triggeredEffects.length > 0
       || this.attackActivitiesDirty
+      || (this.selectedType === "consumable" && this.consumableActivitiesDirty)
       || (this.selectedType === "consumable" && JSON.stringify(this.consumableConfig) !== JSON.stringify(defaultConsumableConfig()))
       || this.descriptionCustomized;
   }
@@ -3648,6 +3861,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#resetGrantedEffects();
     this.customImportedEffects = [];
     this.customImportedActivities = [];
+    this.consumableActivitiesDirty = false;
     this.attackActivities = [];
     this.attackActivitiesDirty = false;
     this.importedBaseSummary = [];
@@ -3766,7 +3980,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.overrides[field][part] = value;
     } else this.overrides[field] = value;
     if (this.selectedType === "weapon" && ["attackType", "attackAbility"].includes(field)) this.attackActivitiesDirty = true;
-    if (this.selectedType === "consumable" && field === "consumableType") this.#renderPreservingScroll();
+    if (this.selectedType === "consumable" && (field === "consumableType" || (field === "uses" && part === "recoveryPeriod"))) this.#renderPreservingScroll();
   }
 
   #updateProperty(event) {
@@ -4211,8 +4425,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   #validateEnhancements() {
     const errors = {};
     if (this.selectedType === "consumable") {
+      // No Consumable Enhancements/Effect Defaults stage exists in v2.
+      // Keep only legacy instant Exhaustion validation for old 0.7.7a drafts.
       this.consumableConfig = normalizeConsumableConfig(this.consumableConfig);
-      if (["rounds", "turns", "minutes", "hours"].includes(this.consumableConfig.durationMode) && !(Number(this.consumableConfig.durationValue) >= 1)) errors.duration = true;
       if (this.consumableConfig.removeExhaustion) {
         const amount = String(this.consumableConfig.removeExhaustionAmount ?? "1").trim().toLowerCase();
         if (amount !== "all" && (!/^\d+$/.test(amount) || Number(amount) < 1)) errors.removeExhaustion = true;
@@ -4264,33 +4479,38 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #validateSpellsResources() {
-    if (this.selectedType === "consumable") {
-      const errors = {};
-      if (this.consumableConfig.removeExhaustion) {
-        const amount = String(this.consumableConfig.removeExhaustionAmount ?? "1").trim().toLowerCase();
-        if (amount !== "all" && (!/^\d+$/.test(amount) || Number(amount) < 1)) errors.removeExhaustion = true;
-      }
-      return { valid: !Object.keys(errors).length, errors };
-    }
     const errors = {};
-    if (this.enhancements.grantedSpellcasting) {
-      const spells = this.enhancementValues.grantedSpellcasting?.spells ?? [];
-      if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
+    if (this.selectedType === "consumable" && this.consumableConfig.removeExhaustion) {
+      const amount = String(this.consumableConfig.removeExhaustionAmount ?? "1").trim().toLowerCase();
+      if (amount !== "all" && (!/^\d+$/.test(amount) || Number(amount) < 1)) errors.removeExhaustion = true;
     }
-    if (this.resourceModifications.some(row => !validateResourceModification(row))) errors.resourceModifications = true;
+    if (this.selectedType !== "consumable") {
+      if (this.enhancements.grantedSpellcasting) {
+        const spells = this.enhancementValues.grantedSpellcasting?.spells ?? [];
+        if (!spells.length || spells.some(spell => !this.#validateGrantedSpell(spell))) errors.grantedSpellcasting = true;
+      }
+      if (this.resourceModifications.some(row => !validateResourceModification(row))) errors.resourceModifications = true;
+    }
     const composableTypes = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
     const activitiesInvalid = this.customImportedActivities
-      .filter(entry => entry?.included !== false && !entry?.disabled && (entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type)))
+      .filter(entry => !entry?.removed && entry?.included !== false && !entry?.disabled && (entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type)))
       .some(entry => {
         const source = entry.data ?? {};
-        const type = source.type ?? entry.type;
-        if (!composableTypes.has(type) || !String(source.name ?? entry.name ?? "").trim()) return true;
+        const flags = source.flags?.[MODULE_ID] ?? {};
+        const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState" : (entry.type ?? source.type);
+        if (!String(source.name ?? entry.name ?? "").trim()) return true;
+        // Unknown native Base Item Activity types remain preserve-first and do not block the build.
+        if (!composableTypes.has(type)) return !entry.importedBase;
         if (type === "heal" && source.healing?.custom?.enabled && !String(source.healing?.custom?.formula ?? "").trim()) return true;
         if (["damage", "save"].includes(type)) {
           const part = valuesOf(source.damage?.parts)[0];
           if (part?.custom?.enabled && !String(part.custom.formula ?? "").trim()) return true;
         }
         if (type === "save" && !valuesOf(source.save?.ability).length) return true;
+        if (type === "actorState") {
+          const rows = normalizeActorStateChangesConfig(flags.actorStateChanges).entries;
+          if (!rows.length || rows.some(row => row.type === "removeStatus" ? !String(row.status ?? "").trim() : row.type === "removeExhaustion" ? !(/^(all|[1-9]\d*)$/i.test(String(row.amount ?? "1").trim())) : true)) return true;
+        }
         return false;
       });
     if (activitiesInvalid) errors.activities = true;
@@ -4344,6 +4564,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const tierable = REPEATABLE_GRANTED_EFFECTS.has(key);
       const tierValidator = tierable ? tier => finite(tier.bonus) && ["owned", "equipped", "equippedAttuned"].includes(tier.availability) : null;
       if (!this.#validateProgressionSetting(setting, { tierable, tierValidator })) errors[key] = true;
+      if (this.selectedType === "consumable") {
+        setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+        const cfg = setting.consumable;
+        const availableIds = new Set(this.customImportedActivities.filter(row => !row.removed && row.included !== false && !row.disabled).map(row => row.id));
+        const validBindings = cfg.activityIds.includes("all") || cfg.activityIds.every(id => availableIds.has(id));
+        if (!validBindings || (["rounds", "turns", "minutes", "hours"].includes(cfg.durationMode) && !(Number(cfg.durationValue) >= 1))) errors[key] = true;
+      }
     }
     return { valid: !Object.keys(errors).length, errors };
   }
@@ -4376,7 +4603,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const enabled = event.currentTarget.checked;
     this.grantedEffects[key] = enabled;
     if (!enabled) this.grantedEffectValues[key] = clone(defaults[key]);
-    else ensureProgressionGroup(this.grantedEffectValues[key]);
+    else {
+      ensureProgressionGroup(this.grantedEffectValues[key]);
+      if (this.selectedType === "consumable") {
+        this.grantedEffectValues[key].availability = "owned";
+        this.grantedEffectValues[key].consumable = normalizeConsumableEffectConfig(this.grantedEffectValues[key].consumable);
+      }
+    }
     this.#renderPreservingScroll();
   }
 
@@ -4413,6 +4646,41 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (event.currentTarget.checked) selected.add(value);
     else selected.delete(value);
     this.grantedEffectValues[key][collection] = [...selected];
+    this.#renderPreservingScroll();
+  }
+
+  #updateConsumableEffectConfig(event) {
+    if (this.selectedType !== "consumable") return;
+    const key = event.currentTarget.dataset.consumableEffectInput;
+    const part = event.currentTarget.dataset.consumableEffectPart;
+    if (!key || !part || !this.grantedEffects[key]) return;
+    const setting = this.grantedEffectValues[key] ??= {};
+    setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+    const value = event.currentTarget.dataset.valueType === "number"
+      ? Math.max(1, Number(event.currentTarget.value) || 1)
+      : event.currentTarget.value;
+    setting.consumable[part] = value;
+    setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+    if (["durationMode", "stacking"].includes(part)) this.#renderPreservingScroll();
+  }
+
+  #updateConsumableEffectActivityBinding(event) {
+    if (this.selectedType !== "consumable") return;
+    const key = event.currentTarget.dataset.consumableEffectActivity;
+    const activityId = event.currentTarget.dataset.activityId;
+    if (!key || !activityId || !this.grantedEffects[key]) return;
+    const setting = this.grantedEffectValues[key] ??= {};
+    setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
+    let selected = new Set(setting.consumable.activityIds ?? ["all"]);
+    if (activityId === "all") {
+      selected = event.currentTarget.checked ? new Set(["all"]) : new Set();
+    } else {
+      selected.delete("all");
+      if (event.currentTarget.checked) selected.add(activityId);
+      else selected.delete(activityId);
+    }
+    if (!selected.size) selected.add("all");
+    setting.consumable.activityIds = [...selected];
     this.#renderPreservingScroll();
   }
 
@@ -4463,15 +4731,67 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return new ItemClass(source, { temporary: true });
   }
 
+  #hydrateConsumableActivities(document, { merge = false } = {}) {
+    if (!document) return;
+    const supported = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
+    const existingSources = new Set((merge ? this.customImportedActivities : []).map(entry => entry.sourceId).filter(Boolean));
+    const existingComposerIds = new Set((merge ? this.customImportedActivities : []).map(entry => entry.id).filter(Boolean));
+    const rows = merge ? [...this.customImportedActivities] : [];
+    for (const activity of valuesOf(document.system?.activities)) {
+      const sourceId = activity?.id ?? activity?._id ?? null;
+      const activityFlags = activity?.flags?.[MODULE_ID] ?? {};
+      const existingComposerId = activityFlags.composerId ?? null;
+      if ((sourceId && existingSources.has(sourceId)) || (existingComposerId && existingComposerIds.has(existingComposerId))) continue;
+      // v0.7.7a generated Activities did not yet carry a stable composerId. When
+      // re-editing one of those managed Items, the saved draft already contains
+      // those custom rows. Do not hydrate the materialized copies a second time;
+      // genuine Base Item Activities have no Item Creator generated flags and
+      // are still promoted into the editable Consumable composer below.
+      if (merge && !existingComposerId && (activityFlags.importedCustom === true || activityFlags.composedActivity === true)) continue;
+      const source = clone(rawActivitySource(activity) ?? {});
+      delete source._index;
+      source._id ||= sourceId || foundry.utils.randomID();
+      source.flags ??= {};
+      // Every Activity on a managed Consumable is an eligible on-use trigger,
+      // even when it deliberately spends zero shared charges. Whether it spends
+      // Item Uses is represented independently by the native consumption target.
+      source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), consumableUse: true };
+      const composerType = source.flags?.[MODULE_ID]?.restoreResource ? "restoreResource"
+        : source.flags?.[MODULE_ID]?.actorStateChanges ? "actorState"
+          : (source.type || "utility");
+      rows.push({
+        id: source.flags?.[MODULE_ID]?.composerId || foundry.utils.randomID(),
+        activityId: source._id, sourceId, name: source.name || activity?.name || activityTypeLabel(composerType),
+        type: composerType, img: source.img || activity?.img || "systems/dnd5e/icons/svg/activity/utility.svg",
+        included: true, disabled: Boolean(activity?.disabled), summary: activityCommonSummary(source),
+        data: source, composed: supported.has(composerType) || Boolean(source.type), importedBase: true, expanded: false
+      });
+      if (sourceId) existingSources.add(sourceId);
+    }
+    this.customImportedActivities = rows;
+    if (!merge) this.consumableActivitiesDirty = false;
+  }
+
   #newComposedActivitySource(type = "utility") {
-    const ActivityClass = CONFIG.DND5E.activityTypes?.[type]?.documentClass;
+    const nativeType = ["restoreResource", "actorState"].includes(type) ? "utility" : type;
+    const ActivityClass = CONFIG.DND5E.activityTypes?.[nativeType]?.documentClass;
     if (!ActivityClass) throw new Error(`Unsupported Activity type: ${type}`);
     const document = new ActivityClass({}, { parent: this.#activityParentForComposer() });
     const source = clone(document.toObject?.() ?? document._source ?? document);
     delete source._index;
     source._id = foundry.utils.randomID();
-    source.type = type;
-    source.name = activityTypeLabel(type);
+    source.type = nativeType;
+    source.name = type === "restoreResource" ? "Restore Resource" : type === "actorState" ? "Actor State Changes" : activityTypeLabel(type);
+    if (type === "restoreResource") {
+      source.img = "icons/svg/regen.svg";
+      source.flags ??= {};
+      source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), restoreResource: normalizeRestoreResourceConfig() };
+    }
+    if (type === "actorState") {
+      source.img = "icons/svg/aura.svg";
+      source.flags ??= {};
+      source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), actorStateChanges: normalizeActorStateChangesConfig() };
+    }
     source.img ||= ActivityClass.metadata?.img ?? null;
     source.activation ??= {};
     source.activation.type ||= "action";
@@ -4491,20 +4811,37 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     source.description ??= {};
     source.uses ??= { spent: 0, recovery: [] };
     source.uses.recovery ??= [];
+    if (type === "restoreResource") ensureRestoreResourceActivityDefaults(source);
+    if (this.selectedType === "consumable") {
+      source.consumption ??= {};
+      source.consumption.targets = valuesOf(source.consumption.targets)
+        .filter(target => !["activityUses", "itemUses"].includes(target?.type))
+        .map(clone);
+      source.consumption.targets.push({ type: "itemUses", target: "", value: "1", scaling: {} });
+      source.consumption.scaling ??= { allowed: false };
+      source.consumption.spellSlot = false;
+      source.flags ??= {};
+      source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), consumableUse: true };
+      // Shared Consumable charges own the economy; a newly composed Consumable
+      // Activity is unlimited on its own unless the GM later imports one with
+      // independent native Activity uses.
+      source.uses.max = "";
+      source.uses.spent = 0;
+      source.uses.recovery = [];
+    }
     return source;
   }
 
   #addComposedActivity(event) {
     event.preventDefault();
-    if (this.selectedType === "consumable") {
-      ui.notifications.info("Consumable Activities are being rebuilt in v0.7.7; v0.7.5 keeps the current managed Consume behavior intact.");
-      return;
-    }
     const source = this.#newComposedActivitySource("utility");
+    const id = foundry.utils.randomID();
+    source.flags ??= {}; source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), composerId: id };
     this.customImportedActivities.push({
-      id: foundry.utils.randomID(), sourceId: null, name: source.name, type: source.type, img: source.img,
+      id, activityId: source._id, sourceId: null, name: source.name, type: source.type, img: source.img,
       included: true, disabled: false, summary: "Editable native Activity", data: source, composed: true, expanded: true
     });
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
     this.#renderPreservingScroll();
   }
 
@@ -4519,16 +4856,128 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     copy.name = `${String(entry.data?.name ?? entry.name ?? "Activity")} Copy`;
     copy.data ??= {};
     copy.data._id = foundry.utils.randomID();
+    copy.activityId = copy.data._id;
     copy.data.name = copy.name;
+    copy.data.flags ??= {};
+    copy.data.flags[MODULE_ID] = { ...(copy.data.flags[MODULE_ID] ?? {}), composerId: copy.id };
     this.customImportedActivities.splice(this.customImportedActivities.indexOf(entry) + 1, 0, copy);
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
     this.#renderPreservingScroll();
   }
 
   #removeComposedActivity(event) {
     event.preventDefault();
     const id = event.currentTarget.dataset.composedActivityId;
-    this.customImportedActivities = this.customImportedActivities.filter(entry => entry.id !== id);
+    const entry = this.customImportedActivities.find(row => row.id === id);
+    if (entry?.importedBase && entry.sourceId) {
+      entry.included = false;
+      entry.removed = true;
+    } else this.customImportedActivities = this.customImportedActivities.filter(row => row.id !== id);
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
     this.#renderPreservingScroll();
+  }
+
+  #moveComposedActivity(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.composedActivityId;
+    const direction = event.currentTarget.dataset.activityMove === "up" ? -1 : 1;
+    const composable = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
+    const visible = this.customImportedActivities.filter(row => !row?.removed && (row?.composed === true || composable.has(row?.type ?? row?.data?.type)));
+    const visibleIndex = visible.findIndex(row => row.id === id);
+    const swapVisibleIndex = visibleIndex + direction;
+    if (visibleIndex < 0 || swapVisibleIndex < 0 || swapVisibleIndex >= visible.length) return;
+    const current = visible[visibleIndex];
+    const other = visible[swapVisibleIndex];
+    const currentIndex = this.customImportedActivities.indexOf(current);
+    const otherIndex = this.customImportedActivities.indexOf(other);
+    if (currentIndex < 0 || otherIndex < 0) return;
+    [this.customImportedActivities[currentIndex], this.customImportedActivities[otherIndex]] = [this.customImportedActivities[otherIndex], this.customImportedActivities[currentIndex]];
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
+    this.#renderPreservingScroll();
+  }
+
+  #actorStateDraft(entry) {
+    const data = entry?.data;
+    if (!data) return null;
+    data.flags ??= {};
+    data.flags[MODULE_ID] ??= {};
+    data.flags[MODULE_ID].actorStateChanges = normalizeActorStateChangesConfig(data.flags[MODULE_ID].actorStateChanges);
+    return data.flags[MODULE_ID].actorStateChanges;
+  }
+
+  #addActorStateRow(event) {
+    event.preventDefault();
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#actorStateDraft(entry);
+    if (!config) return;
+    config.entries.push(defaultActorStateChangeEntry());
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
+    entry.expanded = true;
+    this.#renderPreservingScroll();
+  }
+
+  #removeActorStateRow(event) {
+    event.preventDefault();
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#actorStateDraft(entry);
+    if (!config) return;
+    config.entries = config.entries.filter(row => row.id !== event.currentTarget.dataset.actorStateId);
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
+    if (!config.entries.length) config.entries.push(defaultActorStateChangeEntry());
+    this.#renderPreservingScroll();
+  }
+
+  #updateActorStateRow(event) {
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#actorStateDraft(entry);
+    const row = config?.entries?.find(row => row.id === event.currentTarget.dataset.actorStateId);
+    const part = event.currentTarget.dataset.actorStateInput;
+    if (!row || !part) return;
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
+    row[part] = event.currentTarget.value;
+    if (part === "type") this.#renderPreservingScroll();
+  }
+
+  #restoreResourceDraft(entry) {
+    const data = entry?.data;
+    if (!data) return null;
+    data.flags ??= {};
+    data.flags[MODULE_ID] ??= {};
+    data.flags[MODULE_ID].restoreResource = normalizeRestoreResourceConfig(data.flags[MODULE_ID].restoreResource);
+    return data.flags[MODULE_ID].restoreResource;
+  }
+
+  #addRestoreResourceRow(event) {
+    event.preventDefault();
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#restoreResourceDraft(entry);
+    if (!config) return;
+    config.entries.push(defaultRestoreResourceEntry());
+    this.#renderPreservingScroll();
+  }
+
+  #removeRestoreResourceRow(event) {
+    event.preventDefault();
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#restoreResourceDraft(entry);
+    const rowId = event.currentTarget.dataset.restoreResourceId;
+    if (!config || !rowId) return;
+    config.entries = config.entries.filter(row => row.id !== rowId);
+    if (!config.entries.length) config.entries.push(defaultRestoreResourceEntry());
+    this.#renderPreservingScroll();
+  }
+
+  #updateRestoreResourceRow(event) {
+    const entry = this.customImportedActivities.find(row => row.id === event.currentTarget.dataset.composedActivityId);
+    const config = this.#restoreResourceDraft(entry);
+    const row = config?.entries?.find(candidate => candidate.id === event.currentTarget.dataset.restoreResourceId);
+    const part = event.currentTarget.dataset.restoreResourceInput;
+    if (!row || !part) return;
+    const value = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    if (part === "spellLevel") row.spellLevel = Math.clamp(Math.trunc(Number(value) || 1), 1, 9);
+    else row[part] = value;
+    entry.composed = true;
+    if (["kind", "amountMode"].includes(part)) this.#renderPreservingScroll();
   }
 
   #syncComposedActivityLiveControls(id, entry, data) {
@@ -4537,12 +4986,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const details = root.querySelector(`[data-composed-activity-details][data-composed-activity-id="${id}"]`);
     if (!details) return;
     const limited = Boolean(String(data.uses?.max ?? "").trim());
+    const recoveryPeriod = String(data.uses?.recovery?.[0]?.period ?? "").trim();
     details.querySelectorAll('[data-composed-activity-requires-uses]').forEach(control => { control.disabled = !limited; });
+    details.querySelectorAll('[data-composed-activity-requires-recovery]').forEach(control => { control.disabled = !limited || !recoveryPeriod; });
     if (!limited) {
       const cost = details.querySelector('[data-composed-activity-input="activityUseCost"]');
       const recovery = details.querySelector('[data-composed-activity-input="recoveryPeriod"]');
+      const formula = details.querySelector('[data-composed-activity-input="recoveryFormula"]');
       if (cost) cost.value = "1";
       if (recovery) recovery.value = "";
+      if (formula) formula.value = "";
     }
     const utilityPresetControl = details.querySelector('[data-composed-activity-input="utilityPreset"]');
     if (utilityPresetControl) utilityPresetControl.value = utilityRollPreset(data.roll?.formula);
@@ -4577,15 +5030,26 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const part = event.currentTarget.dataset.composedActivityInput;
     const entry = this.customImportedActivities.find(row => row.id === id);
     if (!entry || !part) return;
+    if (this.selectedType === "consumable") this.consumableActivitiesDirty = true;
     const input = event.currentTarget;
     let value = input.type === "checkbox" ? input.checked : input.value;
     const data = entry.data ??= this.#newComposedActivitySource(entry.type || "utility");
 
     if (part === "type") {
-      const commonKeys = ["activation", "consumption", "description", "duration", "effects", "flags", "range", "target", "uses", "visibility"];
+      const commonKeys = ["activation", "consumption", "description", "duration", "effects", "range", "target", "uses", "visibility"];
       const replacement = this.#newComposedActivitySource(value);
-      replacement.name = data.name || activityTypeLabel(value);
+      const previousDefaultName = entry.type === "restoreResource" ? "Restore Resource" : entry.type === "actorState" ? "Actor State Changes" : activityTypeLabel(data.type);
+      const nextDefaultName = value === "restoreResource" ? "Restore Resource" : value === "actorState" ? "Actor State Changes" : activityTypeLabel(value);
+      replacement.name = (!data.name || data.name === previousDefaultName) ? nextDefaultName : data.name;
       for (const key of commonKeys) if (data[key] !== undefined) replacement[key] = clone(data[key]);
+      // Preserve unrelated module flags, but only keep Restore Resource configuration when that composer type is selected.
+      replacement.flags ??= {};
+      replacement.flags[MODULE_ID] = { ...(data.flags?.[MODULE_ID] ?? {}), ...(replacement.flags?.[MODULE_ID] ?? {}) };
+      if (value !== "restoreResource") delete replacement.flags[MODULE_ID].restoreResource;
+      else ensureRestoreResourceActivityDefaults(replacement);
+      if (value !== "actorState") delete replacement.flags[MODULE_ID].actorStateChanges;
+      else replacement.flags[MODULE_ID].actorStateChanges = normalizeActorStateChangesConfig(replacement.flags[MODULE_ID].actorStateChanges);
+      replacement.flags[MODULE_ID].composerId = entry.id;
       entry.data = replacement; entry.type = value; entry.name = replacement.name; entry.img = replacement.img; entry.composed = true;
       this.#renderPreservingScroll();
       return;
@@ -4614,6 +5078,28 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         if (String(value).trim()) targets.push({ type: "activityUses", target: "", value: "1", scaling: {} });
         set("consumption.targets", targets);
         if (!String(value).trim()) { set("uses.spent", 0); set("uses.recovery", []); }
+        else if (data.flags?.[MODULE_ID]?.restoreResource && !valuesOf(data.uses?.recovery).length) {
+          set("uses.recovery", [{ period: "lr", type: "formula", formula: "1" }]);
+        }
+        break;
+      }
+      case "usesItemCharges": {
+        const targets = valuesOf(data.consumption?.targets).filter(target => target?.type !== "itemUses").map(clone);
+        if (Boolean(value)) targets.push({ type: "itemUses", target: "", value: "1", scaling: {} });
+        set("consumption.targets", targets);
+        // Even a zero-cost Consumable Activity may still route Actor State
+        // Changes / Granted Effects, so keep it inside the managed on-use path.
+        data.flags ??= {};
+        data.flags[MODULE_ID] = { ...(data.flags[MODULE_ID] ?? {}), consumableUse: true };
+        this.#renderPreservingScroll();
+        return;
+      }
+      case "itemUseCost": {
+        const targets = valuesOf(data.consumption?.targets).filter(target => target?.type !== "itemUses").map(clone);
+        targets.push({ type: "itemUses", target: "", value: String(value || "1"), scaling: {} });
+        set("consumption.targets", targets);
+        data.flags ??= {};
+        data.flags[MODULE_ID] = { ...(data.flags[MODULE_ID] ?? {}), consumableUse: true };
         break;
       }
       case "activityUseCost": {
@@ -4624,7 +5110,25 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         set("consumption.targets", targets);
         break;
       }
-      case "recoveryPeriod": set("uses.recovery", value && String(data.uses?.max ?? "").trim() ? [{ period: value, type: "recoverAll" }] : []); break;
+      case "recoveryPeriod": {
+        if (!value || !String(data.uses?.max ?? "").trim()) set("uses.recovery", []);
+        else {
+          const existing = data.uses?.recovery?.[0] ?? {};
+          const formula = value === "recharge"
+            ? (existing.period === "recharge" ? String(existing.formula || "6") : "6")
+            : (existing.type === "recoverAll" ? String(data.uses?.max || "1") : String(existing.formula || "1"));
+          set("uses.recovery", [{ period: value, type: value === "recharge" ? "recoverAll" : "formula", formula }]);
+        }
+        break;
+      }
+      case "recoveryFormula": {
+        const period = String(data.uses?.recovery?.[0]?.period ?? "").trim();
+        if (period && String(data.uses?.max ?? "").trim()) {
+          const formula = String(value || (period === "recharge" ? "6" : "1"));
+          set("uses.recovery", [{ period, type: period === "recharge" ? "recoverAll" : "formula", formula }]);
+        }
+        break;
+      }
       case "chatFlavor": set("description.chatFlavor", value); break;
       case "utilityPreset": {
         if (value !== "custom") set("roll.formula", UTILITY_ROLL_PRESETS[value] ?? "");
@@ -4715,10 +5219,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (!(Number(spell.maxUses) > 0)) return false;
       if (!['shortRest', 'longRest'].includes(spell.recovery)) return false;
     }
+    const activityMode = Boolean(spell.exposeAsActivity);
     if (level === 0 && spell.consumeSlot) return false;
+    if (activityMode && spell.consumeSlot) return false;
     if (!['independent', 'spellLevelAccess', 'compatibleSlot'].includes(spell.eligibility)) return false;
     if (spell.consumeSlot && spell.eligibility !== 'compatibleSlot') return false;
     if (!['base', 'fixed', 'slot'].includes(spell.castLevelMode)) return false;
+    if (activityMode && spell.castLevelMode === 'slot') return false;
     if (spell.castLevelMode === 'slot' && (!spell.consumeSlot || level === 0)) return false;
     if (spell.castLevelMode === 'fixed') {
       const fixed = Number(spell.fixedCastLevel);
@@ -4758,11 +5265,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       spellcastingMode: 'actorDefault',
       fixedAttackBonus: 5,
       fixedSaveDc: 13,
+      exposeAsActivity: true,
       showInSpellbook: false,
       availability: 'equipped',
       unlockOnLevel: false,
       unlockLevel: 1,
-      progressionGroupId: foundry.utils.randomID()
+      progressionGroupId: foundry.utils.randomID(),
+      // Keep the native Cast Activity id stable across Review / Save / re-edit cycles.
+      activityId: foundry.utils.randomID()
     };
   }
 
@@ -4872,8 +5382,26 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       spell.maxUses = 1;
       spell.recovery = 'longRest';
     }
+    if (part === 'exposeAsActivity') {
+      spell.exposeAsActivity = Boolean(value);
+      if (spell.exposeAsActivity) {
+        // Item Activity mode owns its own uses and never falls back to Actor spell slots.
+        spell.showInSpellbook = false;
+        spell.consumeSlot = false;
+        if (spell.eligibility === 'compatibleSlot') spell.eligibility = 'independent';
+        if (spell.castLevelMode === 'slot') spell.castLevelMode = 'base';
+      } else {
+        // Turning Activity exposure off returns the spell to the established Spellbook path.
+        spell.showInSpellbook = true;
+      }
+    }
+    if (part === 'showInSpellbook') {
+      spell.showInSpellbook = Boolean(value);
+      if (spell.showInSpellbook) spell.exposeAsActivity = false;
+      else if (!spell.exposeAsActivity) spell.exposeAsActivity = true;
+    }
     if (part === 'consumeSlot') {
-      if (spell.level === 0) spell.consumeSlot = false;
+      if (spell.exposeAsActivity || spell.level === 0) spell.consumeSlot = false;
       else if (value) {
         spell.eligibility = 'compatibleSlot';
         spell.castLevelMode = 'slot';
