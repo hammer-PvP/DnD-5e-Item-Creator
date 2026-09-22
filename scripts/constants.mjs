@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.7.94";
-export const MODULE_STAGE = "Migration Candidate";
+export const MODULE_VERSION = "0.7.94a";
+export const MODULE_STAGE = "Production Stabilization";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },

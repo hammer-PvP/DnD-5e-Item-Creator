@@ -2388,7 +2388,7 @@ export class ItemCreatorTriggeredEffectService {
 
   static #patchRollMethod(prototype, method, rollType, family) {
     const original = prototype?.[method];
-    if (!(original instanceof Function) || original[ROLL_PATCH_FLAG]) return;
+    if (!(original instanceof Function) || original[ROLL_PATCH_FLAG]) return false;
     const service = this;
     const wrapped = async function(...args) {
       const actor = this?.documentName === "Actor" ? this : this?.actor;
@@ -2401,8 +2401,30 @@ export class ItemCreatorTriggeredEffectService {
     try {
       prototype[method] = wrapped;
       this.#rollPatches.push({ prototype, method, original });
+      return true;
     } catch (error) {
-      console.warn(`${MODULE_ID} | Could not install consumable effect support for ${method}.`, error);
+      diagnosticWarn("Runtime", "roll-interception-failed", { method, strategy: "compatibility-fallback", error: error?.message ?? String(error) });
+      return false;
+    }
+  }
+
+  static #registerLibWrapperRollMethod(target, method, rollType, family) {
+    const wrapper = globalThis.libWrapper;
+    const active = Boolean(game.modules?.get("lib-wrapper")?.active && wrapper?.register instanceof Function);
+    if (!active) return false;
+
+    const service = this;
+    try {
+      wrapper.register(MODULE_ID, target, async function(wrapped, ...args) {
+        const actor = this?.documentName === "Actor" ? this : this?.actor;
+        service.#injectContextualRollModifiers(actor, rollType, args);
+        return service.#runConsumableRoll(actor, rollType, family, () => wrapped(...args));
+      }, "WRAPPER");
+      diagnosticLog("Runtime", "roll-interception", { method, strategy: "libWrapper WRAPPER", target });
+      return true;
+    } catch (error) {
+      diagnosticWarn("Runtime", "libwrapper-registration-failed", { method, target, error: error?.message ?? String(error) });
+      return false;
     }
   }
 
@@ -2417,7 +2439,13 @@ export class ItemCreatorTriggeredEffectService {
     const activityEntries = activities instanceof Map ? [...activities.entries()] : Object.entries(activities);
     const attackDefinition = activities instanceof Map ? activities.get("attack") : activities.attack;
     const attackPrototype = attackDefinition?.documentClass?.prototype;
-    this.#patchRollMethod(attackPrototype, "rollAttack", "attackRoll", "d20");
+    const attackTarget = "dnd5e.documents.activity.AttackActivity.prototype.rollAttack";
+    const attackWrapped = this.#registerLibWrapperRollMethod(attackTarget, "rollAttack", "attackRoll", "d20");
+    if (!attackWrapped) {
+      const fallbackInstalled = this.#patchRollMethod(attackPrototype, "rollAttack", "attackRoll", "d20");
+      if (fallbackInstalled) diagnosticLog("Runtime", "roll-interception", { method: "rollAttack", strategy: "compatibility fallback" });
+    }
+
     for (const [type, definition] of activityEntries) {
       const prototype = definition?.documentClass?.prototype;
       const healing = type === "heal" || String(definition?.documentClass?.name ?? "").toLowerCase().includes("heal");

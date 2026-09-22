@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.94a — Production Stabilization
+
+- Replaced the direct monkey patch of `dnd5e.documents.activity.AttackActivity.prototype.rollAttack` with a cooperative **libWrapper `WRAPPER`** whenever libWrapper is active. This removes the live conflict warning observed when Item Creator and Character Builder both participate in the D&D5e attack-roll pipeline.
+- Preserved the existing attack-roll behavior: Item Creator still injects Contextual Roll Modifiers before the roll and still runs confirmed-use consumption around the real roll; `dnd5e.postRollAttack` remains the authoritative Attack Hit detection hook.
+- Retained the existing direct wrapper only as a compatibility fallback when libWrapper is not active or registration cannot be completed.
+- Added Verbose runtime diagnostics identifying the installed `rollAttack` interception strategy (`libWrapper WRAPPER` or `compatibility fallback`) and Errors-level diagnostics if libWrapper registration fails.
+- Audited the remaining roll interceptors (`rollAbilityCheck`, `rollSkill`, `rollToolCheck`, `rollSavingThrow`, and Activity `rollDamage`). No additional live conflict was observed in the production migration log, so their working behavior is intentionally unchanged in this hotfix.
+- No Triggered Effect semantics, lifecycle rules, stacking behavior, Item schemas, Supplier behavior, or authoring features were changed. This patch is intentionally limited to production stabilization of the v0.7.94 migration candidate.
+
 ## 0.7.94 — D&D5e 6.0.3 Migration Candidate
 
 - Promoted **D&D5e 6.0.3** to the live migration/test baseline while retaining the compatibility window **6.0.1–6.0.999** and Foundry VTT **14.367+**.

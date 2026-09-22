@@ -1,14 +1,16 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.7.94 Migration Candidate
+**Version:** 0.7.94a Production Stabilization
 **Compatibility:** Foundry VTT 14.367+ / D&D5e 6.0.1–6.0.999 (current validated migration target: 6.0.3)
 
-> **D&D5e 6.x migration line:** v0.7.94 is the first Migration Candidate intended for controlled production use on D&D5e 6.0.3. The supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized in memory when reopened and are only persisted in the 6.x form after an explicit Update/Save by the GM.
+> **D&D5e 6.x migration line:** v0.7.94a is the production-stabilization hotfix for the v0.7.94 Migration Candidate on D&D5e 6.0.3. The supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized in memory when reopened and are only persisted in the 6.x form after an explicit Update/Save by the GM.
 
 This compatibility pass normalizes persisted physical-item rarity data to `system.rarities`, writes D&D5e 6.x roll and movement Active Effect paths, updates Consumable target routing to the D&D5e 6.x Chat Message target model, and applies the same persistence normalization through Supplier and the shared Materialization Core. Consumable Granted Effects now delegate temporal and rest expiry to the native D&D5e/Foundry Active Effect lifecycle instead of running a parallel combat-bound duration clock; Item Creator continues to own effect provenance, recipient routing, and stacking policy. Triggered Effects now follow the same migration principle: their triggers no longer require Combat, their persistent Effects use native world-time-backed duration, and ending Combat only detaches turn bookkeeping instead of deleting the Effects. Exact Combat turn/round hooks remain as a precision layer while Combat exists.
 
 For live migration testing, **Item Creator Configuration → Runtime Logging** provides Off, Errors, and Verbose diagnostics. Verbose mode records Trigger detection, Effect apply/refresh decisions, native Effect deletion, and Combat/lifecycle detachment in the browser console.
+
+On worlds with **libWrapper** active, Item Creator now registers its `AttackActivity.rollAttack` interception as a cooperative `WRAPPER`, allowing Character Builder and other libWrapper-aware modules to share the attack pipeline without the previous non-libWrapper conflict warning. If libWrapper is absent, Item Creator retains the compatibility fallback. Verbose diagnostics report which interception strategy was installed.
 
 Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
 
@@ -433,4 +435,4 @@ Every GitHub Release publishes exactly:
 
 The current package URL is:
 
-`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.94/item-creator.zip`
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.94a/item-creator.zip`
