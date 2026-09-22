@@ -1,4 +1,5 @@
 import { MODULE_ID } from "../constants.mjs";
+import { DIAGNOSTICS_SETTING, diagnosticMode } from "../utils/diagnostics.mjs";
 import {
   MATERIALIZATION_CORE_VERSION,
   MATERIALIZATION_PRICING_SCHEMA_VERSION,
@@ -43,6 +44,7 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
     const pricing = getMaterializationSettings();
     return {
       supplierEnabled: isSupplierEnabled(),
+      diagnosticsMode: diagnosticMode(),
       pricingProfile: pricing.pricingProfile,
       denomination: pricing.denomination,
       coreVersion: MATERIALIZATION_CORE_VERSION,
@@ -104,6 +106,8 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
       customPrices
     });
     await game.settings.set(MODULE_ID, SUPPLIER_ENABLED_KEY, supplierEnabled);
+    const diagnosticsMode = root.querySelector('[name="diagnosticsMode"]')?.value ?? "errors";
+    await game.settings.set(MODULE_ID, DIAGNOSTICS_SETTING, ["off", "errors", "verbose"].includes(diagnosticsMode) ? diagnosticsMode : "errors");
 
     if (supplierEnabled) {
       await initializeDefaultSources();

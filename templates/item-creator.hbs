@@ -887,7 +887,7 @@
         <div>
           <span class="ic-kicker">{{itemTypeLabel}} Creation</span>
           <h2>Granted Effects</h2>
-          <p>{{#if isConsumable}}Configure the Actor-facing effects copied onto the consumer after the Use Activity completes. Carrying the item grants nothing.{{else}}Enable only the passive effects this item grants to its bearer. The complete Actor-facing library is available to Weapons, Equipment, and Tools.{{/if}}</p>
+          <p>{{#if isConsumable}}Configure the Actor-facing effects applied after the selected Activity completes. Self Activities affect the Item owner; targeted Activities can affect multiple selected Actors. Carrying the item grants nothing.{{else}}Enable only the passive effects this item grants to its bearer. The complete Actor-facing library is available to Weapons, Equipment, and Tools.{{/if}}</p>
         </div>
       </header>
 
@@ -895,11 +895,44 @@
         <i class="fa-solid fa-shield-heart"></i>
         <div>
           <strong>{{#if isConsumable}}Activity-bound effects{{else}}Availability-aware effects{{/if}}</strong>
-          <p>{{#if isConsumable}}Granted Effects are copied onto the consumer only when one of their selected Activities is used. Duration and stacking are configured per effect; carrying the Consumable grants nothing.{{else}}Each effect can apply while owned, equipped, or equipped and attuned. Unlock on Level adds the Actor's total character level as a second requirement, and progression tiers replace earlier values instead of stacking them.{{/if}}</p>
+          <p>{{#if isConsumable}}Granted Effects are applied only when one of their selected Activities is used. The Activity controls the recipient target(s); duration and stacking are configured per effect. Carrying the Consumable grants nothing.{{else}}Each effect can apply while owned, equipped, or equipped and attuned. Unlock on Level adds the Actor's total character level as a second requirement, and progression tiers replace earlier values instead of stacking them.{{/if}}</p>
         </div>
       </aside>
 
       {{#if isConsumable}}
+      <section class="ic-effect-group ic-consumable-spell-effects">
+        <header class="ic-attack-activities-header">
+          <div><span class="ic-kicker">Spell Effect Source</span><h3>Import Effect from Spell</h3><p>Import the persistent Active Effect payload from a Spell, then route it through one or more Consumable Activities. This does not cast the Spell.</p></div>
+          <button type="button" class="ic-add-activity-button" data-action="browse-consumable-spell-effect"><i class="fa-solid fa-books"></i> Import Spell Effect</button>
+        </header>
+        <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-triangle-exclamation"></i><span><strong>Compatibility Note:</strong> Imported spell effects are flexible building blocks. Not every Spell effect produces a meaningful or rules-consistent result when applied through a Consumable. Review the Spell, targets, Spell Level, and duration, and test the finished Item before considering the configuration valid for play. Spells without a persistent Active Effect, such as Fireball or Magic Missile, cannot be imported here; direct spell resolution belongs to Cast Spell Activity tooling.</span></aside>
+        {{#if consumableSpellEffectRows.length}}
+        <div class="ic-imported-custom-list">
+          {{#each consumableSpellEffectRows}}
+          <article class="ic-imported-custom-card {{#unless included}}excluded{{/unless}}">
+            <header><img src="{{img}}" alt=""><span><strong>{{spellName}} — {{spellEffectName}}</strong><small>Imported persistent Spell effect. Activity targeting controls who receives it.</small></span><button type="button" data-action="remove-consumable-spell-effect" data-consumable-spell-effect-id="{{id}}" aria-label="Remove Spell effect"><i class="fa-solid fa-trash"></i></button></header>
+            <div class="ic-enhancement-fields two-columns">
+              <label><span>Spell Level</span><select data-consumable-spell-effect-input="spellLevel" data-consumable-spell-effect-id="{{id}}">{{#each spellLevelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label class="ic-activity-toggle"><input type="checkbox" data-consumable-spell-effect-input="included" data-consumable-spell-effect-id="{{id}}" {{#if included}}checked{{/if}}><span><strong>Include Effect</strong><small>Keep this imported Spell effect on the final Consumable.</small></span></label>
+            </div>
+            <div class="ic-effect-choice-grid">
+              {{#each activityOptions}}
+              <label class="ic-property-option {{#if selected}}selected{{/if}}"><input type="checkbox" data-consumable-spell-effect-activity data-consumable-spell-effect-id="{{../id}}" data-activity-id="{{value}}" {{#if selected}}checked{{/if}}><span>{{label}}</span></label>
+              {{/each}}
+            </div>
+            <div class="ic-enhancement-fields two-columns">
+              <label><span>Effect Duration</span><select data-consumable-spell-effect-input="durationMode" data-consumable-spell-effect-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Stacking</span><select data-consumable-spell-effect-input="stacking" data-consumable-spell-effect-id="{{id}}">{{#each stackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{#if durationNeedsValue}}<label><span>Duration Value</span><input type="number" min="1" step="1" value="{{durationValue}}" data-consumable-spell-effect-input="durationValue" data-consumable-spell-effect-id="{{id}}"></label>{{/if}}
+            </div>
+          </article>
+          {{/each}}
+        </div>
+        {{else}}
+        <div class="ic-spell-empty-state"><i class="fa-solid fa-wand-sparkles"></i><strong>No Spell effects imported</strong><p>Use this only when a Consumable should apply a persistent effect taken from a Spell. Direct spell resolution remains a Cast Spell Activity concern.</p></div>
+        {{/if}}
+      </section>
+
       <section class="ic-effect-group ic-consumable-effect-bindings">
         <header><span class="ic-kicker">On Use Routing</span><h3>Activity → Granted Effect</h3><p>Enable effects below as usual, then decide exactly which Item Activities apply each effect and how long that effect lasts.</p></header>
         {{#if consumableGrantedEffectRows.length}}
@@ -1348,7 +1381,7 @@
     <section class="ic-step-content ic-spells-resources-step">
       {{#if isConsumable}}
       <header class="ic-section-header"><div><span class="ic-kicker">Consumable Powers</span><h2>Activities</h2><p>The Base Item's Activities are now editable draft Activities. Change the original Heal formula, activation, target, or charge cost; duplicate it; remove it; or add entirely new Activities.</p></div></header>
-      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-wand-magic-sparkles"></i><div><strong>Activity-centric Consumables</strong><p>Activation belongs here. Heal, Damage, Save, Utility, Restore Resource, and Actor State Changes can coexist and spend the same shared Item charges.</p></div></aside>
+      <aside class="ic-alpha-note ic-enhancement-note"><i class="fa-solid fa-wand-magic-sparkles"></i><div><strong>Activity-centric Consumables</strong><p>Activation belongs here. Heal, Damage, Save, Utility, Apply Granted Effects, Restore Resource, and Actor State Changes can coexist and spend the same shared Item charges.</p></div></aside>
       <section class="ic-enhancement-group ic-activity-composer-group">
         <header class="ic-attack-activities-header">
           <div>
@@ -1397,9 +1430,11 @@
                   <label><span>Target Type</span><select data-composed-activity-input="targetType" data-composed-activity-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Target Count</span><input type="text" value="{{targetCount}}" data-composed-activity-input="targetCount" data-composed-activity-id="{{id}}" placeholder="1"></label>
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="targetPrompt" data-composed-activity-id="{{id}}" {{#if targetPrompt}}checked{{/if}}><span><strong>Prompt for Targets</strong><small>Use the normal D&amp;D5e target selection prompt when this Activity is activated.</small></span></label>
+                  {{#unless isApplyEffects}}
                   <label><span>Duration Unit</span><select data-composed-activity-input="durationUnits" data-composed-activity-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if durationNeedsValue}}<label><span>Duration</span><input type="number" min="0" step="1" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>{{/if}}
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="concentration" data-composed-activity-id="{{id}}" {{#if concentration}}checked{{/if}}><span><strong>Concentration</strong><small>Marks this Activity as requiring native D&amp;D5e Concentration.</small></span></label>
+                  {{/unless}}
                 </div>
               </section>
 
@@ -1411,6 +1446,10 @@
                   <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
                 </div>
               </section>
+
+              {{#if isApplyEffects}}
+              <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-wand-magic-sparkles"></i><span><strong>Apply Granted Effects</strong> is a lightweight native Utility Activity used only as an activation/targeting/charge-cost shell. The actual effects and their duration are configured on the Granted Effects step.</span></aside>
+              {{/if}}
 
               {{#if isActorState}}
               <section class="ic-activity-damage-section ic-restore-resource-section">
@@ -1584,9 +1623,11 @@
                   <label><span>Target Type</span><select data-composed-activity-input="targetType" data-composed-activity-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Target Count</span><input type="text" value="{{targetCount}}" data-composed-activity-input="targetCount" data-composed-activity-id="{{id}}" placeholder="1"></label>
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="targetPrompt" data-composed-activity-id="{{id}}" {{#if targetPrompt}}checked{{/if}}><span><strong>Prompt for Targets</strong><small>Use the normal D&amp;D5e target selection prompt when this Activity is activated.</small></span></label>
+                  {{#unless isApplyEffects}}
                   <label><span>Duration Unit</span><select data-composed-activity-input="durationUnits" data-composed-activity-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if durationNeedsValue}}<label><span>Duration</span><input type="number" min="0" step="1" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>{{/if}}
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="concentration" data-composed-activity-id="{{id}}" {{#if concentration}}checked{{/if}}><span><strong>Concentration</strong><small>Marks this Activity as requiring native D&amp;D5e Concentration.</small></span></label>
+                  {{/unless}}
                 </div>
               </section>
 
@@ -1769,8 +1810,8 @@
                     <h4>Spellcasting Calculation</h4>
                     <label><span>Spellcasting</span><select data-granted-spell-input="spellcastingMode" data-spell-id="{{id}}">{{#each spellcastingModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     {{#if usesFixedSpellcasting}}
-                      {{#if hasAttack}}<label><span>Fixed Spell Attack Bonus</span><input type="number" min="-20" max="40" step="1" value="{{fixedAttackBonus}}" data-granted-spell-input="fixedAttackBonus" data-spell-id="{{id}}" data-value-type="number"></label>{{/if}}
-                      {{#if hasSave}}<label><span>Fixed Spell Save DC</span><input type="number" min="1" max="40" step="1" value="{{fixedSaveDc}}" data-granted-spell-input="fixedSaveDc" data-spell-id="{{id}}" data-value-type="number"></label>{{/if}}
+                      {{#if hasAttack}}<label><span>Fixed Spell Attack Formula</span><input type="text" value="{{fixedAttackBonus}}" data-granted-spell-input="fixedAttackBonus" data-spell-id="{{id}}" placeholder="5 or @prof + 3"></label>{{/if}}
+                      {{#if hasSave}}<label><span>Fixed Spell Save DC Formula</span><input type="text" value="{{fixedSaveDc}}" data-granted-spell-input="fixedSaveDc" data-spell-id="{{id}}" placeholder="15 or 8 + @prof + @abilities.cha.mod"></label>{{/if}}
                       {{#unless hasAttack}}{{#unless hasSave}}<small class="ic-field-note">This Spell has no detected Spell Attack or Saving Throw, so fixed attack and DC values are not required.</small>{{/unless}}{{/unless}}
                     {{else}}
                     <small class="ic-field-note">Actor Default, Highest Spellcasting, or Intelligence/Wisdom/Charisma + Proficiency can support both spellcasters and non-spellcasters.</small>

@@ -2,7 +2,7 @@
   "id": "dnd5e-item-creator",
   "title": "Item Creator (DnD 5e)",
   "description": "A unified GM toolkit for creating progressive D&D5e Weapons, Equipment, Tools, Consumables, native Spell Scrolls, and configurable Supplier stock using a shared Materialization Core.",
-  "version": "0.7.7b1",
+  "version": "0.7.94",
   "authors": [
     {
       "name": "Raphael Andrade"
@@ -15,8 +15,8 @@
     }
   ],
   "compatibility": {
-    "minimum": "14",
-    "verified": "14.365"
+    "minimum": "14.367",
+    "verified": "14.367"
   },
   "relationships": {
     "systems": [
@@ -24,9 +24,9 @@
         "id": "dnd5e",
         "type": "system",
         "compatibility": {
-          "minimum": "5.3.3",
-          "verified": "5.3.3",
-          "maximum": "5.3.3"
+          "minimum": "6.0.1",
+          "verified": "6.0.3",
+          "maximum": "6.0.999"
         }
       }
     ]
@@ -48,6 +48,6 @@
   "license": "LICENSE",
   "url": "https://github.com/hammer-PvP/DnD-5e-Item-Creator",
   "manifest": "https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json",
-  "download": "https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.7b1/item-creator.zip",
+  "download": "https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/download/v0.7.94/item-creator.zip",
   "socket": true
 }

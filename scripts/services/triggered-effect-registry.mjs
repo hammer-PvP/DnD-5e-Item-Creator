@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
+import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
 
 export const TRIGGER_CATEGORIES = Object.freeze({
   attack: "Attack",
@@ -633,15 +634,15 @@ function formulaForPayload(row, stacks) {
 
 function addChange(changes, key, mode, value, priority = null) {
   if (value === null || value === undefined || value === "") return;
-  changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
+  changes.push({ key: dnd6EffectPath(key), mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
 function addEligibleRollChanges(changes, event, mode, value) {
   if (["d20Test", "attackRoll"].includes(event)) {
     for (const type of ["mwak", "rwak", "msak", "rsak"]) addChange(changes, `system.bonuses.${type}.attack`, mode, value);
   }
-  if (["d20Test", "abilityCheck"].includes(event)) addChange(changes, "system.bonuses.abilities.check", mode, value);
-  if (["d20Test", "savingThrow"].includes(event)) addChange(changes, "system.bonuses.abilities.save", mode, value);
+  if (["d20Test", "abilityCheck"].includes(event)) addChange(changes, "system.rolls.ability.check.bonus", mode, value);
+  if (["d20Test", "savingThrow"].includes(event)) addChange(changes, "system.rolls.ability.save.bonus", mode, value);
 }
 
 export function buildTriggeredEffectChanges(setting, stacks, actor = null, { payloads = null } = {}) {
@@ -652,7 +653,7 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
   if (actor) {
     const abilities = new Set(Object.values(actor.spellcastingClasses ?? {})
       .map(entry => entry?.spellcasting?.ability).filter(Boolean));
-    if (actor.system?.attributes?.spellcasting) abilities.add(actor.system.attributes.spellcasting);
+    if (actor.spellcastingAbility ?? actor.system?.attributes?.spellcasting) abilities.add(actor.spellcastingAbility ?? actor.system.attributes.spellcasting);
     highestSpellcasting = Math.max(...[...abilities].map(ability => Number(actor.system?.abilities?.[ability]?.mod ?? -Infinity)));
     if (!Number.isFinite(highestSpellcasting)) highestSpellcasting = Number(actor.system?.abilities?.[actor.system?.attributes?.spellcasting]?.mod ?? 0) || 0;
   }
@@ -673,23 +674,23 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
         addEligibleRollChanges(changes, setting.consumption?.event ?? "d20Test", add, `-(${value})`);
         break;
       case "spellAttackBonus":
-        addChange(changes, "system.bonuses.msak.attack", add, value);
-        addChange(changes, "system.bonuses.rsak.attack", add, value);
+        addChange(changes, "system.rolls.attack.msak.bonus", add, value);
+        addChange(changes, "system.rolls.attack.rsak.bonus", add, value);
         break;
       case "spellSaveDcBonus":
         addChange(changes, "system.bonuses.spell.dc", add, value);
         break;
       case "weaponAttackBonus":
-        addChange(changes, "system.bonuses.mwak.attack", add, value);
-        addChange(changes, "system.bonuses.rwak.attack", add, value);
+        addChange(changes, "system.rolls.attack.mwak.bonus", add, value);
+        addChange(changes, "system.rolls.attack.rwak.bonus", add, value);
         break;
       case "weaponDamageBonus":
-        addChange(changes, "system.bonuses.mwak.damage", add, value);
-        addChange(changes, "system.bonuses.rwak.damage", add, value);
+        addChange(changes, "system.rolls.damage.mwak.bonus", add, value);
+        addChange(changes, "system.rolls.damage.rwak.bonus", add, value);
         break;
       case "spellDamageBonus":
-        addChange(changes, "system.bonuses.msak.damage", add, value);
-        addChange(changes, "system.bonuses.rsak.damage", add, value);
+        addChange(changes, "system.rolls.damage.msak.bonus", add, value);
+        addChange(changes, "system.rolls.damage.rsak.bonus", add, value);
         break;
       case "allAttackBonus":
         for (const type of ["mwak", "rwak", "msak", "rsak"]) addChange(changes, `system.bonuses.${type}.attack`, add, value);
@@ -701,14 +702,14 @@ export function buildTriggeredEffectChanges(setting, stacks, actor = null, { pay
         addChange(changes, "system.attributes.ac.bonus", add, value);
         break;
       case "savingThrowBonus":
-        if (row.ability === "all") addChange(changes, "system.bonuses.abilities.save", add, value);
-        else addChange(changes, `system.abilities.${row.ability}.bonuses.save`, add, value);
+        if (row.ability === "all") addChange(changes, "system.rolls.ability.save.bonus", add, value);
+        else addChange(changes, `system.abilities.${row.ability}.save.roll.bonus`, add, value);
         break;
       case "concentrationSaveBonus":
-        addChange(changes, "system.attributes.concentration.bonuses.save", add, value);
+        addChange(changes, "system.attributes.concentration.roll.bonus", add, value);
         break;
       case "initiativeBonus":
-        addChange(changes, "system.attributes.init.bonus", add, value);
+        addChange(changes, "system.attributes.init.roll.bonus", add, value);
         break;
       case "maximumHitPointsBonus":
         addChange(changes, "system.attributes.hp.bonuses.overall", add, value);
@@ -983,26 +984,87 @@ function sanitizedSpellEffectFlags(value = {}) {
   return flags;
 }
 
+function selectedSpellEffectSnapshot(effect, document) {
+  const data = effect?.toObject instanceof Function ? effect.toObject() : clone(effect ?? {});
+  if (data.disabled) return null;
+  const changes = clone(data.system?.changes ?? data.changes ?? []).map(change => ({
+    ...change,
+    key: change?.key ? dnd6EffectPath(change.key) : change?.key
+  }));
+  const statuses = collectionValues(data.statuses).map(String).filter(Boolean);
+  const flags = sanitizedSpellEffectFlags(data.flags ?? {});
+  if (!changes.length && !statuses.length && !Object.keys(flags).length) return null;
+  return {
+    id: String(data._id ?? data.id ?? foundry.utils.randomID()),
+    name: String(data.name ?? document?.name ?? "Spell Effect"),
+    img: String(data.img ?? document?.img ?? ""),
+    type: String(data.type ?? "base"),
+    description: String(data.description ?? ""),
+    duration: clone(data.duration ?? {}),
+    changes,
+    statuses,
+    flags
+  };
+}
+
+/**
+ * Snapshot embedded Spell effects using the current D&D5e 6.x effect paths.
+ * This synchronous helper is retained for legacy/fallback documents.
+ */
 export function extractSelectedSpellEffects(document) {
-  const effects = collectionValues(document?.effects);
-  const snapshots = [];
-  for (const effect of effects) {
-    const data = effect?.toObject instanceof Function ? effect.toObject() : clone(effect ?? {});
-    if (data.disabled) continue;
-    const changes = clone(data.system?.changes ?? data.changes ?? []);
-    const statuses = collectionValues(data.statuses).map(String).filter(Boolean);
-    const flags = sanitizedSpellEffectFlags(data.flags ?? {});
-    if (!changes.length && !statuses.length && !Object.keys(flags).length) continue;
-    snapshots.push({
-      id: String(data._id ?? data.id ?? foundry.utils.randomID()),
-      name: String(data.name ?? document?.name ?? "Spell Effect"),
-      img: String(data.img ?? document?.img ?? ""),
-      changes,
-      statuses,
-      flags
-    });
+  return collectionValues(document?.effects)
+    .map(effect => selectedSpellEffectSnapshot(effect, document))
+    .filter(Boolean);
+}
+
+/**
+ * Resolve the effects a D&D5e 6.x Spell can actually apply. Activity effect
+ * profiles may reference embedded or external Active Effects, so prefer the
+ * system's asynchronous resolver and merge it with embedded effects as a safe
+ * fallback. Returned snapshots are plain Item Creator draft data only.
+ */
+export async function extractSelectedSpellEffectsAsync(document) {
+  const resolved = new Map();
+  const add = effect => {
+    if (!effect) return;
+    const snapshot = selectedSpellEffectSnapshot(effect, document);
+    if (!snapshot) return;
+    const key = String(effect.uuid ?? snapshot.id ?? snapshot.name);
+    if (!resolved.has(key)) resolved.set(key, snapshot);
+  };
+
+  for (const effect of collectionValues(document?.effects)) add(effect);
+  for (const activity of collectionValues(document?.system?.activities)) {
+    if (!(activity?.getApplicableEffects instanceof Function)) continue;
+    try {
+      const effects = await activity.getApplicableEffects();
+      for (const effect of collectionValues(effects)) add(effect);
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Unable to resolve D&D5e 6.x Activity effect profiles for ${document?.name ?? "Spell"}.`, error);
+    }
   }
-  return snapshots;
+  return [...resolved.values()];
+}
+
+/**
+ * Re-resolve a legacy saved Spell-effect selection against the current Spell
+ * document without changing the persisted Item. Matching ids are preferred,
+ * then names; if the legacy snapshot represented the whole Spell, keep the
+ * current whole set. The caller decides whether/when to persist the result.
+ */
+export async function refreshSelectedSpellEffectSnapshots(document, previousSnapshots = []) {
+  const current = await extractSelectedSpellEffectsAsync(document);
+  if (!current.length) return [];
+  const previous = collectionValues(previousSnapshots);
+  if (!previous.length) return current;
+
+  const ids = new Set(previous.map(row => String(row?.id ?? "").trim()).filter(Boolean));
+  const names = new Set(previous.map(row => String(row?.name ?? "").trim().toLowerCase()).filter(Boolean));
+  const byId = current.filter(row => ids.has(String(row?.id ?? "")));
+  if (byId.length) return byId;
+  const byName = current.filter(row => names.has(String(row?.name ?? "").trim().toLowerCase()));
+  if (byName.length) return byName;
+  return previous.length >= current.length ? current : [];
 }
 
 export function contextualRollModifierFormula(source = {}) {

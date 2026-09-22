@@ -3,14 +3,16 @@ import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
 import { ProtectedTransactionDialogService } from "./protected-transaction-dialog-service.mjs";
 import { TriggeredConsumptionDecisionApp } from "../apps/triggered-consumption-decision-app.mjs";
+import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
+import { diagnosticLog, diagnosticWarn } from "../utils/diagnostics.mjs";
 import {
-  buildTriggeredEffectChanges, contextualRollModifierFormula, extractSelectedSpellEffects, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
+  buildTriggeredEffectChanges, contextualRollModifierFormula, extractSelectedSpellEffectsAsync, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
 } from "./triggered-effect-registry.mjs";
 
 const SOCKET_CHANNEL = `module.${MODULE_ID}`;
 const LEDGER_FLAG = "triggeredEffectLedger";
-const LEDGER_VERSION = 4;
+const LEDGER_VERSION = 5;
 const MAX_RECENT_KEYS = 120;
 const CONSUMPTION_PREPARE_TIMEOUT_MS = 15000;
 const CONSUMPTION_STALE_MS = 5 * 60 * 1000;
@@ -57,8 +59,11 @@ function resolveActorDocument(uuid, id = "") {
 }
 
 function targetActorUuidsFromMessage(message) {
-  const targets = valuesOf(message?.flags?.dnd5e?.targets ?? message?.system?.targets ?? []);
-  return [...new Set(targets.map(target => String(target?.uuid ?? target ?? "").trim()).filter(Boolean))];
+  const targets = valuesOf(message?.system?.targets ?? message?.flags?.dnd5e?.targets ?? []);
+  return [...new Set(targets.map(target => {
+    if (typeof target === "string") return target.trim();
+    return String(target?.actor ?? target?.uuid ?? "").trim();
+  }).filter(Boolean))];
 }
 
 function eventTargetActorUuids(event) {
@@ -332,11 +337,18 @@ function priorityPromptOpen() {
 }
 
 function messageContext(message) {
-  const itemUuid = message?.flags?.dnd5e?.item?.uuid ?? "";
-  const activityUuid = message?.flags?.dnd5e?.activity?.uuid ?? "";
-  const item = itemUuid ? fromUuidSync(itemUuid, { strict: false }) : null;
-  const activity = activityUuid ? fromUuidSync(activityUuid, { strict: false }) : null;
-  const actor = item?.actor ?? (message?.speaker?.actor ? game.actors?.get(message.speaker.actor) : null);
+  let item = null;
+  let activity = null;
+  let actor = null;
+  try { item = message?.getAssociatedItem?.({ scaled: true }) ?? message?.getAssociatedItem?.() ?? null; } catch (_error) { /* legacy fallback below */ }
+  try { activity = message?.getAssociatedActivity?.({ scaled: true }) ?? message?.getAssociatedActivity?.() ?? null; } catch (_error) { /* legacy fallback below */ }
+  try { actor = message?.getAssociatedActor?.() ?? null; } catch (_error) { /* legacy fallback below */ }
+
+  const itemUuid = String(item?.uuid ?? message?.system?.item?.uuid ?? message?.flags?.dnd5e?.item?.uuid ?? "");
+  const activityUuid = String(activity?.uuid ?? message?.system?.activity?.uuid ?? message?.flags?.dnd5e?.activity?.uuid ?? "");
+  item ??= itemUuid ? fromUuidSync(itemUuid, { strict: false }) : null;
+  activity ??= activityUuid ? fromUuidSync(activityUuid, { strict: false }) : null;
+  actor ??= item?.actor ?? activity?.actor ?? (message?.speaker?.actor ? game.actors?.get(message.speaker.actor) : null);
   return { message, item, activity, actor, itemUuid, activityUuid };
 }
 
@@ -387,8 +399,30 @@ function currentCombatForActor(actor) {
   return present ? combat : null;
 }
 
+function worldTime() {
+  return Math.max(0, Number(game.time?.worldTime) || 0);
+}
+
+function systemRoundSeconds() {
+  return Math.max(1, Number(CONFIG.time?.roundTime) || 6);
+}
+
 function combatMoment(combat) {
-  return `${combat?.id ?? "none"}:${Number(combat?.round ?? 0)}:${Number(combat?.turn ?? -1)}`;
+  return combat?.started
+    ? `${combat.id}:${Number(combat.round ?? 0)}:${Number(combat.turn ?? -1)}`
+    : `world:${Math.floor(worldTime() / systemRoundSeconds())}`;
+}
+
+function runtimeContext(actor, event = {}) {
+  const requested = event?.combatId ? game.combats?.get(event.combatId) : null;
+  const combat = requested?.started ? requested : currentCombatForActor(actor);
+  return {
+    combat,
+    combatId: String(combat?.id ?? ""),
+    round: Number(combat?.round ?? 0),
+    turn: Number(combat?.turn ?? -1),
+    worldTime: Number(event?.worldTime ?? worldTime()) || 0
+  };
 }
 
 function normalizeEntry(value = {}, ownerActor = null) {
@@ -439,14 +473,17 @@ function normalizeEntry(value = {}, ownerActor = null) {
     activeConsumptionKey: String(value.activeConsumptionKey ?? ""),
     activeConsumptionRollType: String(value.activeConsumptionRollType ?? ""),
     activeConsumptionUserId: String(value.activeConsumptionUserId ?? ""),
-    activeConsumptionPreparedAt: Math.max(0, Number(value.activeConsumptionPreparedAt) || 0)
+    activeConsumptionPreparedAt: Math.max(0, Number(value.activeConsumptionPreparedAt) || 0),
+    nativeStartedAtWorldTime: Math.max(0, Number(value.nativeStartedAtWorldTime) || 0),
+    nativeDurationSeconds: Math.max(0, Number(value.nativeDurationSeconds) || 0),
+    nativeExpiresAtWorldTime: Math.max(0, Number(value.nativeExpiresAtWorldTime) || 0)
   };
 }
 
 function readLedger(actor) {
   const raw = clone(actor.getFlag(MODULE_ID, LEDGER_FLAG) ?? null);
   const entries = new Map();
-  if ([1, 2, 3, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
+  if ([1, 2, 3, 4, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
     for (const value of raw.entries) {
       const entry = normalizeEntry(value, actor);
       if (Number(raw.version) === 1 && !entry.control && entry.sourceItemId && entry.triggerId) {
@@ -521,9 +558,15 @@ function triggerMatches(setting, event, sourceItem) {
 }
 
 function activationKey(setting, event, targetActorUuid = "") {
-  const combat = game.combats?.get(event.combatId) ?? game.combat;
-  if (setting.counting === "perTurn") return `turn:${combatMoment(combat)}`;
-  if (setting.counting === "perRound") return `round:${combat?.id}:${Number(combat?.round ?? 0)}`;
+  const actor = resolveActorDocument(event?.actorUuid, event?.actorId);
+  const context = runtimeContext(actor, event);
+  const temporalBucket = Math.floor(context.worldTime / systemRoundSeconds());
+  if (setting.counting === "perTurn") {
+    return context.combat ? `turn:${combatMoment(context.combat)}` : `turn:world:${temporalBucket}`;
+  }
+  if (setting.counting === "perRound") {
+    return context.combat ? `round:${context.combatId}:${context.round}` : `round:world:${temporalBucket}`;
+  }
   if (setting.counting === "perTarget") {
     return `target:${event.activityUseId || event.messageId || event.activityUuid}:${targetActorUuid || event.targetActorUuid || "none"}`;
   }
@@ -593,7 +636,7 @@ function sourceSpellcastingModifier(event, fallbackActor = null) {
   const sourceActor = eventSourceActor(event, fallbackActor);
   const activity = eventActivity(event);
   let ability = activity?.spellcastingAbility ?? null;
-  if (!ability) ability = sourceActor?.system?.attributes?.spellcasting ?? null;
+  if (!ability) ability = sourceActor?.spellcastingAbility ?? sourceActor?.system?.attributes?.spellcasting ?? null;
   if (!ability && sourceActor) {
     const abilities = new Set(Object.values(sourceActor.spellcastingClasses ?? {})
       .map(entry => entry?.spellcasting?.ability).filter(Boolean));
@@ -688,33 +731,33 @@ function additiveChange(change) {
 function attackBonusPath(activity) {
   const classification = attackClassification(activity);
   if (classification.spell) {
-    if (classification.melee) return "system.bonuses.msak.attack";
-    if (classification.ranged) return "system.bonuses.rsak.attack";
+    if (classification.melee) return "system.rolls.attack.msak.bonus";
+    if (classification.ranged) return "system.rolls.attack.rsak.bonus";
   }
   if (classification.weapon) {
-    if (classification.melee) return "system.bonuses.mwak.attack";
-    if (classification.ranged) return "system.bonuses.rwak.attack";
+    if (classification.melee) return "system.rolls.attack.mwak.bonus";
+    if (classification.ranged) return "system.rolls.attack.rwak.bonus";
   }
   return "";
 }
 
 function changeAppliesToRoll(change, context = {}) {
   if (!additiveChange(change)) return false;
-  const key = String(change?.key ?? "");
+  const key = dnd6EffectPath(change?.key);
   if (!key || !String(change?.value ?? "").trim()) return false;
   if (context.rollType === "attackRoll") {
     const exact = attackBonusPath(context.activity);
-    return exact ? key === exact : /^system\.bonuses\.(?:mwak|rwak|msak|rsak)\.attack$/.test(key);
+    return exact ? key === exact : /^system\.rolls\.attack\.(?:mwak|rwak|msak|rsak)\.bonus$/.test(key);
   }
   if (context.rollType === "savingThrow") {
-    return key === "system.bonuses.abilities.save"
-      || (context.ability && key === `system.abilities.${context.ability}.bonuses.save`);
+    return key === "system.rolls.ability.save.bonus"
+      || (context.ability && key === `system.abilities.${context.ability}.save.roll.bonus`);
   }
   if (context.rollType === "abilityCheck") {
-    return key === "system.bonuses.abilities.check"
-      || (context.ability && key === `system.abilities.${context.ability}.bonuses.check`)
-      || (context.skill && key === `system.skills.${context.skill}.bonuses.check`)
-      || (context.tool && key === `system.tools.${context.tool}.bonuses.check`);
+    return key === "system.rolls.ability.check.bonus"
+      || (context.ability && key === `system.abilities.${context.ability}.check.roll.bonus`)
+      || (context.skill && key === `system.skills.${context.skill}.roll.bonus`)
+      || (context.tool && key === `system.tools.${context.tool}.roll.bonus`);
   }
   return false;
 }
@@ -745,9 +788,10 @@ function displayRollFormula(value) {
   return wrapped ? wrapped[1].trim() : formula;
 }
 
-function withinActivationLimits(entry, setting, combat) {
-  const turnKey = `${combat.id}:${combat.round}:${combat.turn}`;
-  const roundKey = `${combat.id}:${combat.round}`;
+function withinActivationLimits(entry, setting, combat, event = {}) {
+  const temporalBucket = Math.floor((Number(event?.worldTime) || worldTime()) / systemRoundSeconds());
+  const turnKey = combat?.started ? `${combat.id}:${combat.round}:${combat.turn}` : `world:${temporalBucket}`;
+  const roundKey = combat?.started ? `${combat.id}:${combat.round}` : `world:${temporalBucket}`;
   if (entry.turnActivationKey !== turnKey) {
     entry.turnActivationKey = turnKey;
     entry.turnActivations = 0;
@@ -763,6 +807,49 @@ function withinActivationLimits(entry, setting, combat) {
   return true;
 }
 
+
+function nativeLifetimeTicks(setting, entry) {
+  const lifetime = effectiveLifetime(setting);
+  if (setting.application?.mode === "singleActivation" || ["singleAttack", "refresh", "shared"].includes(setting.stacks?.behavior)) {
+    return Math.max(1, Number(entry?.remaining) || Number(lifetime.durationAmount) || 1);
+  }
+  if (setting.stacks?.behavior === "independent") {
+    return Math.max(1, ...(entry?.independent ?? []).map(stack => Number(stack.remaining) || 0), Number(lifetime.durationAmount) || 1);
+  }
+  if (setting.stacks?.behavior === "continuousDecay") {
+    return Math.max(1, Math.ceil(Math.max(1, Number(entry?.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
+  }
+  if (setting.stacks?.behavior === "delayedDecay") {
+    return Math.max(1, Math.max(0, Number(setting.stacks?.inactivityGrace) || 0)
+      + Math.ceil(Math.max(1, Number(entry?.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
+  }
+  return Math.max(1, Number(lifetime.durationAmount) || 1);
+}
+
+function refreshNativeLifetime(entry, setting) {
+  const started = worldTime();
+  const seconds = Math.max(systemRoundSeconds(), nativeLifetimeTicks(setting, entry) * systemRoundSeconds());
+  entry.nativeStartedAtWorldTime = started;
+  entry.nativeDurationSeconds = seconds;
+  entry.nativeExpiresAtWorldTime = started + seconds;
+}
+
+function ensureNativeLifetime(entry, setting) {
+  if (entry.nativeStartedAtWorldTime > 0 && entry.nativeDurationSeconds > 0 && entry.nativeExpiresAtWorldTime > 0) return;
+  refreshNativeLifetime(entry, setting);
+}
+
+function nativeDurationData(entry, setting) {
+  ensureNativeLifetime(entry, setting);
+  return {
+    duration: { value: entry.nativeDurationSeconds, units: "seconds", expiry: null },
+    start: { time: entry.nativeStartedAtWorldTime }
+  };
+}
+
+function nativeLifetimeExpired(entry) {
+  return entry.nativeExpiresAtWorldTime > 0 && worldTime() >= entry.nativeExpiresAtWorldTime;
+}
 function applyActivation(entry, setting, combat, event) {
   const stacks = setting.stacks;
   const grant = Math.max(1, Number(stacks.granted) || 1);
@@ -818,6 +905,7 @@ function applyActivation(entry, setting, combat, event) {
   entry.idleTicks = 0;
   entry.lastTriggerMoment = combatMoment(combat);
   entry.lastEventId = event.id;
+  refreshNativeLifetime(entry, setting);
 }
 
 function tickEntry(entry, setting, timing, combat) {
@@ -858,7 +946,6 @@ function matchingTick(setting, timing, actorId, currentActorId, entry = null) {
 
 function singleAttackResolutionMatches(entry, setting, event) {
   if (setting?.application?.mode === "singleActivation" || setting?.stacks?.behavior !== "singleAttack") return false;
-  if (entry.combatId !== event.combatId) return false;
   if (!entry.resolutionActivityUuid || entry.resolutionActivityUuid !== event.activityUuid) return false;
   if (entry.resolutionItemUuid && event.itemUuid && entry.resolutionItemUuid !== event.itemUuid) return false;
   return true;
@@ -966,7 +1053,7 @@ export class ItemCreatorTriggeredEffectService {
     if (!this.#resourceEventsAuthority) return;
     if (payload?.type !== "resource-consumed" || Number(payload?.schema) < RESOURCE_EVENT_VERSION) return;
     const actor = resolveActorDocument(payload.actorUuid);
-    if (!actor || !currentCombatForActor(actor)) return;
+    if (!actor) return;
 
     const id = `resource-event:${Date.now()}:${this.#resourceEventSequence++}`;
     const entry = {
@@ -1027,17 +1114,18 @@ export class ItemCreatorTriggeredEffectService {
 
   static #resourceCauseBase(payload = {}) {
     const actor = resolveActorDocument(payload.actorUuid);
-    const combat = currentCombatForActor(actor);
-    if (!actor || !combat) return null;
+    if (!actor) return null;
+    const context = runtimeContext(actor);
     const cause = payload.cause ?? {};
     const item = cause.itemUuid ? fromUuidSync(cause.itemUuid, { strict: false }) : actor.items?.get(cause.itemId);
     const activityUuid = String(cause.activityUuid ?? cause.linkedActivity ?? "");
     return {
       actorUuid: actor.uuid,
       actorId: actor.id,
-      combatId: combat.id,
-      round: combat.round,
-      turn: combat.turn,
+      combatId: context.combatId,
+      round: context.round,
+      turn: context.turn,
+      worldTime: context.worldTime,
       itemUuid: String(cause.itemUuid ?? item?.uuid ?? ""),
       itemId: String(cause.itemId ?? item?.id ?? ""),
       itemName: String(cause.itemName ?? item?.name ?? ""),
@@ -1096,8 +1184,7 @@ export class ItemCreatorTriggeredEffectService {
   static #emitResourceConsumptionEvents(payload = {}, activityBase = null) {
     if (!this.#resourceEventsAuthority) return;
     const actor = resolveActorDocument(payload.actorUuid);
-    const combat = currentCombatForActor(actor);
-    if (!actor || !combat) return;
+    if (!actor) return;
     const base = activityBase ?? this.#resourceCauseBase(payload);
     if (!base) return;
 
@@ -1204,14 +1291,16 @@ export class ItemCreatorTriggeredEffectService {
     Hooks.on("deleteItem", item => {
       if (item.parent?.documentName === "Actor") setTimeout(() => void this.syncActor(item.parent), 0);
     });
-    const reconcileRuntimeEffect = (effect, options) => {
+    Hooks.on("updateActiveEffect", (effect, _changes, options) => {
       if (options?.itemCreatorRuntime || !effect.getFlag?.(MODULE_ID, "triggeredRuntime")) return;
       const sourceActor = resolveActorDocument(effect.getFlag(MODULE_ID, "sourceActorUuid"))
         ?? (effect.parent?.documentName === "Actor" ? effect.parent : null);
       if (sourceActor) setTimeout(() => void this.syncActor(sourceActor), 0);
-    };
-    Hooks.on("updateActiveEffect", reconcileRuntimeEffect);
-    Hooks.on("deleteActiveEffect", reconcileRuntimeEffect);
+    });
+    Hooks.on("deleteActiveEffect", (effect, options) => {
+      if (options?.itemCreatorRuntime || !effect.getFlag?.(MODULE_ID, "triggeredRuntime") || !isAuthoritativeGM()) return;
+      setTimeout(() => void this.#handleRuntimeEffectDeletion(effect), 0);
+    });
     const adoptSaveGatedEffect = (effect, options = {}) => {
       if (options?.itemCreatorRuntime || !effect?.getFlag?.(MODULE_ID, "saveGatedSeed") || !isAuthoritativeGM()) return;
       setTimeout(() => void this.#adoptSaveGatedEffect(effect), 0);
@@ -1298,14 +1387,12 @@ export class ItemCreatorTriggeredEffectService {
 
   static #consumableCandidates(actor, rollType, timing = "beforeRoll") {
     if (actor?.documentName !== "Actor") return [];
-    const combat = currentCombatForActor(actor);
-    if (!combat) return [];
     const groups = new Map();
     for (const effect of actor.effects ?? []) {
       const flags = effect.flags?.[MODULE_ID] ?? {};
       if (!flags.triggeredRuntime || !flags.consumable || !flags.consumptionMarker || effect.disabled) continue;
       const effectTiming = flags.consumptionTiming === "afterFailure" ? "afterRoll" : flags.consumptionTiming;
-      if (flags.combatId !== combat.id || effectTiming !== timing) continue;
+      if (effectTiming !== timing) continue;
       if (!consumptionEventMatches(flags.consumptionEvent, rollType)) continue;
       if (Number(flags.usesRemaining) <= 0 || flags.consumptionActive) continue;
       const entryKey = String(flags.entryKey ?? "");
@@ -1627,7 +1714,7 @@ export class ItemCreatorTriggeredEffectService {
           || !consumptionEventMatches(setting.consumption.event, rollType)) return null;
         if (!itemAvailable(item, setting.availability)
           || (setting.unlockOnLevel && actorTotalLevel(sourceActor) < setting.unlockLevel)) return null;
-        if (entry.usesRemaining <= 0 || entry.combatId !== currentCombatForActor(recipient)?.id) return null;
+        if (entry.usesRemaining <= 0) return null;
         if (consumptionIsStale(entry)) clearActiveConsumption(entry);
         if (entry.activeConsumptionKey) return null;
         entry.activeConsumptionKey = String(selection.useKey);
@@ -1716,7 +1803,7 @@ export class ItemCreatorTriggeredEffectService {
   }
 
   static async #runConsumableRoll(actor, rollType, family, operation) {
-    if (actor?.documentName !== "Actor" || !currentCombatForActor(actor)) return operation();
+    if (actor?.documentName !== "Actor") return operation();
     const contextKey = `${actor.uuid}:${family}`;
     if (this.#activeRollContexts.has(contextKey)) return operation();
     this.#activeRollContexts.add(contextKey);
@@ -1746,7 +1833,7 @@ export class ItemCreatorTriggeredEffectService {
 
   static #onD20TestRolls(rollType, rolls, data = {}) {
     const actor = data.subject?.documentName === "Actor" ? data.subject : data.subject?.actor;
-    if (!actor || !currentCombatForActor(actor)) return;
+    if (!actor) return;
     for (const [index, roll] of valuesOf(rolls).entries()) {
       this.#scheduleAfterRoll(actor, rollType, roll, {
         ability: data.ability ?? "",
@@ -2342,7 +2429,6 @@ export class ItemCreatorTriggeredEffectService {
     if (!isAuthoritativeGM() || actor?.documentName !== "Actor") return;
     return this.#enqueue(actor.uuid, async () => {
       const ledger = readLedger(actor);
-      const combat = currentCombatForActor(actor);
       const knownRecipients = new Map([[actor.uuid, actor]]);
       for (const entry of ledger.entries.values()) {
         if (entry.control) continue;
@@ -2354,7 +2440,7 @@ export class ItemCreatorTriggeredEffectService {
         entry.sourceActorUuid ||= actor.uuid;
         entry.sourceActorId ||= actor.id;
         const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
-        const valid = Boolean(item && setting && combat && entry.combatId === combat.id
+        const valid = Boolean(item && setting
           && itemAvailable(item, setting.availability)
           && (!setting.unlockOnLevel || actorTotalLevel(actor) >= setting.unlockLevel));
         if (!valid) {
@@ -2371,6 +2457,13 @@ export class ItemCreatorTriggeredEffectService {
           dirty = true;
           continue;
         }
+        if (nativeLifetimeExpired(entry)) {
+          diagnosticLog("Lifecycle", "ledger-expired", { actor: actor.uuid, entryKey: key, triggerId: entry.triggerId });
+          await this.#removeEntryEffects(entry);
+          ledger.entries.delete(key);
+          dirty = true;
+          continue;
+        }
         entry.recipientActorUuid = recipient.uuid;
         entry.recipientActorId = recipient.id;
         const resolvedPayloads = entryPayloads(setting, entry);
@@ -2378,6 +2471,7 @@ export class ItemCreatorTriggeredEffectService {
         entry.payloadBindings = resolvedPayloads.map(payload => ({ id: payload.id, recipient: payload.recipient }));
         const maximum = setting.application?.mode === "singleActivation" ? 1 : setting.stacks.maximum;
         entry.stacks = Math.min(entry.stacks, maximum);
+        ensureNativeLifetime(entry, setting);
         if (setting.consumption?.enabled) {
           const configuredUses = Math.max(1, Number(setting.consumption.uses) || 1);
           if (entry.usesMaximum <= 0) {
@@ -2435,20 +2529,42 @@ export class ItemCreatorTriggeredEffectService {
       await this.#enqueue(actor.uuid, async () => {
         const ledger = readLedger(actor);
         let changed = false;
-        for (const [key, entry] of [...ledger.entries]) {
+        for (const entry of ledger.entries.values()) {
           if (entry.combatId !== combatId) continue;
-          if (!entry.control) await this.#removeEntryEffects(entry);
-          ledger.entries.delete(key);
+          entry.combatId = "";
+          entry.turnActivationKey = "";
+          entry.turnActivations = 0;
+          entry.roundActivationKey = "";
+          entry.roundActivations = 0;
+          if (!entry.control) {
+            const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
+            if (item && setting) await this.#syncEntryEffects(actor, item, setting, entry);
+          }
           changed = true;
         }
-        if (changed) await this.#writeLedger(actor, ledger.entries);
+        if (changed) {
+          diagnosticLog("Lifecycle", "combat-detached", { actor: actor.uuid, combatId });
+          await this.#writeLedger(actor, ledger.entries);
+        }
       });
     }
-    for (const recipient of candidates) {
-      const orphanIds = recipient.effects?.filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
-        && effect.getFlag(MODULE_ID, "combatId") === combatId).map(effect => effect.id) ?? [];
-      if (orphanIds.length) await safeDeleteActiveEffects(recipient, orphanIds, { itemCreatorRuntime: true, render: true });
-    }
+  }
+
+  static async #handleRuntimeEffectDeletion(effect) {
+    const sourceActor = resolveActorDocument(effect?.getFlag?.(MODULE_ID, "sourceActorUuid"));
+    const entryKey = String(effect?.getFlag?.(MODULE_ID, "entryKey") ?? "");
+    if (!sourceActor || !entryKey) return;
+    await this.#enqueue(sourceActor.uuid, async () => {
+      const ledger = readLedger(sourceActor);
+      const entry = ledger.entries.get(entryKey);
+      if (!entry || entry.control) return;
+      diagnosticLog("Effect", "native-delete", {
+        actor: sourceActor.uuid, entryKey, effectId: effect.id, triggerId: entry.triggerId
+      });
+      await this.#removeEntryEffects(entry);
+      ledger.entries.delete(entryKey);
+      await this.#writeLedger(sourceActor, ledger.entries);
+    });
   }
 
   static async #cleanupDeletedSourceActor(actor) {
@@ -2469,7 +2585,7 @@ export class ItemCreatorTriggeredEffectService {
         item: item.name, itemUuid: item.uuid, ...clone(setting)
       }))),
       ledger: clone(ledgerData(ledger.entries)),
-      effects: actorCandidates(currentCombatForActor(actor)).flatMap(recipient => recipient.effects
+      effects: actorCandidates(null).flatMap(recipient => recipient.effects
         .filter(effect => effect.getFlag(MODULE_ID, "triggeredRuntime")
           && (effect.getFlag(MODULE_ID, "sourceActorUuid") || actor.uuid) === actor.uuid)
         .map(effect => ({ recipient: recipient.uuid, ...effect.toObject() })))
@@ -2501,17 +2617,17 @@ export class ItemCreatorTriggeredEffectService {
     const actor = activity?.actor;
     const item = activity?.item;
     if (!actor || !item || !(activity?.type === "attack" || activity?.attack)) return;
-    const combat = currentCombatForActor(actor);
-    if (!combat) return;
+    const context = runtimeContext(actor);
     const firstRoll = (rolls ?? [])[0];
     const messageId = firstRoll?.parent?.id ?? firstRoll?.options?.messageId ?? "";
     this.#emitAttackDamageResolved({
-      id: eventId("attackDamageResolved", activity.uuid, messageId, combat.round, combat.turn),
+      id: eventId("attackDamageResolved", activity.uuid, messageId, context.combatId, context.round, context.turn, context.worldTime),
       actorUuid: actor.uuid,
       actorId: actor.id,
-      combatId: combat.id,
-      round: combat.round,
-      turn: combat.turn,
+      combatId: context.combatId,
+      round: context.round,
+      turn: context.turn,
+      worldTime: context.worldTime,
       itemUuid: item.uuid,
       itemId: item.id,
       activityUuid: activity.uuid,
@@ -2525,8 +2641,7 @@ export class ItemCreatorTriggeredEffectService {
     const actor = activity?.actor;
     const item = activity?.item;
     if (!actor || !item) return;
-    const combat = currentCombatForActor(actor);
-    if (!combat) return;
+    const context = runtimeContext(actor);
     const classification = attackClassification(activity);
     for (const [index, roll] of (rolls ?? []).entries()) {
       const message = sourceMessage(roll?.parent) ?? sourceMessage(roll?.options?.messageId);
@@ -2538,9 +2653,10 @@ export class ItemCreatorTriggeredEffectService {
       const base = {
         actorUuid: actor.uuid,
         actorId: actor.id,
-        combatId: combat.id,
-        round: combat.round,
-        turn: combat.turn,
+        combatId: context.combatId,
+        round: context.round,
+        turn: context.turn,
+        worldTime: context.worldTime,
         itemUuid: item.uuid,
         itemId: item.id,
         itemName: item.name,
@@ -2573,13 +2689,13 @@ export class ItemCreatorTriggeredEffectService {
     const actor = activity?.actor;
     const item = activity?.item;
     if (!actor || !item || item.getFlag?.(MODULE_ID, "saveGatedSynthetic")) return;
-    const combat = currentCombatForActor(actor);
-    if (!combat) return;
+    const context = runtimeContext(actor);
     const messageId = results?.message?.id ?? "";
     const targetActorUuids = targetActorUuidsFromMessage(results?.message);
     const activityUseId = messageId || `${activity.uuid}:${Date.now()}`;
     const base = {
-      actorUuid: actor.uuid, actorId: actor.id, combatId: combat.id, round: combat.round, turn: combat.turn,
+      actorUuid: actor.uuid, actorId: actor.id, combatId: context.combatId, round: context.round, turn: context.turn,
+      worldTime: context.worldTime,
       itemUuid: item.uuid, itemId: item.id, itemName: item.name, itemIdentifier: item.system?.identifier ?? "",
       activityUuid: activity.uuid, activityId: activity.id, activityType: activity.type,
       activityUseId, messageId, targetActorUuids,
@@ -2677,8 +2793,7 @@ export class ItemCreatorTriggeredEffectService {
     const message = sourceMessage(options.origin) ?? sourceMessage(options.originatingMessage);
     const context = messageContext(message);
     const sourceActor = context.actor;
-    const combat = game.combat;
-    if (!combat?.started) return;
+    const runtime = runtimeContext(sourceActor ?? targetActor);
     const damage = numeric > 0;
     const magnitude = Math.abs(numeric);
     const damages = options.damages ?? options.damage ?? [];
@@ -2686,7 +2801,7 @@ export class ItemCreatorTriggeredEffectService {
     const damageSource = context.activity?.type === "attack" ? (context.item?.type === "spell" ? "spell" : "attack")
       : context.item?.type === "spell" ? "spell" : context.item ? "feature" : "any";
     const base = {
-      combatId: combat.id, round: combat.round, turn: combat.turn,
+      combatId: runtime.combatId, round: runtime.round, turn: runtime.turn, worldTime: runtime.worldTime,
       targetActorUuid: targetActor.uuid, targetActorId: targetActor.id, targetActorUuids: [targetActor.uuid],
       sourceActorUuid: sourceActor?.uuid ?? "", sourceActorId: sourceActor?.id ?? "",
       itemUuid: context.itemUuid, itemId: context.item?.id ?? "", itemName: context.item?.name ?? "",
@@ -2802,23 +2917,23 @@ export class ItemCreatorTriggeredEffectService {
   static #prepareSaveGatedUsageMessage(activity, messageConfig) {
     const syntheticItem = activity?.item;
     if (!syntheticItem?.getFlag?.(MODULE_ID, "saveGatedSynthetic")) return;
-
-    // UsageMessageData explicitly supports 16-character effect IDs by resolving them through
-    // message.getAssociatedItem().effects. This is the robust path for a synthetic Item whose
-    // document data is stored on the chat message rather than embedded in the Actor collection.
     const effectIds = [...(syntheticItem.effects ?? [])]
       .filter(effect => effect?.getFlag?.(MODULE_ID, "saveGatedSeed"))
       .map(effect => String(effect.id ?? ""))
       .filter(Boolean);
     if (!effectIds.length) return;
 
+    const storedData = syntheticItem.toObject();
     foundry.utils.setProperty(messageConfig, "data.system.effects", effectIds);
-    foundry.utils.setProperty(messageConfig, "data.flags.dnd5e.item.data", syntheticItem.toObject());
+    foundry.utils.setProperty(messageConfig, "data.system.item.id", syntheticItem.id);
+    foundry.utils.setProperty(messageConfig, "data.system.deltas.deleted", [storedData]);
   }
 
   static async #postSaveGatedApplication(sourceActor, item, setting, group, event, combat) {
     const target = group.actor;
     if (target?.documentName !== "Actor") return false;
+    const context = runtimeContext(sourceActor, event);
+    combat = context.combat;
     const gateId = foundry.utils.randomID();
     const key = `${item.id}:${setting.id}:${target.uuid}`;
     const existing = readLedger(sourceActor).entries.get(key) ?? null;
@@ -2828,7 +2943,7 @@ export class ItemCreatorTriggeredEffectService {
       sourceActorId: sourceActor.id,
       sourceItemId: item.id,
       triggerId: setting.id,
-      combatId: combat.id,
+      combatId: context.combatId,
       recipientActorUuid: target.uuid,
       recipientActorId: target.id,
       payloadIds: group.payloadIds,
@@ -2839,7 +2954,7 @@ export class ItemCreatorTriggeredEffectService {
     preview.sourceActorId = sourceActor.id;
     preview.sourceItemId = item.id;
     preview.triggerId = setting.id;
-    preview.combatId = combat.id;
+    preview.combatId = context.combatId;
     preview.recipientActorUuid = target.uuid;
     preview.recipientActorId = target.id;
     preview.payloadIds = [...group.payloadIds];
@@ -2875,7 +2990,7 @@ export class ItemCreatorTriggeredEffectService {
         sourceActorId: sourceActor.id,
         sourceItemId: item.id,
         triggerId: setting.id,
-        combatId: combat.id,
+        combatId: context.combatId,
         recipientHintUuid: target.uuid,
         recipientHintId: target.id,
         payloadIds: [...group.payloadIds],
@@ -2892,7 +3007,7 @@ export class ItemCreatorTriggeredEffectService {
         img: descriptor.img,
         transfer: false,
         disabled: false,
-        duration: {},
+        ...nativeDurationData(preview, setting),
         statuses: descriptor.statuses,
         system: { changes: descriptor.changes },
         flags
@@ -2931,11 +3046,12 @@ export class ItemCreatorTriggeredEffectService {
       const storedData = syntheticItem.toObject();
       const results = await activity.use({ subsequentActions: false }, { configure: false }, {
         data: {
+          system: {
+            item: { id: syntheticItem.id },
+            deltas: { deleted: [storedData] },
+            targets: [{ actor: target.uuid, name: target.name, img: target.img ?? "" }]
+          },
           flags: {
-            dnd5e: {
-              item: { data: storedData },
-              targets: [{ uuid: target.uuid, name: target.name, img: target.img ?? "" }]
-            },
             [MODULE_ID]: {
               saveGatedApplication: true,
               gateId,
@@ -2989,20 +3105,14 @@ export class ItemCreatorTriggeredEffectService {
     await this.#enqueue(sourceActor.uuid, async () => {
       const { item, setting } = findConfig(sourceActor, seed.sourceItemId, seed.triggerId);
       if (!item || !setting || setting.effectApplication?.mode !== "saveGated") return;
-      const combat = game.combats?.get(seed.combatId) ?? currentCombatForActor(sourceActor);
-      if (!combat?.started || combat.id !== seed.combatId) return;
+      const context = runtimeContext(sourceActor, { combatId: seed.combatId });
+      const combat = context.combat;
 
       const ledger = readLedger(sourceActor);
       const key = `${item.id}:${setting.id}:${recipient.uuid}`;
       let entry = ledger.entries.get(key) ?? null;
       const newGate = !entry || entry.saveGateId !== seed.gateId || !entry.nativeSaveGated;
-      const wasActive = Boolean(entry?.stacks > 0 && entry?.combatId === combat.id);
-
-      if (entry?.combatId && entry.combatId !== combat.id) {
-        await this.#removeEntryEffects(entry);
-        ledger.entries.delete(key);
-        entry = null;
-      }
+      const wasActive = Boolean(entry?.stacks > 0);
       if (entry && !entry.nativeSaveGated) {
         await this.#removeEntryEffects(entry);
         ledger.entries.delete(key);
@@ -3014,7 +3124,7 @@ export class ItemCreatorTriggeredEffectService {
         sourceActorId: sourceActor.id,
         sourceItemId: item.id,
         triggerId: setting.id,
-        combatId: combat.id,
+        combatId: context.combatId,
         recipientActorUuid: recipient.uuid,
         recipientActorId: recipient.id,
         payloadIds: seed.payloadIds,
@@ -3029,7 +3139,7 @@ export class ItemCreatorTriggeredEffectService {
         entry.sourceActorId = sourceActor.id;
         entry.sourceItemId = item.id;
         entry.triggerId = setting.id;
-        entry.combatId = combat.id;
+        entry.combatId = context.combatId;
         entry.recipientActorUuid = recipient.uuid;
         entry.recipientActorId = recipient.id;
         entry.payloadIds = Array.isArray(seed.payloadIds) ? seed.payloadIds.map(String).filter(Boolean) : [];
@@ -3054,6 +3164,7 @@ export class ItemCreatorTriggeredEffectService {
       const update = {
         _id: effect.id,
         origin: item.uuid,
+        ...nativeDurationData(entry, setting),
         [`flags.${MODULE_ID}`]: nextModuleFlags
       };
       if (effect.getFlag("dnd5e", "dependentOn")) update["flags.dnd5e.-=dependentOn"] = null;
@@ -3069,8 +3180,12 @@ export class ItemCreatorTriggeredEffectService {
     if (!isAuthoritativeGM()) return;
     const actor = resolveActorDocument(event.actorUuid, event.actorId);
     if (actor?.documentName !== "Actor") return;
-    const combat = game.combats?.get(event.combatId) ?? currentCombatForActor(actor);
-    if (!combat?.started || !combat.combatants?.some(combatant => combatant.actorId === actor.id || combatant.actor?.id === actor.id)) return;
+    const context = runtimeContext(actor, event);
+    event = { ...event, combatId: context.combatId, round: context.round, turn: context.turn, worldTime: context.worldTime };
+    diagnosticLog("Trigger", "event", {
+      type: event.type, actor: actor.uuid, combatId: context.combatId || null,
+      itemUuid: event.itemUuid || null, activityUuid: event.activityUuid || null
+    });
 
     await this.#enqueue(actor.uuid, async () => {
       const ledger = readLedger(actor);
@@ -3090,17 +3205,16 @@ export class ItemCreatorTriggeredEffectService {
             sourceActorId: actor.id,
             sourceItemId: item.id,
             triggerId: setting.id,
-            combatId: combat.id
+            combatId: context.combatId
           }, actor);
-          if (control.combatId && control.combatId !== combat.id) continue;
-          control.combatId = combat.id;
+          control.combatId = context.combatId;
 
           for (const cycle of activationCycles(setting, event)) {
             if (control.recentActivationKeys.includes(cycle.activationKey)) continue;
             const groups = recipientGroups(setting, actor, cycle.targetActorUuids);
             if (!groups.length) {
               if ((setting.effects ?? []).some(payload => normalizeTriggeredEffectPayload(payload).recipient === "target")) {
-                console.warn(`${MODULE_ID} | Triggered Effect "${setting.name}" skipped because the triggering event did not provide a valid target.`);
+                diagnosticWarn("Trigger", "missing-target", { actor: actor.uuid, item: item.uuid, triggerId: setting.id, event: event.type });
               }
               continue;
             }
@@ -3111,11 +3225,11 @@ export class ItemCreatorTriggeredEffectService {
               const existing = ledger.entries.get(key);
               if (setting.application?.mode === "singleActivation"
                 && setting.application.retrigger === "ignore"
-                && existing?.combatId === combat.id && existing.stacks > 0) continue;
+                && existing?.stacks > 0) continue;
               eligible.push({ ...group, key, existing });
             }
             if (!eligible.length) continue;
-            if (!withinActivationLimits(control, setting, combat)) continue;
+            if (!withinActivationLimits(control, setting, context.combat, event)) continue;
 
             let resolvedAny = false;
             for (const group of eligible) {
@@ -3124,7 +3238,7 @@ export class ItemCreatorTriggeredEffectService {
               const persistent = persistentPayloadGroup(setting, group);
 
               if (setting.effectApplication?.mode === "saveGated") {
-                if (await this.#postSaveGatedApplication(actor, item, setting, group, event, combat)) resolvedAny = true;
+                if (await this.#postSaveGatedApplication(actor, item, setting, group, event, context.combat)) resolvedAny = true;
                 continue;
               }
 
@@ -3135,19 +3249,14 @@ export class ItemCreatorTriggeredEffectService {
               if (!persistent.payloads.length) continue;
 
               let entry = group.existing;
-              const wasActive = Boolean(entry?.combatId === combat.id && entry?.stacks > 0);
-              if (entry?.combatId && entry.combatId !== combat.id) {
-                await this.#removeEntryEffects(entry);
-                ledger.entries.delete(group.key);
-                entry = null;
-              }
+              const wasActive = Boolean(entry?.stacks > 0);
               entry ??= normalizeEntry({
                 key: group.key,
                 sourceActorUuid: actor.uuid,
                 sourceActorId: actor.id,
                 sourceItemId: item.id,
                 triggerId: setting.id,
-                combatId: combat.id,
+                combatId: context.combatId,
                 recipientActorUuid: group.actor.uuid,
                 recipientActorId: group.actor.id,
                 payloadIds: persistent.payloadIds,
@@ -3159,15 +3268,19 @@ export class ItemCreatorTriggeredEffectService {
               entry.sourceActorId = actor.id;
               entry.sourceItemId = item.id;
               entry.triggerId = setting.id;
-              entry.combatId = combat.id;
+              entry.combatId = context.combatId;
               entry.recipientActorUuid = group.actor.uuid;
               entry.recipientActorId = group.actor.id;
               entry.payloadIds = [...persistent.payloadIds];
               entry.payloadBindings = clone(persistent.payloadBindings);
-              applyActivation(entry, setting, combat, event);
+              applyActivation(entry, setting, context.combat, event);
               ledger.entries.set(group.key, entry);
               await this.#syncEntryEffects(actor, item, setting, entry);
               await this.#announceApplication(actor, item, setting, entry, group.actor, { refreshed: wasActive });
+              diagnosticLog("Effect", wasActive ? "refresh" : "apply", {
+                actor: actor.uuid, recipient: group.actor.uuid, item: item.uuid, triggerId: setting.id,
+                stacks: entry.stacks, expiresAtWorldTime: entry.nativeExpiresAtWorldTime
+              });
               resolvedAny = true;
             }
 
@@ -3175,7 +3288,7 @@ export class ItemCreatorTriggeredEffectService {
             control.recentActivationKeys.push(cycle.activationKey);
             control.recentActivationKeys = control.recentActivationKeys.slice(-MAX_RECENT_KEYS);
             control.lastEventId = String(event.id ?? "");
-            control.lastTriggerMoment = combatMoment(combat);
+            control.lastTriggerMoment = combatMoment(context.combat);
             ledger.entries.set(controlKey, control);
             changed = true;
           }
@@ -3197,7 +3310,7 @@ export class ItemCreatorTriggeredEffectService {
         const ledger = readLedger(actor);
         let changed = false;
         for (const [key, entry] of [...ledger.entries]) {
-          if (entry.combatId !== combat.id) continue;
+          if (!entry.control) entry.combatId = combat.id;
           const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
           if (!item || !setting || !itemAvailable(item, setting.availability)
             || (setting.unlockOnLevel && actorTotalLevel(actor) < setting.unlockLevel)) {
@@ -3279,7 +3392,7 @@ export class ItemCreatorTriggeredEffectService {
       if (!snapshots.length && payload.spellUuid) {
         try {
           const spell = await fromUuid(payload.spellUuid);
-          snapshots = extractSelectedSpellEffects(spell);
+          snapshots = await extractSelectedSpellEffectsAsync(spell);
         } catch (error) {
           console.warn(`${MODULE_ID} | Unable to resolve selected Spell effects for ${payload.spellName || payload.spellUuid}.`, error);
         }
@@ -3290,7 +3403,10 @@ export class ItemCreatorTriggeredEffectService {
           slot: `spell:${payload.id}:${snapshotId}`,
           name: `Item Creator — ${setting.name}: ${payload.spellName || "Selected Spell"}${snapshot?.name ? ` — ${snapshot.name}` : ""}`,
           img: snapshot?.img || payload.spellImg || item.img || "icons/svg/aura.svg",
-          changes: clone(snapshot?.changes ?? []),
+          changes: clone(snapshot?.changes ?? []).map(change => ({
+            ...change,
+            key: change?.key ? dnd6EffectPath(change.key) : change?.key
+          })),
           statuses: valuesOf(snapshot?.statuses).map(String).filter(Boolean),
           flags: clone(snapshot?.flags ?? {}),
           consumptionMarker: false,
@@ -3315,6 +3431,8 @@ export class ItemCreatorTriggeredEffectService {
     entry.sourceActorId = sourceActor.id;
     entry.recipientActorUuid = recipient.uuid;
     entry.recipientActorId = recipient.id;
+    ensureNativeLifetime(entry, setting);
+    const nativeTiming = nativeDurationData(entry, setting);
 
     if (entry.nativeSaveGated) {
       const descriptors = await this.#effectDescriptors(item, setting, entry, recipient);
@@ -3343,6 +3461,7 @@ export class ItemCreatorTriggeredEffectService {
             _id: effect.id,
             name: descriptor.name,
             img: descriptor.img,
+            ...nativeTiming,
             statuses: descriptor.statuses,
             "system.changes": descriptor.changes,
             [`flags.${MODULE_ID}`]: nextModuleFlags
@@ -3378,7 +3497,7 @@ export class ItemCreatorTriggeredEffectService {
         origin: item.uuid,
         transfer: false,
         disabled,
-        duration: {},
+        ...nativeTiming,
         statuses: descriptor.statuses,
         system: { changes: descriptor.changes },
         flags
@@ -3398,6 +3517,9 @@ export class ItemCreatorTriggeredEffectService {
       const currentStatuses = valuesOf(current.statuses).map(String).filter(Boolean);
       const currentFlags = clone(current.flags ?? {});
       const needsUpdate = current.name !== descriptor.name
+        || Number(current._source?.start?.time ?? current.start?.time ?? 0) !== Number(entry.nativeStartedAtWorldTime)
+        || Number(current._source?.duration?.value ?? 0) !== Number(entry.nativeDurationSeconds)
+        || String(current._source?.duration?.units ?? "") !== "seconds"
         || current.img !== descriptor.img
         || current.origin !== item.uuid
         || current.disabled !== disabled
@@ -3413,7 +3535,7 @@ export class ItemCreatorTriggeredEffectService {
           origin: item.uuid,
           transfer: false,
           disabled,
-          duration: {},
+          ...nativeTiming,
           statuses: descriptor.statuses,
           "system.changes": descriptor.changes,
           flags

@@ -5,6 +5,7 @@ import {
   getResourceDefinition, normalizeResourceModification, validateResourceModification
 } from "./resource-modification-registry.mjs";
 import { safeDeleteActiveEffects } from "./document-operation-service.mjs";
+import { primaryItemRarity } from "../utils/dnd6-compat.mjs";
 
 function valuesOf(value) {
   if (value instanceof Map) return [...value.values()];
@@ -585,7 +586,7 @@ export class ItemCreatorRuntimeEffectService {
 
     const desiredProperties = [...new Set(properties)];
     if (!equalData(currentProperties, desiredProperties)) updates["system.properties"] = desiredProperties;
-    if (String(item.system?.rarity ?? "") !== String(rarity ?? "")) updates["system.rarity"] = rarity ?? "";
+    if (String(primaryItemRarity(item)) !== String(rarity ?? "")) updates["system.rarities"] = rarity ? [rarity] : [];
     if (String(item.system?.attunement ?? "") !== String(attunement ?? "")) updates["system.attunement"] = attunement ?? "";
     if (!attunement && Boolean(item.system?.attuned)) updates["system.attuned"] = false;
 
@@ -1160,9 +1161,29 @@ export class ItemCreatorRuntimeEffectService {
   }
 
   static #managedItemFromMessage(message) {
+    if (!message) return null;
+
+    // D&D5e 6.x moved Item/Activity/origin information out of legacy
+    // flags.dnd5e.* into ChatMessage Data Models. Prefer the public helper.
+    let item = null;
+    try { item = message.getAssociatedItem?.({ scaled: false }) ?? null; }
+    catch (_error) { /* Fall through to structured origin/fallback. */ }
+    if (isManagedItem(item)) return item;
+
+    const origin = message?.system?.origin;
+    if (typeof origin === "string") {
+      const originMessage = game.messages?.get(origin) ?? null;
+      if (originMessage && originMessage !== message) {
+        const associated = this.#managedItemFromMessage(originMessage);
+        if (associated) return associated;
+      }
+    }
+
+    // Transitional fallback for pre-6.x messages that can still exist in a
+    // migrated World's chat history. New runtime logic never requires it.
     const uuid = message?.flags?.dnd5e?.item?.uuid;
     if (!uuid) return null;
-    const item = fromUuidSync(uuid, { strict: false });
+    item = fromUuidSync(uuid, { strict: false });
     return isManagedItem(item) ? item : null;
   }
 
@@ -1271,7 +1292,7 @@ export class ItemCreatorRuntimeEffectService {
     if (config.spellcastingMode === "highest") {
       const abilities = new Set(Object.values(actor.spellcastingClasses ?? {})
         .map(entry => entry?.spellcasting?.ability).filter(Boolean));
-      if (actor.system.attributes?.spellcasting) abilities.add(actor.system.attributes.spellcasting);
+      if (actor.spellcastingAbility ?? actor.system.attributes?.spellcasting) abilities.add(actor.spellcastingAbility ?? actor.system.attributes.spellcasting);
       const highest = [...abilities].sort((a, b) =>
         Number(actor.system.abilities?.[b]?.mod ?? -Infinity) - Number(actor.system.abilities?.[a]?.mod ?? -Infinity))[0];
       if (highest) activity.updateSource?.({ "spell.ability": highest });

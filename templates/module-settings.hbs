@@ -28,6 +28,23 @@
 
     <section class="ic-settings-card">
       <header>
+        <span class="ic-kicker">Migration Diagnostics</span>
+        <h2>Runtime Logging</h2>
+        <p>Use Errors for normal play. Verbose records Trigger, Effect, and lifecycle decisions in the browser console for production bug reports.</p>
+      </header>
+      <label>
+        <span>Diagnostics</span>
+        <select name="diagnosticsMode">
+          <option value="off" {{#if (eq diagnosticsMode "off")}}selected{{/if}}>Off</option>
+          <option value="errors" {{#if (eq diagnosticsMode "errors")}}selected{{/if}}>Errors</option>
+          <option value="verbose" {{#if (eq diagnosticsMode "verbose")}}selected{{/if}}>Verbose</option>
+        </select>
+        <small>Verbose is intended for reproducing migration/runtime issues during live play.</small>
+      </label>
+    </section>
+
+    <section class="ic-settings-card">
+      <header>
         <span class="ic-kicker">Shared Library</span>
         <h2>Materialization Core</h2>
         <p>Defines the default rarity-price profile used by newly created magic Items and by Supplier fallbacks unless a Supplier progression profile overrides it.</p>

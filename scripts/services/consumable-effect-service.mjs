@@ -123,7 +123,11 @@ function normalizeConfig(runtime) {
 
 function durationSeconds(config) {
   const value = Math.max(1, Number(config.durationValue) || 1);
-  if (["rounds", "turns"].includes(config.durationMode)) return value * 6;
+  // Item Creator no longer owns a parallel combat clock. Rounds/turns are
+  // represented as D&D time (one round = CONFIG.time.roundTime, normally 6s)
+  // so they keep advancing outside Combat through Foundry world time.
+  const roundSeconds = Math.max(1, Number(CONFIG.time?.roundTime) || 6);
+  if (["rounds", "turns"].includes(config.durationMode)) return value * roundSeconds;
   if (config.durationMode === "minutes") return value * 60;
   if (config.durationMode === "hours") return value * 3600;
   return null;
@@ -133,47 +137,107 @@ function worldTime() {
   return Number(game.time?.worldTime) || 0;
 }
 
-function currentCombatForActor(actor) {
-  const combat = game.combat;
-  if (!combat?.started) return null;
-  return valuesOf(combat.combatants).some(combatant => combatant?.actor?.id === actor?.id || combatant?.actorId === actor?.id)
-    ? combat : null;
+/**
+ * Build a Foundry V14 / D&D5e 6.x native ActiveEffect duration.
+ *
+ * The ActiveEffect registry is the sole expiry authority. Item Creator keeps
+ * its semantic duration mode in flags only for editing/provenance.
+ */
+function durationData(config) {
+  const value = Math.max(1, Number(config.durationValue) || 1);
+  if (config.durationMode === "permanent") {
+    return { value: null, units: "seconds", expiry: null, expired: false };
+  }
+  if (config.durationMode === "shortOrLongRest") {
+    // D&D5e Long Rest fires both longRest and shortRest expiry events.
+    return { value: null, units: "seconds", expiry: "shortRest", expired: false };
+  }
+  if (config.durationMode === "longRest") {
+    return { value: null, units: "seconds", expiry: "longRest", expired: false };
+  }
+  if (config.durationMode === "minutes") {
+    return { value, units: "minutes", expiry: null, expired: false };
+  }
+  if (config.durationMode === "hours") {
+    return { value, units: "hours", expiry: null, expired: false };
+  }
+  return { value: durationSeconds(config), units: "seconds", expiry: null, expired: false };
 }
 
-function currentCombatantActorId(combat) {
-  return combat?.combatant?.actor?.id ?? combat?.combatant?.actorId ?? null;
+function nativeEffectStart() {
+  try {
+    // Explicit null keeps the refresh anchored to world time rather than tying
+    // the Effect's lifetime to whichever Combat happens to be active.
+    return ActiveEffect.implementation?.getEffectStart?.(null) ?? { time: worldTime() };
+  } catch (_error) {
+    return { time: worldTime() };
+  }
 }
 
-function timingFlags(config, actor) {
-  const now = worldTime();
-  const seconds = durationSeconds(config);
-  const timing = {
+function timingFlags(config) {
+  return {
     consumableDurationMode: config.durationMode,
     consumableDurationValue: Math.max(1, Number(config.durationValue) || 1),
-    consumableAppliedAtWorldTime: now,
-    consumableExpiresAtWorldTime: seconds === null ? null : now + seconds,
-    consumableCombatId: null,
-    consumableCombatStartRound: null,
-    consumableCombatSpan: null,
-    consumableTurnsRemaining: config.durationMode === "turns" ? Math.max(1, Number(config.durationValue) || 1) : null,
-    consumableLastTurnKey: null
+    consumableAppliedAtWorldTime: worldTime()
   };
-  const combat = currentCombatForActor(actor);
-  if (combat && ["rounds", "turns"].includes(config.durationMode)) {
-    timing.consumableCombatId = combat.id;
-    timing.consumableCombatStartRound = Number(combat.round) || 0;
-    if (config.durationMode === "rounds") timing.consumableCombatSpan = Math.max(1, Number(config.durationValue) || 1);
-    if (config.durationMode === "turns" && currentCombatantActorId(combat) === actor.id) {
-      timing.consumableLastTurnKey = `${Number(combat.round) || 0}:${Number(combat.turn) || 0}`;
-    }
-  }
-  return timing;
 }
 
-function durationData(config) {
-  const seconds = durationSeconds(config);
-  if (seconds === null) return { value: null, units: "seconds" };
-  return { value: seconds, units: "seconds", expiry: "turnStart" };
+function replaceSpellLevelTokens(value, level) {
+  if (typeof value !== "string") return value;
+  const numeric = String(Math.clamp(Math.trunc(Number(level) || 0), 0, 9));
+  return value.replace(/@item\.level\b/g, numeric).replace(/@spell\.level\b/g, numeric);
+}
+
+function applySpellLevelContext(source, effect) {
+  const level = effectFlag(effect, "consumableSpellEffect")?.spellLevel;
+  if (level === null || level === undefined) return source;
+  const changes = valuesOf(source?.system?.changes);
+  for (const change of changes) if (change && "value" in change) change.value = replaceSpellLevelTokens(change.value, level);
+  return source;
+}
+
+function activityTargetType(activity) {
+  return String(activity?.target?.affects?.type ?? "").trim();
+}
+
+function targetDescriptors(activity, snapshot, results) {
+  const fromResults = results?.message?.system?.targets ?? results?.message?.data?.system?.targets;
+  if (Array.isArray(fromResults) && fromResults.length) return fromResults;
+  if (Array.isArray(snapshot?.targets) && snapshot.targets.length) return snapshot.targets;
+  try {
+    const fromActivity = activity?.messageFlags?.targets;
+    if (Array.isArray(fromActivity)) return fromActivity;
+  } catch (_error) { /* fall through */ }
+  return [];
+}
+
+async function effectRecipients(activity, owner, snapshot, results) {
+  const targetType = activityTargetType(activity);
+  if (targetType === "self") return [owner];
+
+  const descriptors = targetDescriptors(activity, snapshot, results);
+  const actors = [];
+  const seen = new Set();
+  for (const descriptor of descriptors) {
+    const actorUuid = String(descriptor?.actor ?? "").trim();
+    const tokenUuid = String(descriptor?.token ?? "").trim();
+    const identity = actorUuid || tokenUuid;
+    if (!identity || seen.has(identity)) continue;
+    seen.add(identity);
+    try {
+      const document = await fromUuid(actorUuid || tokenUuid);
+      const actor = document?.documentName === "Actor" ? document : document?.actor;
+      if (actor && !actors.some(entry => entry.uuid === actor.uuid)) actors.push(actor);
+    } catch (_error) { /* Invalid or stale target: skip safely. */ }
+  }
+  if (actors.length) return actors;
+
+  // A plain no-target Utility-style Activity is owner-facing. Imported area
+  // Activities with a template but no resolved targets must not silently fall
+  // back to the owner, because that would apply an effect to the wrong Actor.
+  const templateType = String(activity?.target?.template?.type ?? "").trim();
+  if (!targetType && !templateType) return [owner];
+  return [];
 }
 
 function sourceForActor(effect, item, actor, runtime, config, instanceId) {
@@ -181,6 +245,7 @@ function sourceForActor(effect, item, actor, runtime, config, instanceId) {
   delete source._id;
   delete source.origin;
   source.name = `${item.name} — ${String(effect.name ?? "Effect").replace(/^Item Creator\s*[—-]\s*/i, "")}`;
+  applySpellLevelContext(source, effect);
   source.img = effect.img || item.img;
   source.disabled = false;
   source.transfer = false;
@@ -196,25 +261,29 @@ function sourceForActor(effect, item, actor, runtime, config, instanceId) {
     consumableSourceItemUuid: item.uuid,
     consumableInstanceId: instanceId,
     consumableBlueprintId: blueprintIdentity(effect),
-    ...timingFlags(config, actor)
+    ...timingFlags(config)
   };
+  source.start = nativeEffectStart();
   return source;
 }
 
-function refreshUpdates(effects, config, actor) {
-  const timing = timingFlags(config, actor);
+function refreshUpdates(effects, config, _actor) {
+  const timing = timingFlags(config);
+  const start = nativeEffectStart();
   return effects.map(effect => ({
     _id: effect.id,
     duration: durationData(config),
+    start,
     [`flags.${MODULE_ID}.consumableDurationMode`]: timing.consumableDurationMode,
     [`flags.${MODULE_ID}.consumableDurationValue`]: timing.consumableDurationValue,
     [`flags.${MODULE_ID}.consumableAppliedAtWorldTime`]: timing.consumableAppliedAtWorldTime,
-    [`flags.${MODULE_ID}.consumableExpiresAtWorldTime`]: timing.consumableExpiresAtWorldTime,
-    [`flags.${MODULE_ID}.consumableCombatId`]: timing.consumableCombatId,
-    [`flags.${MODULE_ID}.consumableCombatStartRound`]: timing.consumableCombatStartRound,
-    [`flags.${MODULE_ID}.consumableCombatSpan`]: timing.consumableCombatSpan,
-    [`flags.${MODULE_ID}.consumableTurnsRemaining`]: timing.consumableTurnsRemaining,
-    [`flags.${MODULE_ID}.consumableLastTurnKey`]: timing.consumableLastTurnKey
+    // Clear obsolete 0.7.7/0.7.92 parallel-clock state when an Effect is refreshed.
+    [`flags.${MODULE_ID}.-=consumableExpiresAtWorldTime`]: null,
+    [`flags.${MODULE_ID}.-=consumableCombatId`]: null,
+    [`flags.${MODULE_ID}.-=consumableCombatStartRound`]: null,
+    [`flags.${MODULE_ID}.-=consumableCombatSpan`]: null,
+    [`flags.${MODULE_ID}.-=consumableTurnsRemaining`]: null,
+    [`flags.${MODULE_ID}.-=consumableLastTurnKey`]: null
   }));
 }
 
@@ -269,136 +338,10 @@ async function deleteApplied(actor, effects) {
   if (ids.length) await safeDeleteActiveEffects(actor, ids, { itemCreatorConsumable: true, render: true });
 }
 
-async function expireByWorldTime(now = worldTime()) {
-  if (!game.user?.isGM) return;
-  for (const actor of game.actors ?? []) {
-    const expired = appliedEffects(actor).filter(effect => {
-      const expires = Number(effectFlag(effect, "consumableExpiresAtWorldTime"));
-      return Number.isFinite(expires) && expires > 0 && expires <= now;
-    });
-    if (expired.length) await deleteApplied(actor, expired);
-  }
-}
+// Duration expiry is intentionally delegated to Foundry V14 / D&D5e 6.x's
+// ActiveEffectRegistry. Item Creator no longer owns updateWorldTime, Rest, or
+// Combat duration hooks for Consumable Granted Effects.
 
-async function expireForRest(actor, result) {
-  if (!actor) return;
-  const restType = String(result?.type ?? result?.restType ?? "").toLowerCase();
-  const isLong = restType.includes("long");
-  const isShort = restType.includes("short");
-  if (!isLong && !isShort) return;
-  const expired = appliedEffects(actor).filter(effect => {
-    const mode = effectFlag(effect, "consumableDurationMode");
-    if (isLong) return mode === "shortOrLongRest" || mode === "longRest";
-    return isShort && mode === "shortOrLongRest";
-  });
-  if (expired.length) await deleteApplied(actor, expired);
-}
-
-async function attachTimedEffectsToCombat(combat) {
-  if (!combat?.started || !game.user?.isGM) return;
-  const now = worldTime();
-  for (const combatant of valuesOf(combat.combatants)) {
-    const actor = combatant?.actor;
-    if (!actor) continue;
-    const effects = appliedEffects(actor).filter(effect => {
-      const mode = effectFlag(effect, "consumableDurationMode");
-      return ["rounds", "turns"].includes(mode) && !effectFlag(effect, "consumableCombatId");
-    });
-    const updates = [];
-    for (const effect of effects) {
-      const expires = Number(effectFlag(effect, "consumableExpiresAtWorldTime"));
-      const remainingSeconds = Number.isFinite(expires) ? Math.max(0, expires - now) : 0;
-      if (remainingSeconds <= 0) continue;
-      const span = Math.max(1, Math.ceil(remainingSeconds / 6));
-      const mode = effectFlag(effect, "consumableDurationMode");
-      updates.push({
-        _id: effect.id,
-        [`flags.${MODULE_ID}.consumableCombatId`]: combat.id,
-        [`flags.${MODULE_ID}.consumableCombatStartRound`]: Number(combat.round) || 0,
-        [`flags.${MODULE_ID}.consumableCombatSpan`]: mode === "rounds" ? span : null,
-        [`flags.${MODULE_ID}.consumableTurnsRemaining`]: mode === "turns" ? span : effectFlag(effect, "consumableTurnsRemaining"),
-        [`flags.${MODULE_ID}.consumableLastTurnKey`]: mode === "turns" && currentCombatantActorId(combat) === actor.id
-          ? `${Number(combat.round) || 0}:${Number(combat.turn) || 0}` : null
-      });
-    }
-    if (updates.length) await safeUpdateActiveEffects(actor, updates, { itemCreatorConsumable: true, render: false });
-  }
-}
-
-async function tickCombat(combat) {
-  if (!combat?.started || !game.user?.isGM) return;
-  await attachTimedEffectsToCombat(combat);
-  const round = Number(combat.round) || 0;
-  const turn = Number(combat.turn) || 0;
-  const currentActorId = currentCombatantActorId(combat);
-
-  for (const combatant of valuesOf(combat.combatants)) {
-    const actor = combatant?.actor;
-    if (!actor) continue;
-    const effects = appliedEffects(actor).filter(effect => effectFlag(effect, "consumableCombatId") === combat.id);
-    const remove = [];
-    const updates = [];
-    for (const effect of effects) {
-      const mode = effectFlag(effect, "consumableDurationMode");
-      if (mode === "rounds") {
-        const startRound = Number(effectFlag(effect, "consumableCombatStartRound")) || 0;
-        const span = Math.max(1, Number(effectFlag(effect, "consumableCombatSpan")) || Number(effectFlag(effect, "consumableDurationValue")) || 1);
-        if (round - startRound >= span) remove.push(effect);
-      } else if (mode === "turns" && currentActorId === actor.id) {
-        const key = `${round}:${turn}`;
-        const last = effectFlag(effect, "consumableLastTurnKey");
-        if (last === key) continue;
-        const remaining = Math.max(0, Number(effectFlag(effect, "consumableTurnsRemaining")) || 0) - 1;
-        if (remaining <= 0) remove.push(effect);
-        else updates.push({
-          _id: effect.id,
-          [`flags.${MODULE_ID}.consumableTurnsRemaining`]: remaining,
-          [`flags.${MODULE_ID}.consumableLastTurnKey`]: key
-        });
-      }
-    }
-    if (updates.length) await safeUpdateActiveEffects(actor, updates, { itemCreatorConsumable: true, render: false });
-    if (remove.length) await deleteApplied(actor, remove);
-  }
-}
-
-async function detachCombatEffects(combat) {
-  if (!combat || !game.user?.isGM) return;
-  const now = worldTime();
-  const round = Number(combat.round) || 0;
-  for (const combatant of valuesOf(combat.combatants)) {
-    const actor = combatant?.actor;
-    if (!actor) continue;
-    const effects = appliedEffects(actor).filter(effect => effectFlag(effect, "consumableCombatId") === combat.id);
-    const remove = [];
-    const updates = [];
-    for (const effect of effects) {
-      const mode = effectFlag(effect, "consumableDurationMode");
-      let remaining = 0;
-      if (mode === "rounds") {
-        const start = Number(effectFlag(effect, "consumableCombatStartRound")) || 0;
-        const span = Math.max(1, Number(effectFlag(effect, "consumableCombatSpan")) || 1);
-        remaining = Math.max(0, span - Math.max(0, round - start));
-      } else if (mode === "turns") {
-        remaining = Math.max(0, Number(effectFlag(effect, "consumableTurnsRemaining")) || 0);
-      }
-      if (remaining <= 0) {
-        remove.push(effect);
-        continue;
-      }
-      updates.push({
-        _id: effect.id,
-        [`flags.${MODULE_ID}.consumableExpiresAtWorldTime`]: now + remaining * 6,
-        [`flags.${MODULE_ID}.consumableCombatId`]: null,
-        [`flags.${MODULE_ID}.consumableCombatStartRound`]: null,
-        [`flags.${MODULE_ID}.consumableCombatSpan`]: null,
-        [`flags.${MODULE_ID}.consumableLastTurnKey`]: null
-      });
-    }
-    if (updates.length) await safeUpdateActiveEffects(actor, updates, { itemCreatorConsumable: true, render: false });
-    if (remove.length) await deleteApplied(actor, remove);
-  }
-}
 
 export class ItemCreatorConsumableEffectService {
   static #registered = false;
@@ -408,7 +351,7 @@ export class ItemCreatorConsumableEffectService {
     if (this.#registered) return;
     this.#registered = true;
 
-    Hooks.on("dnd5e.activityConsumption", activity => {
+    Hooks.on("dnd5e.activityConsumption", (activity, _usageConfig, messageConfig) => {
       try {
         if (!isManagedUseActivity(activity)) return;
         const item = itemFromActivity(activity);
@@ -421,38 +364,23 @@ export class ItemCreatorConsumableEffectService {
           item: { name: item.name, img: item.img, uuid: item.uuid },
           effects: valuesOf(item.effects).map(effect => effect.toObject instanceof Function ? effect.toObject(false) : clone(effect)),
           activityComposerId: activityComposerId(activity),
+          targets: clone(messageConfig?.data?.system?.targets ?? []),
           actorStateChanges: clone(activity?.flags?.[MODULE_ID]?.actorStateChanges ?? null)
         });
       } catch (error) {
         console.warn(`${MODULE_ID} | Unable to snapshot Consumable before native consumption.`, error);
       }
     });
-    Hooks.on("dnd5e.postUseActivity", async (activity, _usageConfig, _results) => {
+    Hooks.on("dnd5e.postUseActivity", async (activity, _usageConfig, results) => {
       try {
         const snapshot = this.#pendingUses.get(activity) ?? null;
         this.#pendingUses.delete(activity);
-        await this.applyFromActivity(activity, snapshot);
+        await this.applyFromActivity(activity, snapshot, results);
       } catch (error) { console.error(`${MODULE_ID} | Consumable use failed.`, error); }
-    });
-    Hooks.on("dnd5e.restCompleted", async (actor, result) => {
-      try { await expireForRest(actor, result); }
-      catch (error) { console.error(`${MODULE_ID} | Consumable rest cleanup failed.`, error); }
-    });
-    Hooks.on("updateWorldTime", async worldTimeValue => {
-      try { await expireByWorldTime(Number(worldTimeValue) || worldTime()); }
-      catch (error) { console.error(`${MODULE_ID} | Consumable world-time cleanup failed.`, error); }
-    });
-    Hooks.on("updateCombat", async combat => {
-      try { await tickCombat(combat); }
-      catch (error) { console.error(`${MODULE_ID} | Consumable combat duration update failed.`, error); }
-    });
-    Hooks.on("deleteCombat", async combat => {
-      try { await detachCombatEffects(combat); }
-      catch (error) { console.error(`${MODULE_ID} | Consumable combat cleanup failed.`, error); }
     });
   }
 
-  static async applyFromActivity(activity, snapshot = null) {
+  static async applyFromActivity(activity, snapshot = null, results = null) {
     if (!isManagedUseActivity(activity)) return false;
     const liveItem = itemFromActivity(activity);
     const item = snapshot?.item ?? liveItem;
@@ -461,35 +389,41 @@ export class ItemCreatorConsumableEffectService {
     if (!item || !runtime || !actor) return false;
 
     const config = normalizeConfig(runtime);
-    // Legacy instant state change remains supported for 0.7.7a Items. New
-    // Consumables attach state changes to a specific Activity instead.
+    const recipients = await effectRecipients(activity, actor, snapshot, results);
+    // Legacy instant state change remains supported for 0.7.7a Items and is
+    // intentionally owner-only. Activity-bound state changes follow the
+    // Activity's resolved targets, including multi-target uses.
     await removeExhaustion(actor, config);
     const activityState = snapshot?.actorStateChanges ?? activity?.flags?.[MODULE_ID]?.actorStateChanges ?? null;
-    if (activityState) await applyActorStateChanges(actor, activityState);
+    if (activityState) for (const recipient of recipients) await applyActorStateChanges(recipient, activityState);
 
     const bindingActivity = activityComposerId(activity) ? activity : snapshot?.activityComposerId
       ? { flags: { [MODULE_ID]: { composerId: snapshot.activityComposerId } } } : activity;
-    const blueprints = activeBlueprints(snapshot?.effects ?? liveItem, actor, bindingActivity);
-    if (!blueprints.length) return true;
+    if (!recipients.length) return true;
 
-    for (const blueprint of blueprints) {
-      const effectConfig = effectRuntimeConfig(blueprint, runtime);
-      const identity = blueprintIdentity(blueprint);
-      const existing = appliedEffects(actor, runtime.key).filter(effect => String(effectFlag(effect, "consumableBlueprintId") ?? blueprintIdentity(effect)) === identity);
-      if (effectConfig.stacking === "ignore" && existing.length) continue;
-      if (effectConfig.stacking === "replace" && existing.length) await deleteApplied(actor, existing);
-      if (effectConfig.stacking === "refresh" && existing.length) {
-        await safeUpdateActiveEffects(actor, refreshUpdates(existing, effectConfig, actor), { itemCreatorConsumable: true, render: true });
-        continue;
+    for (const recipient of recipients) {
+      const blueprints = activeBlueprints(snapshot?.effects ?? liveItem, recipient, bindingActivity);
+      for (const blueprint of blueprints) {
+        const effectConfig = effectRuntimeConfig(blueprint, runtime);
+        const identity = blueprintIdentity(blueprint);
+        const existing = appliedEffects(recipient, runtime.key).filter(effect => String(effectFlag(effect, "consumableBlueprintId") ?? blueprintIdentity(effect)) === identity);
+        if (effectConfig.stacking === "ignore" && existing.length) continue;
+        if (effectConfig.stacking === "replace" && existing.length) await deleteApplied(recipient, existing);
+        if (effectConfig.stacking === "refresh" && existing.length) {
+          await safeUpdateActiveEffects(recipient, refreshUpdates(existing, effectConfig, recipient), { itemCreatorConsumable: true, render: true });
+          continue;
+        }
+        const instanceId = foundry.utils.randomID();
+        const source = sourceForActor(blueprint, item, recipient, runtime, effectConfig, instanceId);
+        await recipient.createEmbeddedDocuments("ActiveEffect", [source], { itemCreatorConsumable: true, render: true });
       }
-      const instanceId = foundry.utils.randomID();
-      const source = sourceForActor(blueprint, item, actor, runtime, effectConfig, instanceId);
-      await actor.createEmbeddedDocuments("ActiveEffect", [source], { itemCreatorConsumable: true, render: true });
     }
     return true;
   }
 
   static async cleanupWorldTime() {
-    return expireByWorldTime();
+    // Backward-compatible diagnostic entry point. Native Foundry/D&D5e expiry
+    // now owns cleanup, so this only asks the registry to refresh world-time durations.
+    return ActiveEffect.implementation?.registry?.refresh?.("updateWorldTime");
   }
 }

@@ -1,4 +1,5 @@
 import { MODULE_ID, defaultSourceSettings } from "../constants.mjs";
+import { primaryItemRarity } from "../utils/dnd6-compat.mjs";
 
 const SUPPORTED_TYPES = new Set(["weapon", "equipment", "tool", "consumable"]);
 
@@ -9,7 +10,7 @@ const PACK_INDEX_FIELDS = [
   "system.mastery", "system.proficient", "system.ammunition.type",
   "system.damage", "system.range", "system.properties",
   "system.price", "system.weight", "system.quantity",
-  "system.rarity", "system.magicalBonus", "system.attunement",
+  "system.rarities", "system.rarity", "system.magicalBonus", "system.attunement",
   "system.equipped", "system.attuned", "system.armor", "system.strength",
   "system.activities", "system.ability", "system.bonus", "system.chatFlavor"
 ];
@@ -86,7 +87,7 @@ function isBaseWeapon(entry) {
   const system = entry.system ?? {};
   const properties = propertyValues(system.properties);
   const magicalBonus = String(system.magicalBonus ?? "").trim();
-  const rarity = String(system.rarity ?? "").trim();
+  const rarity = primaryItemRarity(system);
   const attunement = String(system.attunement ?? "").trim();
   return !properties.includes("mgc") && (!magicalBonus || Number(magicalBonus) === 0) && !rarity && !attunement;
 }

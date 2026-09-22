@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.7.94 — D&D5e 6.0.3 Migration Candidate
+
+- Promoted **D&D5e 6.0.3** to the live migration/test baseline while retaining the compatibility window **6.0.1–6.0.999** and Foundry VTT **14.367+**.
+- Removed the generic **Combat requirement** from Triggered Effect detection. Attack, healing, damage, resource, spell, feature/item-use, and D20 consumption flows can now resolve when their underlying D&D5e event exists outside Combat.
+- Changed Triggered Effect lifetime ownership: Combat is no longer the authority that decides whether a managed Effect exists. Persistent Triggered Effects receive native world-time-backed ActiveEffect duration/start data and survive Combat ending/deletion until their own duration, consumption, replacement, or other rule removes them.
+- Kept Combat turn/round hooks as an optional precision layer for turn-anchored semantics while a Combat exists. Outside Combat, per-turn/per-round frequency and duration fall back to the configured Foundry round time (normally 6 seconds) on the world clock.
+- Ending/deleting Combat now detaches Combat bookkeeping instead of deleting Triggered Effects. Existing v4 Triggered Effect ledgers are read and normalized to ledger v5 with native world-time lifetime metadata.
+- Native/manual deletion of a Triggered ActiveEffect is now authoritative: Item Creator removes the corresponding ledger entry instead of recreating an Effect that the D&D5e lifecycle has expired/deleted.
+- Migrated Triggered Effect Chat association to D&D5e 6.x public `getAssociatedItem()`, `getAssociatedActivity()`, and `getAssociatedActor()` helpers with legacy flags retained only as transitional fallback.
+- Migrated Save-Gated synthetic usage messages to structured D&D5e 6.x message data (`system.targets`, `system.item`, `system.deltas.deleted`) rather than authoring new `flags.dnd5e.item/targets` snapshots.
+- Completed Cast/Spell-as-Activity FormulaField preservation: fixed Spell Attack and Save DC values are edited and persisted as formulas, so expressions such as `@prof + 3` are no longer coerced to numbers.
+- Added world-level **Diagnostics** modes (`Off`, `Errors`, `Verbose`). Verbose logging records Trigger detection, managed Effect application/refresh, native deletion, and lifecycle detachment to support production bug reports.
+- Preserved existing stacking, consumption, Save-Gated, instant healing, contextual-roll, and exact in-combat tick behavior where still applicable. Fine-grained stack/proc/turn edge cases remain candidates for production-driven refinement rather than migration blockers.
+- No gameplay feature expansion was added; this is a migration/parity candidate intended for controlled production use and real-world regression logging.
+
+## 0.7.93 — D&D5e 6.0.2 Schema & Native Lifecycle Normalization
+
+- Advanced the D&D5e 6.x migration baseline to **6.0.2** while retaining the approved compatibility window **6.0.1–6.0.999** and Foundry VTT **14.367+**.
+- Completed Actor movement Active Effect normalization from legacy `system.attributes.movement.<speed>` writes to D&D5e 6.x `system.attributes.movement.speeds.<speed>` and updated Base Item recognition to read the normalized paths.
+- Corrected Base Item semantic recovery for D&D5e 6.x per-skill roll bonuses (`system.skills.<id>.roll.bonus`).
+- Updated fixed Cast/Granted Spell attack and save challenges to persist numeric values as D&D5e 6.x FormulaField strings.
+- Hardened the shared Materialization Core contract so public materialization results are normalized to D&D5e 6.x before being returned to Item Creator/Supplier callers, not only on temporary validation.
+- Migrated **Consumable Granted Effect duration authority** to Foundry V14 / D&D5e 6.x native ActiveEffect lifecycle. Item Creator no longer attaches timed Consumable Effects to Combat, decrements its own round/turn counters, converts remaining Combat duration on Combat deletion, or deletes them from custom world-time/rest hooks.
+- Consumable durations now persist native ActiveEffect duration/expiry data: minutes/hours use time units, Short/Long Rest use native D&D5e expiry events, Permanent is indefinite, and Item Creator round/turn duration modes are represented on the world clock using the configured round duration (normally 6 seconds).
+- Refresh stacking now resets the native ActiveEffect start/duration and clears obsolete parallel-clock flags. Replace/Ignore/Stack ownership remains Item Creator behavior.
+- Updated Ignore Resistance origin lookup to prefer D&D5e 6.x ChatMessage association helpers/structured origin while retaining a transitional legacy-chat fallback.
+- Triggered Effects remain intentionally **functional but not yet fully stabilized**. Their fine-grained proc/stack/turn lifetime ledger is deferred to a dedicated runtime pass and does not block the module-wide 6.x migration.
+- No new gameplay feature was added; this build is a migration/parity build.
+
+## 0.7.92 — D&D5e 6.0.x Legacy Effects & Chat Normalization
+
+- Expanded the D&D5e compatibility window to **6.0.1–6.0.999** while keeping **6.0.1** as the currently verified baseline. The module remains on Foundry VTT 14.367 for this test line.
+- Kept legacy migration deliberately **explicit and GM-controlled**: opening an old Item in **Edit with Item Creator** normalizes legacy data in memory, but the World Item is only converted when the GM chooses Update/Save. No Actor/World-wide silent migration is performed.
+- Re-resolves legacy **Selected Spell Effects** from the current D&D5e 6.x Spell when an old managed Item is reopened. Matching effect ids/names are preferred; the old snapshot remains a normalized fallback when the current source cannot be resolved.
+- Normalizes legacy Spell-effect `changes[]` paths at both edit-time and runtime fallback, covering old embedded snapshots such as the 5.3.3 Bless roll-bonus paths used by existing Triggered Effects.
+- Updated Spell-effect selection to use D&D5e 6.x asynchronous Activity effect resolution, including external/reusable Active Effect profiles when present.
+- Updated Triggered Effect chat-target extraction to the D&D5e 6.x `message.system.targets[].actor` descriptor.
+- Reworked generated **Chat Description** output. The full Item sheet keeps the detailed Item Creator rules text, while the chat card now receives only terse identifiers such as **Weapon Enhancement +2** or **A Brasa de Solis**. Native rarity/magical/attunement/property badges are not redundantly repeated.
+- Avoided direct use of the deprecated D&D5e primary-rarity shim in Item Creator authoring/review paths; persisted rarity remains `system.rarities`.
+- No new gameplay or authoring feature was added. This remains a compatibility/normalization build.
+
+## 0.7.91 — D&D5e 6.0.1 Compatibility Test 1
+
+- Started the new **D&D5e 6.0.1-only compatibility test line**. The v0.7.7c / D&D5e 5.3.3 line is frozen; v0.7.91 contains compatibility corrections only and adds no new Item Creator feature.
+- Updated the module compatibility gate to **Foundry VTT 14.367** and **D&D5e 6.0.1**.
+- Normalized persisted physical-item rarity data to the D&D5e 6.x `system.rarities` field while retaining safe reads from the system's derived primary-rarity accessor.
+- Normalized generated Active Effect roll-bonus keys to D&D5e 6.x roll paths for attacks, damage, ability checks/saves/skills, per-ability rolls, skills, tools, initiative, concentration, and death saves. Spell DC remains on its valid native path.
+- Updated Consumable Granted Effect target routing to the D&D5e 6.x usage-message model (`message.system.targets` / consumption message target data) and the new actor/token target descriptors.
+- Applied the same D&D5e 6.x source normalization to Item Builder output, Supplier stock generation, Base Item recognition, Runtime progression updates, and the shared Materialization Core.
+- Preserved existing v0.7.7c gameplay behavior, lifecycle handling, Triggered Effects behavior, and authoring scope. This build intentionally does **not** redesign lifecycle/recovery and does not add Conditional Target Damage, Conditional Weapon Bonus, or other new implementation.
+- Internal compatibility test build.
+
+## 0.7.7c — Consumable Granted Effects / UX Integration
+
+- Added **Apply Granted Effects** to the Consumable Activity Composer. It materializes as a native Utility Activity but presents only the controls relevant to activation, targeting, charge consumption, and chat output; Utility Roll and Concentration/timing controls are hidden because the persistent lifecycle belongs to the linked Granted Effects.
+- Added **Import Effect from Spell** to the Consumable Granted Effects step. Selecting a Spell snapshots its usable persistent Active Effect payloads without casting the Spell. Each imported effect can configure Spell Level, Activity routing, duration, stacking, and Include independently.
+- Spell Level remains available for every imported Spell effect. Item Creator substitutes direct `@item.level` / `@spell.level` references in imported effect changes when applied; effects that do not use the configured level remain unchanged.
+- Added a visible compatibility disclaimer: Spell effects are flexible building blocks, not every Spell produces a meaningful or rules-consistent Consumable effect, and the finished Item should be reviewed and tested. Spells without an importable persistent Active Effect remain a direct Cast Spell Activity concern rather than being interpreted heuristically.
+- Granted Effects and Actor State Changes now follow the Activity's resolved targets instead of always applying to the Item owner. Self Activities remain owner-facing, while targeted Activities can apply to multiple selected Actors. Explicit targeted/area Activities with no resolved target do not silently fall back to the owner.
+- Humanized generated description formulas without changing the stored runtime formulas. Internal paths such as `@abilities.con.mod`, `@attributes.spell.mod`, and `@prof` are presented as `CON modifier`, `spellcasting modifier`, and `Proficiency Bonus`.
+- Preserved the clean Consumable flow **Item Type → Base Item → Activities → Granted Effects → Description → Review** and kept Triggered Effects out of Consumables v2.
+- Consumable document schema advanced to **23** for imported Spell-effect metadata and routing semantics.
+
 ## 0.7.7b1 — Consumable Flow Cleanup
 
 - Removed the redundant **Effect Defaults** step from the Consumable workflow. Consumables now follow the clean sequence **Item Type → Base Item → Activities → Granted Effects → Description → Review**.

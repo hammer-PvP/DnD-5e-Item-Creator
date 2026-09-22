@@ -1,4 +1,5 @@
 import { MODULE_ID, MODULE_VERSION, defaultSourceSettings } from "./constants.mjs";
+import { DIAGNOSTICS_SETTING, diagnosticMode } from "./utils/diagnostics.mjs";
 import { ItemCreatorApp } from "./apps/item-creator-app.mjs";
 import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
 import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
@@ -37,6 +38,16 @@ Hooks.once("init", () => {
   ItemCreatorConsumableEffectService.registerHooks();
   ItemCreatorRestoreResourceService.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
+
+  game.settings.register(MODULE_ID, DIAGNOSTICS_SETTING, {
+    name: "Item Creator Diagnostics",
+    hint: "Controls Item Creator migration/runtime diagnostic output in the browser console.",
+    scope: "world",
+    config: false,
+    type: String,
+    choices: { off: "Off", errors: "Errors", verbose: "Verbose" },
+    default: "errors"
+  });
 
   game.settings.register(MODULE_ID, "sourceSettings", {
     name: "Item Creator Content Sources",
@@ -109,6 +120,10 @@ Hooks.once("init", () => {
     pricing: {
       get: () => getMaterializationSettings(),
       forRarity: rarity => priceForRarity(rarity)
+    },
+    diagnostics: {
+      get: () => diagnosticMode(),
+      set: mode => game.settings.set(MODULE_ID, DIAGNOSTICS_SETTING, ["off", "errors", "verbose"].includes(mode) ? mode : "errors")
     },
     version: MODULE_VERSION
   };

@@ -1,3 +1,5 @@
+import { setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
+
 /**
  * Canonical naming helpers for concrete Items produced by materializers.
  * The functions are deterministic and idempotent: feeding an already
@@ -117,7 +119,10 @@ function setEffectChanges(effect, changes) {
 
 function applyIdentityProperty(itemData, key, value) {
   if (key === "img") itemData.img = value;
-  else foundry.utils.setProperty(itemData, key, value);
+  else if (["system.rarity", "system.rarities"].includes(key)) {
+    const rarity = Array.isArray(value) ? value[0] : value;
+    setPrimaryItemRarity(itemData, rarity);
+  } else foundry.utils.setProperty(itemData, key, value);
 }
 
 /**
@@ -149,6 +154,7 @@ export function materializeIdentityChanges(itemData, effect, {
     if ([
       "img",
       "system.rarity",
+      "system.rarities",
       "system.magicalBonus",
       "system.armor.magicalBonus",
       "system.price.value",

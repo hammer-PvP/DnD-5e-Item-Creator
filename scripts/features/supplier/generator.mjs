@@ -49,6 +49,7 @@ import {
   recipeTargetCompatibility
 } from "../../core/materialization/index.mjs";
 import { activeRarityPrices } from "../../core/materialization/pricing.mjs";
+import { normalizeDnd6ItemSource, primaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 
 function configurationForProfile(configuration, profile) {
@@ -653,7 +654,7 @@ async function createSpellScrollPreview(entry, configuration) {
   if (!scroll) throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.ScrollCreationFailed", { spell: spell.name }));
   const data = scroll.toObject ? scroll.toObject() : foundry.utils.deepClone(scroll);
   normalizeScrollActivityLevels(data);
-  const rarity = normalizeRarity(foundry.utils.getProperty(data, "system.rarity"));
+  const rarity = normalizeRarity(primaryItemRarity(data));
   const priceValue = Number(foundry.utils.getProperty(data, "system.price.value") ?? 0);
   const price = priceValue > 0
     ? { value: priceValue, denomination: foundry.utils.getProperty(data, "system.price.denomination") ?? "gp", origin: "official" }
@@ -848,7 +849,7 @@ export function finalizeGlobalRecipePrice(line, pick, catalog, configuration) {
     ?? materializationRecipe(line.documentData);
   if (!recipe || !recipe.pricing || recipe.pricing === "quality") return line;
 
-  const rarity = normalizeRarity(line.rarity ?? foundry.utils.getProperty(line.documentData, "system.rarity"));
+  const rarity = normalizeRarity(line.rarity ?? primaryItemRarity(line.documentData));
   const baseEntry = recipe.pricing === "base-plus-rarity"
     ? recipeBaseEntryForLine(line, pick, recipe, catalog)
     : null;
@@ -916,7 +917,7 @@ async function createGeneratorPreview(pick, catalog, configuration, targetEntrie
   const documentData = materialized.documentData;
   const display = materialized.display ?? {};
   let price = priceFromMaterializedData(documentData, display, resolvePrice(baseEntry, catalog, configuration), bonus > 0 ? "generatedQuality" : "official");
-  let rarity = normalizeRarity(display.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? baseEntry.rarity);
+  let rarity = normalizeRarity(display.rarity ?? (primaryItemRarity(documentData) || baseEntry.rarity));
   if (bonus > 0) rarity = ENCHANTMENT_RARITY[bonus] ?? rarity;
   const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
   return {
@@ -983,7 +984,7 @@ async function createPassThroughRecipePreview(pick, catalog, configuration, sour
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
   }
   const documentData = result.documentData;
-  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? pick.entry.rarity);
+  const rarity = normalizeRarity(result.display?.rarity ?? primaryItemRarity(documentData) ?? pick.entry.rarity);
   const currentPrice = {
     value: Math.max(0, Number(foundry.utils.getProperty(documentData, "system.price.value") ?? pick.entry.priceValue ?? 0)),
     denomination: foundry.utils.getProperty(documentData, "system.price.denomination") ?? pick.entry.priceDenomination ?? "gp"
@@ -1087,7 +1088,7 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
 
   const documentData = materialized.documentData;
   const display = materialized.display ?? {};
-  const rarity = normalizeRarity(display.rarity ?? foundry.utils.getProperty(documentData, "system.rarity") ?? pick.entry.rarity);
+  const rarity = normalizeRarity(display.rarity ?? primaryItemRarity(documentData) ?? pick.entry.rarity);
   if (!finalMaterializedAvailabilityAccepted(pick, rarity)) {
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationAccessRejected", { item: display.name ?? documentData.name }));
   }
@@ -1178,7 +1179,7 @@ async function createRecipeVariantPreview(pick, configuration, level, sourceEntr
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
   }
   const documentData = result.documentData;
-  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity"));
+  const rarity = normalizeRarity(result.display?.rarity ?? primaryItemRarity(documentData));
   const price = fallbackPrice(configuration, rarity);
   foundry.utils.setProperty(documentData, "system.price", { value: price.value, denomination: price.denomination });
   const metadata = result.metadata ?? {};
@@ -1223,7 +1224,7 @@ async function createVariantPreview(pick, catalog, configuration, level) {
     throw new Error(`Variant produced an invalid name (${canonical.reason}).`);
   }
   documentData.name = canonical.name;
-  const rarity = normalizeRarity(foundry.utils.getProperty(documentData, "system.rarity") ?? selected.rarity);
+  const rarity = normalizeRarity((primaryItemRarity(documentData) || selected.rarity));
   const price = Number(foundry.utils.getProperty(documentData, "system.price.value") ?? selected.priceValue ?? 0) > 0
     ? {
       value: Number(foundry.utils.getProperty(documentData, "system.price.value") ?? selected.priceValue),
@@ -1283,7 +1284,7 @@ async function createAmmunitionRecipePreview(pick, catalog, configuration, level
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationFailed", { item: pick.entry.name }));
   }
   const documentData = result.documentData;
-  const rarity = normalizeRarity(result.display?.rarity ?? foundry.utils.getProperty(documentData, "system.rarity"));
+  const rarity = normalizeRarity(result.display?.rarity ?? primaryItemRarity(documentData));
   const price = {
     value: Math.max(1, Number(foundry.utils.getProperty(documentData, "system.price.value") ?? 1)),
     denomination: foundry.utils.getProperty(documentData, "system.price.denomination") ?? "gp",
@@ -1371,7 +1372,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
   let documentData = document.toObject();
   let display = { name: documentData.name, img: documentData.img, type: documentData.type, subtype: foundry.utils.getProperty(documentData, "system.type.value") };
   let price = basePrice;
-  let rarity = normalizeRarity(foundry.utils.getProperty(document, "system.rarity") ?? pick.entry.rarity);
+  let rarity = normalizeRarity((primaryItemRarity(document) || pick.entry.rarity));
   let materialization = {};
   if (pick.enhancement > 0 && !pick.entry.isMagical) {
     const enhanced = await applySyntheticEnhancement(document, pick.enhancement, configuration);
@@ -2165,7 +2166,7 @@ export async function createWorldFolder({ profile, level, players, preview }) {
         enhancement: line.enhancement ?? 0,
         generatedAt
       };
-      return data;
+      return normalizeDnd6ItemSource(data);
     });
 
     const items = await ItemClass.createDocuments(documents);

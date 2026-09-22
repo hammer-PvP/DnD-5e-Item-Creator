@@ -3,6 +3,7 @@ import {
   cleanResolvedBlueprintDescription,
   materializeIdentityChanges
 } from "./naming.mjs";
+import { primaryItemRarity, setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 /**
  * Versioned, source-agnostic recipes for official Item families whose template
@@ -431,7 +432,7 @@ function materializeArmorOfResistance({ sourceDocument, baseDocument, selection 
   if (!name.ok) return { ok: false, reason: name.reason };
 
   result.name = name.name;
-  foundry.utils.setProperty(result, "system.rarity", "rare");
+  setPrimaryItemRarity(result, "rare");
   foundry.utils.setProperty(result, "system.description.value", `<p><em>(Requires attunement)</em></p><p>While you wear this armor, you have Resistance to ${label} damage.</p>`);
   ensureMagical(result);
   attunementRequired(result);
@@ -504,7 +505,7 @@ function materializeTemplateTransplant({ recipe, sourceDocument, baseDocument })
   if (typeof sourceDescription === "string") {
     foundry.utils.setProperty(result, "system.description.value", cleanTemplateInstructions(sourceDescription));
   }
-  if (recipe.rarity) foundry.utils.setProperty(result, "system.rarity", recipe.rarity);
+  if (recipe.rarity) setPrimaryItemRarity(result, recipe.rarity);
   ensureMagical(result);
 
   const existingEffects = effectsOf(sourceData).filter(effect => effect?.type !== "enchantment").map(clone);
@@ -559,7 +560,7 @@ function materializeDragonScaleMail({ sourceDocument, baseDocument, selection = 
   mergeBasePhysicalData(result, baseData);
   removeEnchantActivities(result);
   result.name = `${variant.dragon} Dragon Scale Mail`;
-  foundry.utils.setProperty(result, "system.rarity", "veryRare");
+  setPrimaryItemRarity(result, "veryRare");
   foundry.utils.setProperty(result, "system.description.value",
     `<p><em>(Requires attunement)</em></p><p>This armor is made from ${variant.dragon.toLowerCase()} dragon scales. While wearing it, you have Resistance to ${damageTypeLabel(variant.resistance)} damage. You also have advantage on saving throws against the Frightful Presence and breath weapons of dragons.</p>`);
   ensureMagical(result);
@@ -589,7 +590,7 @@ function materializeArmorOfVulnerability({ sourceDocument, baseDocument, selecti
   delete result._id;
   const baseName = String(baseData.name ?? "Armor");
   result.name = `${baseName} of Vulnerability`;
-  foundry.utils.setProperty(result, "system.rarity", "rare");
+  setPrimaryItemRarity(result, "rare");
   foundry.utils.setProperty(result, "system.unidentified.name", baseName);
   foundry.utils.setProperty(result, "system.description.value",
     `<p><em>(Requires attunement)</em></p><p>While wearing this armor, you have Resistance to ${damageTypeLabel(resistance)} damage.</p><p><strong>Curse.</strong> This armor is cursed. While wearing it, you have Vulnerability to ${vulnerabilities.map(damageTypeLabel).join(" and ")} damage.</p>`);
@@ -633,7 +634,7 @@ function materializeWandOfTheWarMage({ sourceDocument, requestedBonus = null, ma
   const bonus = chooseBonus({ requestedBonus, maxBonus });
   const rarity = rarityForBonus(bonus);
   result.name = `Wand of the War Mage +${bonus}`;
-  foundry.utils.setProperty(result, "system.rarity", rarity);
+  setPrimaryItemRarity(result, rarity);
   foundry.utils.setProperty(result, "system.price", { value: 0, denomination: "gp" });
   foundry.utils.setProperty(result, "system.description.value",
     `<p><em>(Requires attunement by a Spellcaster)</em></p><p>While holding this wand, you gain a +${bonus} bonus to spell attack rolls. In addition, you ignore Half Cover when making a spell attack roll.</p>`);
@@ -651,7 +652,7 @@ function materializeWandOfTheWarMage({ sourceDocument, requestedBonus = null, ma
     transfer: true,
     origin: sourceDocument?.uuid ?? "",
     system: {
-      changes: [{ key: "system.bonuses.msak.attack", mode: effectModeAdd(), value: bonus, priority: null }]
+      changes: [{ key: "system.rolls.attack.msak.bonus", mode: effectModeAdd(), value: bonus, priority: null }]
     },
     flags: {
       "hammer-materialization-core": { recipeId: "wand-of-the-war-mage", bonus }
@@ -685,7 +686,7 @@ function materializeEnchantedAmmunition({ baseDocument, requestedBonus = null, m
     .trim();
   result.name = `${cleanName} +${bonus}`;
   foundry.utils.setProperty(result, "system.magicalBonus", String(bonus));
-  foundry.utils.setProperty(result, "system.rarity", rarityForBonus(bonus));
+  setPrimaryItemRarity(result, rarityForBonus(bonus));
   ensureMagical(result);
   const addition = Math.max(0, Number(qualityPriceAdditions?.[bonus] ?? 0) || 0);
   foundry.utils.setProperty(result, "system.price", {
@@ -716,7 +717,7 @@ export function recipeOutputIssues(recipeOrSource, documentOrData) {
   const data = asData(documentOrData);
   const issues = [];
   const name = String(data.name ?? "");
-  const rarity = normalizeRecipeIdentity(foundry.utils.getProperty(data, "system.rarity"));
+  const rarity = normalizeRecipeIdentity(primaryItemRarity(data));
   const price = Number(foundry.utils.getProperty(data, "system.price.value") ?? 0);
   const description = String(foundry.utils.getProperty(data, "system.description.value") ?? "");
 

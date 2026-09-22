@@ -4,6 +4,7 @@ import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pr
 import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
 import { getResourceDefinition, resourceModificationLabel } from "./resource-modification-registry.mjs";
 import { triggeredEffectSummary } from "./triggered-effect-registry.mjs";
+import { dnd6EffectPath, normalizeDnd6ItemSource, primaryItemRarity } from "../utils/dnd6-compat.mjs";
 
 const MODES = () => CONST.ACTIVE_EFFECT_MODES;
 
@@ -19,7 +20,7 @@ function finalizeRarityAndPricing(data, draft) {
 
   const manualPrice = draft?.customized?.price === true;
   const templatePrice = Math.max(0, Number(draft?.template?.system?.price?.value ?? 0) || 0);
-  const templateRarity = normalizeRarityKey(draft?.template?.system?.rarity);
+  const templateRarity = normalizeRarityKey(primaryItemRarity(draft?.template));
   const templateMagical = templateRarity !== "none" || valuesOf(draft?.template?.system?.properties).includes("mgc");
 
   if (manualPrice) {
@@ -274,7 +275,7 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
 
 function addChange(changes, key, mode, value, priority) {
   if (value === null || value === undefined || value === "") return;
-  changes.push({ key, mode, value: String(value), ...(priority ? { priority } : {}) });
+  changes.push({ key: dnd6EffectPath(key), mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
 function expandAbilities(target) {
@@ -317,15 +318,15 @@ export function buildGrantedEffects(enabled, values) {
 
   if (enabled.weaponAttackBonus) {
     const changes = [];
-    addChange(changes, "system.bonuses.mwak.attack", add, values.weaponAttackBonus.bonus);
-    addChange(changes, "system.bonuses.rwak.attack", add, values.weaponAttackBonus.bonus);
+    addChange(changes, "system.rolls.attack.mwak.bonus", add, values.weaponAttackBonus.bonus);
+    addChange(changes, "system.rolls.attack.rwak.bonus", add, values.weaponAttackBonus.bonus);
     addEffect("weaponAttackBonus", "Weapon Attack Roll Bonus", values.weaponAttackBonus.availability, changes);
   }
 
   if (enabled.weaponDamageBonus) {
     const changes = [];
-    addChange(changes, "system.bonuses.mwak.damage", add, values.weaponDamageBonus.bonus);
-    addChange(changes, "system.bonuses.rwak.damage", add, values.weaponDamageBonus.bonus);
+    addChange(changes, "system.rolls.damage.mwak.bonus", add, values.weaponDamageBonus.bonus);
+    addChange(changes, "system.rolls.damage.rwak.bonus", add, values.weaponDamageBonus.bonus);
     addEffect("weaponDamageBonus", "Weapon Damage Roll Bonus", values.weaponDamageBonus.availability, changes);
   }
 
@@ -333,8 +334,8 @@ export function buildGrantedEffects(enabled, values) {
     const changes = [];
     for (const row of values.savingThrowBonus.entries ?? []) {
       const value = row.mode === "proficiency" ? "@prof" : row.bonus;
-      if (row.target === "all") addChange(changes, "system.bonuses.abilities.save", add, value);
-      else addChange(changes, `system.abilities.${row.target}.bonuses.save`, add, value);
+      if (row.target === "all") addChange(changes, "system.rolls.ability.save.bonus", add, value);
+      else addChange(changes, `system.abilities.${row.target}.save.roll.bonus`, add, value);
     }
     addEffect("savingThrowBonus", "Saving Throw Bonus", values.savingThrowBonus.availability, changes);
   }
@@ -359,7 +360,7 @@ export function buildGrantedEffects(enabled, values) {
   if (enabled.abilityCheckBonus) {
     const changes = [];
     for (const row of values.abilityCheckBonus.entries ?? []) {
-      for (const ability of expandAbilities(row.target)) addChange(changes, `system.abilities.${ability}.bonuses.check`, add, row.bonus);
+      for (const ability of expandAbilities(row.target)) addChange(changes, `system.abilities.${ability}.check.roll.bonus`, add, row.bonus);
     }
     addEffect("abilityCheckBonus", "Ability Check Bonus", values.abilityCheckBonus.availability, changes);
   }
@@ -367,7 +368,7 @@ export function buildGrantedEffects(enabled, values) {
   if (enabled.skillBonus) {
     const changes = [];
     for (const row of values.skillBonus.entries ?? []) {
-      for (const skill of expandSkills(row.target)) addChange(changes, `system.skills.${skill}.bonuses.check`, add, row.bonus);
+      for (const skill of expandSkills(row.target)) addChange(changes, `system.skills.${skill}.roll.bonus`, add, row.bonus);
     }
     addEffect("skillBonus", "Skill Bonus", values.skillBonus.availability, changes);
   }
@@ -413,7 +414,7 @@ export function buildGrantedEffects(enabled, values) {
 
   if (enabled.initiativeBonus) {
     const changes = [];
-    addChange(changes, "system.attributes.init.bonus", add, values.initiativeBonus.bonus);
+    addChange(changes, "system.attributes.init.roll.bonus", add, values.initiativeBonus.bonus);
     addEffect("initiativeBonus", "Initiative Bonus", values.initiativeBonus.availability, changes);
   }
 
@@ -461,8 +462,8 @@ export function buildGrantedEffects(enabled, values) {
 
   if (enabled.spellAttackBonus) {
     const changes = [];
-    addChange(changes, "system.bonuses.msak.attack", add, values.spellAttackBonus.bonus);
-    addChange(changes, "system.bonuses.rsak.attack", add, values.spellAttackBonus.bonus);
+    addChange(changes, "system.rolls.attack.msak.bonus", add, values.spellAttackBonus.bonus);
+    addChange(changes, "system.rolls.attack.rsak.bonus", add, values.spellAttackBonus.bonus);
     addEffect("spellAttackBonus", "Spell Attack Bonus", values.spellAttackBonus.availability, changes);
   }
 
@@ -505,19 +506,19 @@ export function buildGrantedEffects(enabled, values) {
     const changes = [];
     if (key === "armorClassBonus") addChange(changes, "system.attributes.ac.bonus", add, tier.bonus);
     if (key === "weaponAttackBonus") {
-      addChange(changes, "system.bonuses.mwak.attack", add, tier.bonus);
-      addChange(changes, "system.bonuses.rwak.attack", add, tier.bonus);
+      addChange(changes, "system.rolls.attack.mwak.bonus", add, tier.bonus);
+      addChange(changes, "system.rolls.attack.rwak.bonus", add, tier.bonus);
     }
     if (key === "weaponDamageBonus") {
-      addChange(changes, "system.bonuses.mwak.damage", add, tier.bonus);
-      addChange(changes, "system.bonuses.rwak.damage", add, tier.bonus);
+      addChange(changes, "system.rolls.damage.mwak.bonus", add, tier.bonus);
+      addChange(changes, "system.rolls.damage.rwak.bonus", add, tier.bonus);
     }
-    if (key === "initiativeBonus") addChange(changes, "system.attributes.init.bonus", add, tier.bonus);
+    if (key === "initiativeBonus") addChange(changes, "system.attributes.init.roll.bonus", add, tier.bonus);
     if (key === "proficiencyBonusModifier") addChange(changes, "system.attributes.prof", add, tier.bonus);
     if (key === "maximumHitPointsBonus") addChange(changes, "system.attributes.hp.bonuses.overall", add, tier.bonus);
     if (key === "spellAttackBonus") {
-      addChange(changes, "system.bonuses.msak.attack", add, tier.bonus);
-      addChange(changes, "system.bonuses.rsak.attack", add, tier.bonus);
+      addChange(changes, "system.rolls.attack.msak.bonus", add, tier.bonus);
+      addChange(changes, "system.rolls.attack.rsak.bonus", add, tier.bonus);
     }
     if (key === "spellSaveDcBonus") addChange(changes, "system.bonuses.spell.dc", add, tier.bonus);
     return changes;
@@ -725,8 +726,10 @@ async function buildCastActivities(parentItem, spells = [], { reservedIds = [], 
       spell: {
         ability,
         challenge: {
-          attack: fixedChallenge && spell.hasAttack ? Number(spell.fixedAttackBonus) : null,
-          save: fixedChallenge && spell.hasSave ? Number(spell.fixedSaveDc) : null,
+          // D&D5e 6.x Cast challenge fields are FormulaFields. Numeric fixed
+          // values remain the Item Creator UX, but are persisted as formulas.
+          attack: fixedChallenge && spell.hasAttack ? String(spell.fixedAttackBonus ?? "").trim() : null,
+          save: fixedChallenge && spell.hasSave ? String(spell.fixedSaveDc ?? "").trim() : null,
           override: fixedChallenge
         },
         level: castLevel,
@@ -826,8 +829,12 @@ function spellcastingSentence(spell) {
       return "Charisma is your spellcasting ability for this spell, and you add your proficiency bonus to its spell attack rolls and saving throw DC.";
     case "fixed": {
       const parts = [];
-      if (spell.hasAttack) parts.push(`its spell attack bonus is ${Number(spell.fixedAttackBonus) >= 0 ? "+" : ""}${Number(spell.fixedAttackBonus) || 0}`);
-      if (spell.hasSave) parts.push(`its spell save DC is ${Number(spell.fixedSaveDc) || 0}`);
+      if (spell.hasAttack) {
+        const formula = String(spell.fixedAttackBonus ?? "").trim() || "0";
+        const numeric = Number(formula);
+        parts.push(`its spell attack formula is ${Number.isFinite(numeric) && numeric >= 0 ? "+" : ""}${formula}`);
+      }
+      if (spell.hasSave) parts.push(`its spell save DC formula is ${String(spell.fixedSaveDc ?? "").trim() || "0"}`);
       if (!parts.length) return "This spell uses the item's own magic and requires no spell attack roll or saving throw DC.";
       return `This spell uses the item's own magic; ${parts.join(" and ")}.`;
     }
@@ -1034,6 +1041,20 @@ function formatRows(rows, formatter) {
 }
 
 
+function humanizeFormula(formula) {
+  let value = String(formula ?? "").trim();
+  if (!value) return "";
+  const replacements = [
+    ["max(@abilities.int.mod, @abilities.wis.mod, @abilities.cha.mod)", "highest spellcasting modifier"],
+    ["@attributes.spell.mod", "spellcasting modifier"],
+    ["@abilities.str.mod", "STR modifier"], ["@abilities.dex.mod", "DEX modifier"], ["@abilities.con.mod", "CON modifier"],
+    ["@abilities.int.mod", "INT modifier"], ["@abilities.wis.mod", "WIS modifier"], ["@abilities.cha.mod", "CHA modifier"],
+    ["@prof", "Proficiency Bonus"]
+  ];
+  for (const [token, label] of replacements) value = value.split(token).join(label);
+  return value.replace(/\s*\+\s*/g, " + ").replace(/\s*-\s*/g, " - ").trim();
+}
+
 function activityUsesSummary(activity) {
   const targets = valuesOf(activity?.consumption?.targets);
   const itemTarget = targets.find(entry => entry?.type === "itemUses");
@@ -1060,7 +1081,7 @@ function activityUsesSummary(activity) {
 
 function restoreResourceEntrySummary(entry) {
   const amount = entry?.amountMode === "all" ? "all"
-    : String(entry?.amount ?? "1").trim() || "1";
+    : humanizeFormula(entry?.amount ?? "1") || "1";
   if (entry?.kind === "spellSlot") return `${amount} level ${Number(entry.spellLevel) || 1} Spell Slot${amount === "1" ? "" : "s"}`;
   if (entry?.kind === "pactSlot") return `${amount} Pact Magic Slot${amount === "1" ? "" : "s"}`;
   if (entry?.kind === "hitDice") return `${amount} ${entry.hitDie && entry.hitDie !== "any" ? `${entry.hitDie} ` : ""}Hit Dice`;
@@ -1072,8 +1093,8 @@ function restoreResourceEntrySummary(entry) {
 }
 
 function activityPartText(part = {}) {
-  if (part?.custom?.enabled) return String(part.custom.formula ?? "").trim();
-  return [part?.number && part?.denomination ? `${part.number}d${part.denomination}` : "", String(part?.bonus ?? "").trim()].filter(Boolean).join(" + ");
+  if (part?.custom?.enabled) return humanizeFormula(part.custom.formula);
+  return [part?.number && part?.denomination ? `${part.number}d${part.denomination}` : "", humanizeFormula(part?.bonus)].filter(Boolean).join(" + ");
 }
 
 function activityActivationSummary(activity = {}) {
@@ -1087,7 +1108,7 @@ function activityActivationSummary(activity = {}) {
 function composedActivityProperty(entry) {
   const activity = entry?.data ?? {};
   const flags = activity?.flags?.[MODULE_ID] ?? {};
-  const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState" : (activity.type ?? entry.type ?? "utility");
+  const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState" : flags.applyGrantedEffects ? "applyEffects" : (entry.type ?? activity.type ?? "utility");
   const name = String(activity.name ?? entry.name ?? "Activity").trim() || "Activity";
   const pieces = [activityActivationSummary(activity)];
   if (type === "restoreResource") {
@@ -1119,8 +1140,10 @@ function composedActivityProperty(entry) {
   } else if (type === "save") {
     const ability = valuesOf(activity.save?.ability)[0];
     pieces.push(`${ability ? abilityLabel(ability) : "Saving Throw"} Save Activity`);
+  } else if (type === "applyEffects") {
+    pieces.push("Applies linked Granted Effects");
   } else {
-    const formula = String(activity.roll?.formula ?? "").trim();
+    const formula = humanizeFormula(activity.roll?.formula);
     pieces.push(formula ? `Utility roll: ${formula}` : "Utility Activity");
   }
   const uses = activityUsesSummary(activity);
@@ -1302,7 +1325,10 @@ function itemPropertyEntries(draft) {
 
   for (const entry of draft.customImportedEffects ?? []) {
     if (entry?.included === false) continue;
-    add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`);
+    if (entry?.spellEffectImport === true) {
+      const level = Number(entry.spellLevel) === 0 ? "Cantrip" : `Level ${Math.clamp(Math.trunc(Number(entry.spellLevel) || 1), 1, 9)}`;
+      add("Spell Effect", `${entry.spellName || "Spell"} — ${entry.spellEffectName || entry.name || "Effect"} · ${level}`, draft.itemType === "consumable" ? "owned" : "item");
+    } else add("Imported Effect", `${entry.name || "Custom Effect"}${entry.disabled ? " (disabled)" : ""}`, draft.itemType === "consumable" ? "owned" : "item");
   }
   for (const entry of draft.customImportedActivities ?? []) {
     if (entry?.included === false || entry?.disabled) continue;
@@ -1453,6 +1479,68 @@ function composeItemPropertiesText(data, draft) {
   data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
 }
 
+function compactChatSummaryLines(draft) {
+  const lines = [];
+  const seen = new Set();
+  const add = value => {
+    const text = String(value ?? "").trim();
+    if (!text || seen.has(text)) return;
+    seen.add(text);
+    lines.push(text);
+  };
+  const genericNativeLabels = new Set(["Magical Weapon", "Magical Equipment", "Magical Tool"]);
+  const numericLabels = new Set(["Weapon Enhancement", "Armor Enhancement", "Attack Roll Bonus", "Damage Roll Bonus"]);
+
+  for (const entry of itemPropertyEntries(draft)) {
+    const label = String(entry?.label ?? "").trim();
+    if (!label || genericNativeLabels.has(label)) continue;
+    if (["Triggered Effect", "Resource", "Imported Activity"].includes(label)) continue;
+    if (numericLabels.has(label)) {
+      const amount = String(entry?.value ?? "").match(/[+-]\d+(?:\.\d+)?/)?.[0];
+      add(amount ? `${label} ${amount}` : label);
+      continue;
+    }
+    if (label === "Spell Effect") {
+      const effectName = String(entry?.value ?? "").split("—").at(-1)?.split("·")[0]?.trim();
+      add(effectName || label);
+      continue;
+    }
+    if (label === "Imported Effect") {
+      add(String(entry?.value ?? "").replace(/\s*\(disabled\)\s*$/i, "").trim() || label);
+      continue;
+    }
+    add(label);
+  }
+
+  for (const trigger of draft.triggeredEffects ?? []) add(trigger?.name || "Triggered Effect");
+  for (const resource of draft.resourceModifications ?? []) {
+    if (resource?.unlockOnLevel) add("Resource Modification");
+  }
+  if (draft.enhancements?.grantedSpellcasting) {
+    for (const spell of draft.enhancementValues?.grantedSpellcasting?.spells ?? []) add(spell?.name || "Granted Spell");
+  }
+  for (const entry of draft.customImportedEffects ?? []) {
+    if (entry?.included === false) continue;
+    if (entry?.spellEffectImport === true) add(entry.spellEffectName || entry.name || entry.spellName || "Spell Effect");
+  }
+
+  return lines;
+}
+
+/**
+ * D&D5e 6.x uses `system.description.chat` before the full description when an
+ * Item card is posted. Keep that field deliberately terse: the Item sheet is
+ * the rules reference; the chat card only identifies Item Creator additions.
+ */
+function composeCompactChatDescription(data, draft) {
+  data.system ??= {};
+  data.system.description ??= {};
+  const lines = compactChatSummaryLines(draft);
+  data.system.description.chat = lines.length
+    ? `<div class="item-creator-chat-summary">${lines.map(line => `<p><strong>${escapeHtml(line)}</strong></p>`).join("")}</div>`
+    : '<div class="item-creator-chat-summary"></div>';
+}
+
 function composeGrantedSpellcastingText(data, draft) {
   if (!draft.enhancements?.grantedSpellcasting) return;
   const spells = draft.enhancementValues?.grantedSpellcasting?.spells ?? [];
@@ -1515,7 +1603,7 @@ export class ItemCreatorItemBuilder {
     data.system.damage.versatile = damagePart({ ...effective.versatile, damageType: effective.versatile?.damageType || effective.damageType });
 
     // Preserve special Template metadata unless explicitly overridden by Item Creator.
-    data.system.rarity = draft.template.system?.rarity ?? data.system.rarity ?? "";
+    data.system.rarity = primaryItemRarity(draft.template) || data.system.rarity || "";
     data.system.attunement = draft.template.system?.attunement ?? data.system.attunement ?? "";
     // A newly-created Weapon is an independent document. Never inherit the
     // Template's transient equipped/attuned state; Equipment and Tool builders
@@ -1625,7 +1713,7 @@ export class ItemCreatorItemBuilder {
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     if (enhancements.grantedSpellcasting) {
       const provisionalSource = cleanDocumentSource(data);
-      const provisionalItem = new ItemClass(provisionalSource, { temporary: true });
+      const provisionalItem = new ItemClass(normalizeDnd6ItemSource(provisionalSource), { temporary: true });
       const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting.spells ?? [], {
         reservedIds: Object.keys(data.system.activities ?? {}),
         sortBase: nextActivitySort(data.system.activities ?? {})
@@ -1714,7 +1802,8 @@ export class ItemCreatorItemBuilder {
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.
     // Calling prepareData again, or reusing a previously prepared source, causes `_index` redefinition errors.
-    const finalSource = cleanDocumentSource(data);
+    composeCompactChatDescription(data, draft);
+    const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
     delete finalData._id;
@@ -1754,7 +1843,7 @@ export class ItemCreatorItemBuilder {
       ? null : Number(effective.armor.dex);
     data.system.armor.magicalBonus = String(effective.armor?.magicalBonus ?? data.system.armor.magicalBonus ?? "");
     data.system.strength = Number(effective.strength) || 0;
-    data.system.rarity = template.system?.rarity ?? data.system.rarity ?? "";
+    data.system.rarity = primaryItemRarity(template) || data.system.rarity || "";
     data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
     data.system.equipped = false;
     data.system.attuned = false;
@@ -1799,7 +1888,7 @@ export class ItemCreatorItemBuilder {
 
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     if (enhancements.grantedSpellcasting) {
-      const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+      const provisionalItem = new ItemClass(normalizeDnd6ItemSource(cleanDocumentSource(data)), { temporary: true });
       const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? [], {
         reservedIds: Object.keys(data.system.activities ?? {}),
         sortBase: nextActivitySort(data.system.activities ?? {})
@@ -1867,7 +1956,8 @@ export class ItemCreatorItemBuilder {
     composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
-    const finalSource = cleanDocumentSource(data);
+    composeCompactChatDescription(data, draft);
+    const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
     delete finalData._id;
@@ -1915,7 +2005,7 @@ export class ItemCreatorItemBuilder {
     data.system.weight = { value: Number(effective.weight?.value) || 0, units: effective.weight?.units || "lb" };
     data.system.price = { value: Number(effective.price?.value) || 0, denomination: effective.price?.denomination || "gp" };
     data.system.properties = [...new Set(effective.properties ?? [])].filter(property => property !== "mgc");
-    data.system.rarity = template.system?.rarity ?? data.system.rarity ?? "";
+    data.system.rarity = primaryItemRarity(template) || data.system.rarity || "";
     data.system.attunement = template.system?.attunement ?? data.system.attunement ?? "";
     data.system.equipped = false;
     data.system.attuned = false;
@@ -1949,7 +2039,7 @@ export class ItemCreatorItemBuilder {
     if (!hasToolCheck) {
       const CheckClass = CONFIG.DND5E.activityTypes?.check?.documentClass;
       if (CheckClass) {
-        const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+        const provisionalItem = new ItemClass(normalizeDnd6ItemSource(cleanDocumentSource(data)), { temporary: true });
         const check = new CheckClass({}, { parent: provisionalItem });
         const checkSource = cleanDocumentSource(check.toObject?.() ?? check);
         checkSource._id ??= foundry.utils.randomID();
@@ -1959,7 +2049,7 @@ export class ItemCreatorItemBuilder {
     }
 
     if (enhancements.grantedSpellcasting) {
-      const provisionalItem = new ItemClass(cleanDocumentSource(data), { temporary: true });
+      const provisionalItem = new ItemClass(normalizeDnd6ItemSource(cleanDocumentSource(data)), { temporary: true });
       const castActivities = await buildCastActivities(provisionalItem, enhancementValues.grantedSpellcasting?.spells ?? [], {
         reservedIds: Object.keys(data.system.activities ?? {}),
         sortBase: nextActivitySort(data.system.activities ?? {})
@@ -2019,7 +2109,8 @@ export class ItemCreatorItemBuilder {
     composeLevelProgressionText(data, draft);
     composeGrantedSpellcastingText(data, draft);
 
-    const finalSource = cleanDocumentSource(data);
+    composeCompactChatDescription(data, draft);
+    const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
     delete finalData._id;
@@ -2130,7 +2221,7 @@ export class ItemCreatorItemBuilder {
       if (!UtilityClass) throw new Error("D&D5e Utility Activity support is unavailable.");
       const provisionalData = clone(data);
       provisionalData.system.activities = {};
-      const provisionalItem = new ItemClass(cleanDocumentSource(provisionalData), { temporary: true });
+      const provisionalItem = new ItemClass(normalizeDnd6ItemSource(cleanDocumentSource(provisionalData)), { temporary: true });
       const activityDocument = new UtilityClass({}, { parent: provisionalItem });
       const activity = cleanDocumentSource(activityDocument.toObject?.() ?? activityDocument);
       activity._id = foundry.utils.randomID();
@@ -2188,7 +2279,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 22,
+      schemaVersion: 23,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -2225,7 +2316,7 @@ export class ItemCreatorItemBuilder {
     const recoveryText = useRecovery
       ? useRecovery.type === "recoverAll"
         ? `Recover all charges on ${titleCase(useRecovery.period)}`
-        : `Recover ${String(useRecovery.formula || "1")} charge(s) on ${titleCase(useRecovery.period)}`
+        : `Recover ${humanizeFormula(useRecovery.formula || "1")} charge(s) on ${titleCase(useRecovery.period)}`
       : "No recharge";
     const depletionText = data.system.uses?.autoDestroy
       ? "Destroy/decrement stack when depleted"
@@ -2239,7 +2330,8 @@ export class ItemCreatorItemBuilder {
     data.system.description.value = appendGeneratedSection(current, runtimeSection);
     data.system.description.chat = appendGeneratedSection(currentChat, runtimeSection);
 
-    const finalSource = cleanDocumentSource(data);
+    composeCompactChatDescription(data, draft);
+    const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
     delete finalData._id;

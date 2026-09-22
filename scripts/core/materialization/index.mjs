@@ -17,6 +17,7 @@ import {
   recipeOutputIssues,
   recipeTargetCompatibility
 } from "./recipes.mjs";
+import { normalizeDnd6ItemSource, primaryItemRarity, setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 export const MATERIALIZATION_ENGINE_VERSION = "0.3.2";
 
@@ -136,7 +137,7 @@ function propertyValues(data) {
 }
 
 function isMagical(data) {
-  const rarity = normalizeRarity(foundry.utils.getProperty(data, "system.rarity"));
+  const rarity = normalizeRarity(primaryItemRarity(data));
   const bonus = Number(foundry.utils.getProperty(data, "system.magicalBonus") ?? 0);
   const values = propertyValues(data).map(normalize);
   return rarity !== "none" || bonus > 0 || values.includes("mgc") || values.includes("magical");
@@ -207,7 +208,10 @@ function effectBonus(effect) {
 
 function effectRarity(effect) {
   for (const change of effectChanges(effect)) {
-    if (String(change?.key) === "system.rarity") return normalizeRarity(change.value);
+    if (["system.rarity", "system.rarities"].includes(String(change?.key))) {
+      const raw = Array.isArray(change.value) ? change.value[0] : change.value;
+      return normalizeRarity(raw);
+    }
   }
   return "none";
 }
@@ -631,7 +635,7 @@ export function isMeaningfullyMaterializedData(documentOrData, { bonus = null } 
   const weaponBonus = Number(foundry.utils.getProperty(data, "system.magicalBonus") ?? 0);
   const armorBonus = Number(foundry.utils.getProperty(data, "system.armor.magicalBonus") ?? 0);
   const properties = new Set(propertyValues(data).map(normalize));
-  const rarity = normalizeRarity(foundry.utils.getProperty(data, "system.rarity"));
+  const rarity = normalizeRarity(primaryItemRarity(data));
   return name.includes(`+${expected}`)
     && Math.max(weaponBonus, armorBonus) === expected
     && rarity !== "none"
@@ -690,7 +694,7 @@ function displayFromEffect(data, effect) {
     img: data.img,
     type: data.type,
     subtype: foundry.utils.getProperty(data, "system.type.value"),
-    rarity: foundry.utils.getProperty(data, "system.rarity"),
+    rarity: primaryItemRarity(data),
     magicalBonus: Number(foundry.utils.getProperty(data, "system.magicalBonus") ?? 0),
     priceValue: Number(foundry.utils.getProperty(data, "system.price.value") ?? 0),
     priceDenomination: foundry.utils.getProperty(data, "system.price.denomination") ?? "gp"
@@ -701,7 +705,7 @@ function displayFromEffect(data, effect) {
     if (key === "name" && typeof value === "string") {
       display.name = value.includes("{}") ? value.replaceAll("{}", display.name ?? "") : value;
     } else if (key === "img" && value) display.img = value;
-    else if (key === "system.rarity" && value) display.rarity = value;
+    else if (["system.rarity", "system.rarities"].includes(key) && value) display.rarity = Array.isArray(value) ? value[0] : value;
     else if (key === "system.magicalBonus") {
       const numeric = Number(value);
       if (Number.isFinite(numeric)) display.magicalBonus = Math.max(display.magicalBonus, numeric);
@@ -748,7 +752,7 @@ function validateAndPrepareData(data, effect = null) {
   try {
     const ItemClass = globalThis.CONFIG?.Item?.documentClass;
     if (!ItemClass) return { ok: true, display: fallback, validation: "unavailable" };
-    const temporary = new ItemClass(clone(data), { parent: null, pack: null, strict: true });
+    const temporary = new ItemClass(normalizeDnd6ItemSource(clone(data)), { parent: null, pack: null, strict: true });
     temporary.prepareData?.();
     const validationResult = temporary.validate?.({ strict: true });
     if (validationResult === false) throw new Error("Temporary Item failed strict validation.");
@@ -950,7 +954,7 @@ export async function materializeNativeBlueprint({
     }
     return {
       ok: true,
-      documentData: result,
+      documentData: normalizeDnd6ItemSource(result),
       display: validation.display,
       metadata: { ...metadata, validation: validation.validation }
     };
@@ -974,7 +978,7 @@ export async function materializeNativeBlueprint({
       if (validation.ok) {
         return {
           ok: true,
-          documentData: recipe.documentData,
+          documentData: normalizeDnd6ItemSource(recipe.documentData),
           display: validation.display,
           metadata: {
             ...(recipe.metadata ?? {}),
@@ -997,6 +1001,7 @@ export async function materializeRecipe(options = {}) {
   if (!validation.ok) return { ok: false, reason: validation.reason, error: validation.error, issues: result.issues ?? [] };
   return {
     ...result,
+    documentData: normalizeDnd6ItemSource(result.documentData),
     display: validation.display,
     metadata: { ...(result.metadata ?? {}), validation: validation.validation }
   };
@@ -1038,7 +1043,7 @@ function normalizeAmmunitionBaseData(data) {
     quantity: Math.max(1, Number(original.quantity ?? 1) || 1),
     weight: clone(original.weight ?? { value: 0, units: "lb" }),
     price: clone(original.price ?? { value: 0, denomination: "gp" }),
-    rarity: String(original.rarity ?? ""),
+    rarities: clone(original.rarities ?? (original.rarity ? [original.rarity] : [])),
     attunement: String(original.attunement ?? ""),
     attuned: Boolean(original.attuned),
     equipped: Boolean(original.equipped),
@@ -1061,7 +1066,7 @@ export function materializeSyntheticEnhancement({ baseDocument, bonus, qualityPr
     const metadata = { kind: "sellable", family: "", baseUuid: baseDocument?.uuid ?? "", bonus: 0, strategy: "base-copy", materialized: false };
     const validation = validateAndPrepareData(result);
     if (!validation.ok) return { ok: false, reason: validation.reason, error: validation.error };
-    return { ok: true, documentData: result, display: validation.display, metadata: { ...metadata, validation: validation.validation } };
+    return { ok: true, documentData: normalizeDnd6ItemSource(result), display: validation.display, metadata: { ...metadata, validation: validation.validation } };
   }
 
   const cleanName = String(result.name ?? "").replace(/\s+\+[123]\s*$/, "");
@@ -1073,7 +1078,7 @@ export function materializeSyntheticEnhancement({ baseDocument, bonus, qualityPr
   } else {
     foundry.utils.setProperty(result, "system.magicalBonus", String(numericBonus));
   }
-  foundry.utils.setProperty(result, "system.rarity", ENCHANTMENT_RARITY[numericBonus] ?? "uncommon");
+  setPrimaryItemRarity(result, ENCHANTMENT_RARITY[numericBonus] ?? "uncommon");
 
   const properties = foundry.utils.getProperty(result, "system.properties");
   if (Array.isArray(properties) && !properties.includes("mgc")) properties.push("mgc");
@@ -1100,7 +1105,7 @@ export function materializeSyntheticEnhancement({ baseDocument, bonus, qualityPr
   if (!isMeaningfullyMaterializedData(result, { bonus: numericBonus })) {
     return { ok: false, reason: "incompleteSyntheticEnhancement" };
   }
-  return { ok: true, documentData: result, display: validation.display, metadata: { ...metadata, materialized: true, validation: validation.validation } };
+  return { ok: true, documentData: normalizeDnd6ItemSource(result), display: validation.display, metadata: { ...metadata, materialized: true, validation: validation.validation } };
 }
 
 export async function materializeEnhancement({
@@ -1205,7 +1210,7 @@ export async function materialize({
   return {
     ok: result.ok === true,
     reason: result.reason ?? "",
-    itemData: result.documentData ?? null,
+    itemData: result.documentData ? normalizeDnd6ItemSource(result.documentData) : null,
     display: result.display ?? null,
     diagnostic: {
       coreVersion: MATERIALIZATION_ENGINE_VERSION,

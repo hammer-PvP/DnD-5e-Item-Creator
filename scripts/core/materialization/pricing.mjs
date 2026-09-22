@@ -1,4 +1,5 @@
 import { MODULE_ID } from "../../constants.mjs";
+import { primaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 export const MATERIALIZATION_SETTINGS_KEY = "materializationSettings";
 export const MATERIALIZATION_CORE_VERSION = "0.3.2";
@@ -102,7 +103,7 @@ export function applyRarityPrice(itemData, {
   origin = "rarity-profile"
 } = {}) {
   if (!itemData?.system) return { applied: false, reason: "missingSystem" };
-  const rarity = normalizeRarityKey(itemData.system.rarity);
+  const rarity = normalizeRarityKey(primaryItemRarity(itemData));
   if (["none", "artifact"].includes(rarity)) {
     if (rarity === "artifact" && force) {
       const denomination = settings.pricingProfile === "official" ? "gp" : (settings.denomination || "gp");

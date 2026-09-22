@@ -1,4 +1,5 @@
 import { MODULE_ID } from "../constants.mjs";
+import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -26,7 +27,9 @@ function sourceObject(document) {
 }
 
 function effectChanges(effect) {
-  return valuesOf(effect?.system?.changes ?? effect?.changes);
+  return valuesOf(effect?.system?.changes ?? effect?.changes).map(change => ({
+    ...change, key: dnd6EffectPath(change?.key)
+  }));
 }
 
 function activityEffects(activity) {
@@ -192,9 +195,9 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
       if (setScalar(targetKey, { bonus: av, availability }, `${label}: ${modifier(av)}`)) use(a, b);
     };
 
-    pair("system.bonuses.mwak.attack", "system.bonuses.rwak.attack", "weaponAttackBonus", "Weapon Attack Roll Bonus");
-    pair("system.bonuses.mwak.damage", "system.bonuses.rwak.damage", "weaponDamageBonus", "Weapon Damage Roll Bonus");
-    pair("system.bonuses.msak.attack", "system.bonuses.rsak.attack", "spellAttackBonus", "Spell Attack Bonus");
+    pair("system.rolls.attack.mwak.bonus", "system.rolls.attack.rwak.bonus", "weaponAttackBonus", "Weapon Attack Roll Bonus");
+    pair("system.rolls.damage.mwak.bonus", "system.rolls.damage.rwak.bonus", "weaponDamageBonus", "Weapon Damage Roll Bonus");
+    pair("system.rolls.attack.msak.bonus", "system.rolls.attack.rsak.bonus", "spellAttackBonus", "Spell Attack Bonus");
 
     const critical = changes.map((change, index) => ({ change, index }))
       .filter(({ index }) => !consumed.has(index))
@@ -221,7 +224,7 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
         recognized = setScalar("armorClassBonus", { bonus: value, availability }, `Armor Class Bonus: ${modifier(value)}`);
       } else if (key === "system.bonuses.spell.dc" && value !== null) {
         recognized = setScalar("spellSaveDcBonus", { bonus: value, availability }, `Spell Save DC Bonus: ${modifier(value)}`);
-      } else if (key === "system.attributes.init.bonus" && value !== null) {
+      } else if (key === "system.attributes.init.roll.bonus" && value !== null) {
         recognized = setScalar("initiativeBonus", { bonus: value, availability }, `Initiative Bonus: ${modifier(value)}`);
       } else if (key === "system.attributes.prof" && value !== null) {
         recognized = setScalar("proficiencyBonusModifier", { bonus: value, availability }, `Proficiency Bonus Modifier: ${modifier(value)}`);
@@ -229,12 +232,12 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
         recognized = setScalar("maximumHitPointsBonus", { bonus: value, availability }, `Maximum Hit Points Bonus: ${modifier(value)}`);
       } else if (key === "system.attributes.init.roll.mode" && value !== null && value > 0) {
         recognized = setScalar("initiativeAdvantage", { availability }, "Initiative Advantage");
-      } else if (key === "system.bonuses.abilities.save" && (value !== null || proficiencyBonus)) {
+      } else if (key === "system.rolls.ability.save.bonus" && (value !== null || proficiencyBonus)) {
         const row = proficiencyBonus
           ? effectRow({ target: "all", mode: "proficiency", bonus: 0 })
           : effectRow({ target: "all", mode: "fixed", bonus: value });
         recognized = appendRows("savingThrowBonus", [row], availability, proficiencyBonus ? "All Saving Throws: Proficiency Bonus" : `All Saving Throws: ${modifier(value)}`);
-      } else if (/^system[.]abilities[.][a-z]{3}[.]bonuses[.]save$/.test(key) && (value !== null || proficiencyBonus)) {
+      } else if (/^system[.]abilities[.][a-z]{3}[.]save[.]roll[.]bonus$/.test(key) && (value !== null || proficiencyBonus)) {
         const ability = key.split(".")[2];
         const row = proficiencyBonus
           ? effectRow({ target: ability, mode: "proficiency", bonus: 0 })
@@ -243,17 +246,17 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
       } else if (/^system[.]abilities[.][a-z]{3}[.]save[.]roll[.]mode$/.test(key) && value !== null && value > 0) {
         const ability = key.split(".")[2];
         recognized = appendRows("savingThrowAdvantage", [effectRow({ target: ability })], availability, `${labelForAbility(ability)} Saving Throw Advantage`);
-      } else if (key === "system.bonuses.abilities.check" && value !== null) {
+      } else if (key === "system.rolls.ability.check.bonus" && value !== null) {
         recognized = appendRows("abilityCheckBonus", [effectRow({ target: "all", bonus: value })], availability, `All Ability Checks: ${modifier(value)}`);
-      } else if (key === "system.bonuses.abilities.skill" && value !== null) {
+      } else if (key === "system.rolls.ability.skill.bonus" && value !== null) {
         recognized = appendRows("skillBonus", [effectRow({ target: "all", bonus: value })], availability, `All Skill Checks: ${modifier(value)}`);
-      } else if (/^system[.]abilities[.][a-z]{3}[.]bonuses[.]check$/.test(key) && value !== null) {
+      } else if (/^system[.]abilities[.][a-z]{3}[.]check[.]roll[.]bonus$/.test(key) && value !== null) {
         const ability = key.split(".")[2];
         recognized = appendRows("abilityCheckBonus", [effectRow({ target: ability, bonus: value })], availability, `${labelForAbility(ability)} Checks: ${modifier(value)}`);
       } else if (/^system[.]abilities[.][a-z]{3}[.]check[.]roll[.]mode$/.test(key) && value !== null && value > 0) {
         const ability = key.split(".")[2];
         recognized = appendRows("abilityCheckAdvantage", [effectRow({ target: `ability:${ability}` })], availability, `${labelForAbility(ability)} Check Advantage`);
-      } else if (/^system[.]skills[.][a-z]{3}[.]bonuses[.]check$/.test(key) && value !== null) {
+      } else if (/^system[.]skills[.][a-z]{3}[.]roll[.]bonus$/.test(key) && value !== null) {
         const skill = key.split(".")[2];
         recognized = appendRows("skillBonus", [effectRow({ target: skill, bonus: value })], availability, `${labelForSkill(skill)}: ${modifier(value)}`);
       } else if (/^system[.]skills[.][a-z]{3}[.]bonuses[.]passive$/.test(key) && value !== null) {
@@ -291,7 +294,7 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
           summaries.push(`Condition Immunity: ${conditions.join(", ")}`);
           recognized = true;
         }
-      } else if (/^system[.]attributes[.]movement[.](walk|fly|swim|climb|burrow)$/.test(key) && value !== null) {
+      } else if (/^system[.]attributes[.]movement[.]speeds[.](walk|fly|swim|climb|burrow)$/.test(key) && value !== null) {
         const type = key.split(".").at(-1);
         const operation = modeName(change.mode ?? change.type);
         const target = operation === "add" ? "movementBonus" : "grantMovementType";

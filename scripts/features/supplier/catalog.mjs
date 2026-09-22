@@ -6,12 +6,14 @@ import {
   isBlueprintCandidateData,
   isSelfContainedSellableData
 } from "../../core/materialization/index.mjs";
+import { primaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 const INDEX_FIELDS = [
   "name",
   "type",
   "img",
   "system.identifier",
+  "system.rarities",
   "system.rarity",
   "system.type.value",
   "system.type.baseItem",
@@ -184,8 +186,9 @@ function effectRarities(record) {
         ? effect.system.changes
         : [];
     for (const change of changes) {
-      if (String(change?.key ?? "") !== "system.rarity") continue;
-      const rarity = normalizeRarity(change?.value);
+      if (!["system.rarity", "system.rarities"].includes(String(change?.key ?? ""))) continue;
+      const raw = Array.isArray(change?.value) ? change.value[0] : change?.value;
+      const rarity = normalizeRarity(raw);
       if (rarity && !["none", "varies"].includes(rarity)) rarities.add(rarity);
     }
   }
@@ -703,7 +706,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
       const enhancement = parseEnhancement(record.name, foundry.utils.getProperty(record, "system.magicalBonus"));
       const weapon = record.type === "weapon" ? classifyWeapon(subtype) : { category: "", mode: "" };
       const armorCategory = classifyArmor(record.type, subtype, armorType);
-      const rarity = normalizeRarity(foundry.utils.getProperty(record, "system.rarity"));
+      const rarity = normalizeRarity(primaryItemRarity(record));
       const isMagical = enhancement > 0 || rarity !== "none" || properties.includes("mgc");
       let primarySubtypeKey = nativeSubtypeKey({
         type: record.type,

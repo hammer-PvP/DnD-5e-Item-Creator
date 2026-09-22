@@ -3,6 +3,7 @@ import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
 import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
+import { dnd6EffectPath, primaryItemRarity } from "../utils/dnd6-compat.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
 import { clampCharacterLevel, settingHasProgression, validUnlockSetting } from "../services/level-progression.mjs";
 import {
@@ -15,7 +16,8 @@ import {
   EFFECT_APPLICATION_MODES, EFFECT_RECIPIENTS, EFFECT_SCALING, INSTANT_HEALING_CALCULATIONS, RETRIGGER_BEHAVIORS, SAVE_DC_MODES,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
   TRIGGER_EVENTS, VALUE_CALCULATIONS,
-  defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffects, isDamageTriggeredEffect, isNumericTriggeredEffect,
+  defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffectsAsync,
+  refreshSelectedSpellEffectSnapshots, isDamageTriggeredEffect, isNumericTriggeredEffect,
   isRollDiceTriggeredEffect, isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
 } from "../services/triggered-effect-registry.mjs";
@@ -25,6 +27,7 @@ const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applicat
 
 const COMPOSABLE_ACTIVITY_TYPES = Object.freeze([
   ["utility", "Utility"],
+  ["applyEffects", "Apply Granted Effects"],
   ["actorState", "Actor State Changes"],
   ["restoreResource", "Restore Resource"],
   ["damage", "Damage"],
@@ -70,6 +73,7 @@ function utilityRollPreset(formula) {
 function activityTypeLabel(type) {
   if (type === "restoreResource") return "Restore Resource";
   if (type === "actorState") return "Actor State Changes";
+  if (type === "applyEffects") return "Apply Granted Effects";
   const config = CONFIG.DND5E.activityTypes?.[type];
   const title = config?.documentClass?.metadata?.title;
   return title ? game.i18n.localize(title) : String(type || "Activity").replace(/(^|[-_])([a-z])/g, (_m, lead, chr) => `${lead ? " " : ""}${chr.toUpperCase()}`);
@@ -157,6 +161,59 @@ function normalizeConsumableEffectConfig(value = {}) {
   return source;
 }
 
+function spellEffectDurationConfig(snapshot = {}, spell = null) {
+  const duration = snapshot?.duration ?? {};
+  const units = String(duration.units ?? "").toLowerCase();
+  const raw = Number(duration.value);
+  if (Number.isFinite(raw) && raw > 0) {
+    if (units === "seconds") {
+      if (raw % 3600 === 0) return { durationMode: "hours", durationValue: Math.max(1, raw / 3600) };
+      if (raw % 60 === 0) return { durationMode: "minutes", durationValue: Math.max(1, raw / 60) };
+      return { durationMode: "rounds", durationValue: Math.max(1, Math.ceil(raw / 6)) };
+    }
+    if (["minute", "minutes"].includes(units)) return { durationMode: "minutes", durationValue: Math.max(1, raw) };
+    if (["hour", "hours"].includes(units)) return { durationMode: "hours", durationValue: Math.max(1, raw) };
+    if (["round", "rounds"].includes(units)) return { durationMode: "rounds", durationValue: Math.max(1, raw) };
+    if (["turn", "turns"].includes(units)) return { durationMode: "turns", durationValue: Math.max(1, raw) };
+  }
+  const spellDuration = spell?.system?.duration ?? {};
+  const value = Number(spellDuration.value);
+  const spellUnits = String(spellDuration.units ?? "").toLowerCase();
+  if (Number.isFinite(value) && value > 0) {
+    if (["minute", "minutes"].includes(spellUnits)) return { durationMode: "minutes", durationValue: value };
+    if (["hour", "hours"].includes(spellUnits)) return { durationMode: "hours", durationValue: value };
+    if (["round", "rounds"].includes(spellUnits)) return { durationMode: "rounds", durationValue: value };
+  }
+  return { durationMode: "longRest", durationValue: 1 };
+}
+
+function spellLevelOptions(selected = 0) {
+  return [
+    { value: 0, label: "Cantrip", selected: Number(selected) === 0 },
+    ...Array.from({ length: 9 }, (_, index) => ({ value: index + 1, label: `Level ${index + 1}`, selected: Number(selected) === index + 1 }))
+  ];
+}
+
+function ensureConsumableSpellEffectEntry(entry = {}) {
+  entry.spellEffectImport = true;
+  entry.spellLevel = Math.clamp(Math.trunc(Number(entry.spellLevel) || 0), 0, 9);
+  entry.data ??= {};
+  entry.data.flags ??= {};
+  entry.data.flags[MODULE_ID] ??= {};
+  entry.data.flags[MODULE_ID].spellEffectImport = true;
+  entry.data.flags[MODULE_ID].key ||= `spell-effect:${entry.id || foundry.utils.randomID()}`;
+  entry.data.flags[MODULE_ID].consumableSpellEffect = {
+    ...(entry.data.flags[MODULE_ID].consumableSpellEffect ?? {}),
+    spellUuid: entry.spellUuid ?? null,
+    spellName: entry.spellName ?? "",
+    spellEffectId: entry.spellEffectId ?? null,
+    spellEffectName: entry.spellEffectName ?? entry.name ?? "Spell Effect",
+    spellLevel: entry.spellLevel
+  };
+  entry.data.flags[MODULE_ID].consumableEffect = normalizeConsumableEffectConfig(entry.data.flags[MODULE_ID].consumableEffect);
+  return entry;
+}
+
 function ensureRestoreResourceActivityDefaults(source = {}) {
   source.activation ??= {};
   source.activation.type ||= "action";
@@ -188,7 +245,8 @@ function composedActivityView(entry) {
   const source = entry?.data ?? {};
   const restoreConfig = source?.flags?.[MODULE_ID]?.restoreResource ? restoreResourceConfig(source) : null;
   const actorStateConfig = source?.flags?.[MODULE_ID]?.actorStateChanges ? actorStateChangesConfig(source) : null;
-  const type = restoreConfig ? "restoreResource" : actorStateConfig ? "actorState" : (source.type || entry.type || "utility");
+  const appliesGrantedEffects = source?.flags?.[MODULE_ID]?.applyGrantedEffects === true;
+  const type = restoreConfig ? "restoreResource" : actorStateConfig ? "actorState" : appliesGrantedEffects ? "applyEffects" : (entry.type || source.type || "utility");
   const damagePart = valuesOf(source.damage?.parts)[0] ?? {};
   const damageType = valuesOf(damagePart.types)[0] ?? "";
   const healingType = valuesOf(source.healing?.types)[0] ?? "healing";
@@ -208,7 +266,8 @@ function composedActivityView(entry) {
     img: (type === "restoreResource" ? (source.img || "icons/svg/regen.svg") : source.img) || entry.img || CONFIG.DND5E.activityTypes?.[source.type]?.documentClass?.metadata?.img || "systems/dnd5e/icons/svg/activity/utility.svg",
     summary: type === "restoreResource"
       ? `${activityCommonSummary(source)} · ${restoreConfig?.entries?.length ?? 0} recovery`
-      : type === "actorState" ? `${activityCommonSummary(source)} · ${actorStateConfig?.entries?.length ?? 0} state change(s)` : activityCommonSummary(source),
+      : type === "actorState" ? `${activityCommonSummary(source)} · ${actorStateConfig?.entries?.length ?? 0} state change(s)`
+        : type === "applyEffects" ? `${activityCommonSummary(source)} · Applies Granted Effects` : activityCommonSummary(source),
     activationType: source.activation?.type ?? "action",
     activationValue: source.activation?.value ?? "",
     activationCondition: source.activation?.condition ?? "",
@@ -248,6 +307,7 @@ function composedActivityView(entry) {
     actorStateChanges: actorStateConfig?.entries ?? [],
     isRestoreResource: type === "restoreResource",
     isActorState: type === "actorState",
+    isApplyEffects: type === "applyEffects",
     isUtility: type === "utility",
     isDamage: type === "damage",
     isHeal: type === "heal",
@@ -646,7 +706,7 @@ function consumableSourceData(document) {
     quantity: Math.max(1, Number(system.quantity) || 1),
     weight: { value: Number(system.weight?.value ?? system.weight ?? 0) || 0, units: system.weight?.units ?? "lb" },
     price: { value: Number(system.price?.value ?? 0) || 0, denomination: system.price?.denomination ?? CONFIG.DND5E.defaultCurrency ?? "gp" },
-    rarity: system.rarity ?? "",
+    rarity: primaryItemRarity(document),
     properties: valuesOf(system.properties).filter(property => property !== "mgc"),
     magical: valuesOf(system.properties).includes("mgc"),
     uses: {
@@ -832,8 +892,8 @@ async function grantedSpellFromCastActivity(activity) {
   const fixedChallenge = Boolean(activity?.spell?.challenge?.override);
   const attackRaw = activity?.spell?.challenge?.attack;
   const saveRaw = activity?.spell?.challenge?.save;
-  const attack = attackRaw === null || attackRaw === undefined || attackRaw === "" ? null : Number(attackRaw);
-  const save = saveRaw === null || saveRaw === undefined || saveRaw === "" ? null : Number(saveRaw);
+  const attack = attackRaw === null || attackRaw === undefined || attackRaw === "" ? null : String(attackRaw).trim();
+  const save = saveRaw === null || saveRaw === undefined || saveRaw === "" ? null : String(saveRaw).trim();
   const castLevel = Number(activity?.spell?.level ?? level);
   return {
     id: foundry.utils.randomID(),
@@ -843,8 +903,8 @@ async function grantedSpellFromCastActivity(activity) {
     source: spellDocument ? `${ItemCreatorSourceRegistry.instance.describeDocument(spellDocument).sourceLabel} — ${ItemCreatorSourceRegistry.instance.describeDocument(spellDocument).packLabel}` : "Imported Cast Activity",
     level: Number.isFinite(level) ? Math.clamp(level, 0, 9) : 0,
     school: source?.school ?? spellDocument?.system?.school ?? "",
-    hasAttack: source?.hasAttack ?? (attack !== null && Number.isFinite(attack)),
-    hasSave: source?.hasSave ?? (save !== null && Number.isFinite(save)),
+    hasAttack: source?.hasAttack ?? Boolean(attack),
+    hasSave: source?.hasSave ?? Boolean(save),
     useLimit: limited ? "limited" : "unlimited",
     maxUses: limited ? useMax : 1,
     recovery: recoveryName(activity),
@@ -853,8 +913,8 @@ async function grantedSpellFromCastActivity(activity) {
     castLevelMode: moduleFlags.castLevelMode ?? (consumeSlot && slotTarget?.scaling?.mode === "level" ? "slot" : castLevel > level ? "fixed" : "base"),
     fixedCastLevel: Number.isFinite(castLevel) ? castLevel : level,
     spellcastingMode: moduleFlags.spellcastingMode ?? (fixedChallenge ? "fixed" : activity?.spell?.ability || "actorDefault"),
-    fixedAttackBonus: attack !== null && Number.isFinite(attack) ? attack : 5,
-    fixedSaveDc: save !== null && Number.isFinite(save) ? save : 13,
+    fixedAttackBonus: attack || "5",
+    fixedSaveDc: save || "13",
     exposeAsActivity: typeof moduleFlags.exposeAsActivity === "boolean"
       ? moduleFlags.exposeAsActivity
       : (!spellbookIntent(activity) && !consumeSlot),
@@ -869,7 +929,9 @@ async function grantedSpellFromCastActivity(activity) {
 }
 
 function effectChanges(effect) {
-  return valuesOf(effect?.system?.changes ?? effect?.changes);
+  return valuesOf(effect?.system?.changes ?? effect?.changes).map(change => ({
+    ...change, key: dnd6EffectPath(change?.key)
+  }));
 }
 
 function effectModeName(mode) {
@@ -910,21 +972,21 @@ function inferGrantedEffects(item) {
       continue;
     }
 
-    if (changes.length === 2 && keys.includes("system.bonuses.mwak.attack") && keys.includes("system.bonuses.rwak.attack")) {
+    if (changes.length === 2 && keys.includes("system.rolls.attack.mwak.bonus") && keys.includes("system.rolls.attack.rwak.bonus")) {
       enabled.weaponAttackBonus = true;
       values.weaponAttackBonus = { bonus: Number(changes[0].value) || 0, availability };
       managedEffectIds.push(effectId);
       continue;
     }
 
-    if (changes.length === 2 && keys.includes("system.bonuses.mwak.damage") && keys.includes("system.bonuses.rwak.damage")) {
+    if (changes.length === 2 && keys.includes("system.rolls.damage.mwak.bonus") && keys.includes("system.rolls.damage.rwak.bonus")) {
       enabled.weaponDamageBonus = true;
       values.weaponDamageBonus = { bonus: Number(changes[0].value) || 0, availability };
       managedEffectIds.push(effectId);
       continue;
     }
 
-    if (changes.length === 2 && keys.includes("system.bonuses.msak.attack") && keys.includes("system.bonuses.rsak.attack")) {
+    if (changes.length === 2 && keys.includes("system.rolls.attack.msak.bonus") && keys.includes("system.rolls.attack.rsak.bonus")) {
       enabled.spellAttackBonus = true;
       values.spellAttackBonus = { bonus: Number(changes[0].value) || 0, availability };
       managedEffectIds.push(effectId);
@@ -1495,13 +1557,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     const properties = valuesOf(document.system?.properties);
     const attunement = String(document.system?.attunement ?? "").trim();
-    const magical = properties.includes("mgc") || Boolean(document.system?.rarity)
+    const documentRarity = primaryItemRarity(document);
+    const magical = properties.includes("mgc") || Boolean(documentRarity)
       || Boolean(attunement && attunement !== "none");
     if (document.type === "weapon") {
       if (magical && (!merge || !this.enhancements.magicalWeapon)) {
         this.enhancements.magicalWeapon = true;
         this.enhancementValues.magicalWeapon = mergeWithDefaults(enhancementDefaults().magicalWeapon, {
-          rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+          rarity: documentRarity || "uncommon", attunement: document.system?.attunement || ""
         });
       }
       const bonus = Number(document.system?.magicalBonus);
@@ -1531,7 +1594,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (magical && (!merge || !this.enhancements.magicalItem)) {
         this.enhancements.magicalItem = true;
         this.enhancementValues.magicalItem = mergeWithDefaults(equipmentEnhancementDefaults().magicalItem, {
-          rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+          rarity: documentRarity || "uncommon", attunement: document.system?.attunement || ""
         });
       }
       const bonus = Number(document.system?.armor?.magicalBonus);
@@ -1542,10 +1605,41 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } else if (document.type === "tool" && magical && (!merge || !this.enhancements.magicalTool)) {
       this.enhancements.magicalTool = true;
       this.enhancementValues.magicalTool = mergeWithDefaults(toolEnhancementDefaults().magicalTool, {
-        rarity: document.system?.rarity || "uncommon", attunement: document.system?.attunement || ""
+        rarity: documentRarity || "uncommon", attunement: document.system?.attunement || ""
       });
     }
     this.#syncGrantedSpellMagicalState();
+  }
+
+  async #refreshLegacyTriggeredSpellEffects() {
+    for (const setting of this.triggeredEffects ?? []) {
+      for (const payload of setting?.effects ?? []) {
+        if (payload?.type !== "selectedSpellEffects") continue;
+        const legacy = Array.isArray(payload.spellEffects) ? clone(payload.spellEffects) : [];
+        // Normalize only in memory while editing. The persisted Item is not
+        // changed until the GM explicitly chooses Update/Save.
+        for (const snapshot of legacy) {
+          for (const change of snapshot?.changes ?? []) {
+            if (change?.key) change.key = dnd6EffectPath(change.key);
+          }
+        }
+        payload.spellEffects = legacy;
+        const uuid = String(payload.spellUuid ?? "").trim();
+        if (!uuid) continue;
+        try {
+          const spell = await fromUuid(uuid);
+          if (!isSpellItemDocument(spell)) continue;
+          const refreshed = await refreshSelectedSpellEffectSnapshots(spell, legacy);
+          if (refreshed.length) {
+            payload.spellName = spell.name ?? payload.spellName;
+            payload.spellImg = spell.img ?? payload.spellImg;
+            payload.spellEffects = refreshed;
+          }
+        } catch (error) {
+          console.warn(`${MODULE_ID} | Legacy Spell-effect refresh failed for ${payload.spellName || uuid}; keeping the normalized saved snapshot.`, error);
+        }
+      }
+    }
   }
 
   async #initializeEditState(registry) {
@@ -1597,6 +1691,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           } else setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
         }
         this.customImportedEffects = clone(savedDraft.customImportedEffects ?? []);
+        for (const entry of this.customImportedEffects) if (entry?.spellEffectImport === true) ensureConsumableSpellEffectEntry(entry);
         this.customImportedActivities = clone(savedDraft.customImportedActivities ?? []);
         this.importedBaseSummary = clone(savedDraft.importedBaseSummary ?? []);
       } else {
@@ -1650,6 +1745,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
         this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
         this.triggeredEffects = (savedDraft.triggeredEffects ?? []).map(normalizeTriggeredEffect);
+        await this.#refreshLegacyTriggeredSpellEffects();
         this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
         this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
         this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -1721,6 +1817,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.grantedEffectValues = mergeWithDefaults(grantedEffectDefaults(), savedDraft.grantedEffectValues);
       this.resourceModifications = (savedDraft.resourceModifications ?? []).map(normalizeResourceModification);
       this.triggeredEffects = (savedDraft.triggeredEffects ?? []).map(normalizeTriggeredEffect);
+      await this.#refreshLegacyTriggeredSpellEffects();
       this.descriptionCustomized = Boolean(savedDraft.descriptionCustomized);
       this.templateDescriptionRaw = rawTemplateDescription(this.selectedWeaponDocument);
       this.templateDescription = cleanTemplateDescription(this.selectedWeaponDocument);
@@ -2293,7 +2390,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const effectAvailability = Object.fromEntries(Object.keys(effectValues).map(key => [key, isConsumable
       ? [{ value: "owned", label: "On Use", selected: true }]
       : effectAvailabilityOptions(effectValues[key]?.availability)]));
-    const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length;
+    const consumableSpellEffectEntries = isConsumable
+      ? this.customImportedEffects.filter(entry => entry?.spellEffectImport === true && entry?.included !== false)
+      : [];
+    const grantedEffectCount = Object.values(this.grantedEffects).filter(Boolean).length + consumableSpellEffectEntries.length;
     const levelProgressionCount = [
       ...Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting" && settingHasProgression(this.enhancementValues[key])),
       ...Object.entries(this.grantedEffects).filter(([key, enabled]) => enabled && settingHasProgression(this.grantedEffectValues[key])),
@@ -2302,10 +2402,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ...resourceModificationRows.filter(row => row.unlockOnLevel).map(row => [row.id, true]),
       ...triggeredEffectRows.filter(row => row.unlockOnLevel).map(row => [row.id, true])
     ].length;
-    const customImportedEffectRows = this.customImportedEffects.map(entry => ({
-      ...entry,
-      technical: JSON.stringify(entry.data ?? {}, null, 2)
-    }));
+    const customImportedEffectRows = this.customImportedEffects
+      .filter(entry => entry?.spellEffectImport !== true)
+      .map(entry => ({
+        ...entry,
+        technical: JSON.stringify(entry.data ?? {}, null, 2)
+      }));
     const composableTypes = new Set(COMPOSABLE_ACTIVITY_TYPES.map(([value]) => value));
     const composedActivityRows = this.customImportedActivities
       .filter(entry => !entry?.removed && (entry?.composed === true || composableTypes.has(entry?.type ?? entry?.data?.type)))
@@ -2343,9 +2445,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           isExhaustion: change.type === "removeExhaustion"
         }));
         const currentNativeType = row.type;
-        const typeChoices = COMPOSABLE_ACTIVITY_TYPES.some(([value]) => value === currentNativeType)
+        const availableComposerTypes = this.selectedType === "consumable"
           ? COMPOSABLE_ACTIVITY_TYPES
-          : [[currentNativeType, `${activityTypeLabel(currentNativeType)} (Native / Preserved)`], ...COMPOSABLE_ACTIVITY_TYPES];
+          : COMPOSABLE_ACTIVITY_TYPES.filter(([value]) => value !== "applyEffects");
+        const typeChoices = availableComposerTypes.some(([value]) => value === currentNativeType)
+          ? availableComposerTypes
+          : [[currentNativeType, `${activityTypeLabel(currentNativeType)} (Native / Preserved)`], ...availableComposerTypes];
         return {
           ...row,
           restoreResourceRows, actorStateRows,
@@ -2422,7 +2527,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const reviewPriceDenomination = String(reviewItem?.system?.price?.denomination || "gp").toUpperCase();
     const reviewInventory = reviewItem ? {
       name: reviewItem.name, img: reviewItem.img, type: itemTypeLabel,
-      rarity: localizedLabel(CONFIG.DND5E.itemRarity?.[reviewItem.system?.rarity], reviewItem.system?.rarity || "Mundane"),
+      rarity: (() => { const rarity = primaryItemRarity(reviewItem); return localizedLabel(CONFIG.DND5E.itemRarity?.[rarity], rarity || "Mundane"); })(),
       price: reviewPricing.mode === "priceless" ? "Priceless" : `${reviewPriceValue} ${reviewPriceDenomination}`,
       priceMode: ({ manual: "Manual", native: "Native Item", "rarity-profile": "Rarity Profile", priceless: "Priceless", none: "Unpriced" })[reviewPricing.mode] ?? "Item Data",
       attunement: reviewItem.system?.attunement ? localizedLabel(CONFIG.DND5E.attunementTypes?.[reviewItem.system.attunement], reviewItem.system.attunement) : "None",
@@ -2495,6 +2600,32 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         ], config.stacking)
       };
     }) : [];
+    const consumableSpellEffectRows = isConsumable ? this.customImportedEffects
+      .filter(entry => entry?.spellEffectImport === true)
+      .map(entry => {
+        ensureConsumableSpellEffectEntry(entry);
+        const config = entry.data.flags[MODULE_ID].consumableEffect;
+        const selected = new Set(config.activityIds ?? ["all"]);
+        return {
+          ...entry,
+          spellLevelOptions: spellLevelOptions(entry.spellLevel),
+          activityOptions: [
+            { value: "all", label: "All Item Activities", selected: selected.has("all") },
+            ...activeConsumableActivities.map(activity => ({ ...activity, selected: selected.has(activity.value) }))
+          ],
+          durationMode: config.durationMode, durationValue: config.durationValue, stacking: config.stacking,
+          durationNeedsValue: ["rounds", "turns", "minutes", "hours"].includes(config.durationMode),
+          durationOptions: fixedOptions([
+            ["permanent", "Permanent"], ["shortOrLongRest", "Until next Short or Long Rest"], ["longRest", "Until next Long Rest"],
+            ["rounds", "Rounds"], ["turns", "Owner Turns"], ["minutes", "Minutes"], ["hours", "Hours"]
+          ], config.durationMode),
+          stackingOptions: fixedOptions([
+            ["replace", "Replace Existing"], ["refresh", "Refresh Duration"], ["ignore", "Ignore New Use"], ["stack", "Allow Stacking"]
+          ], config.stacking),
+          technical: JSON.stringify(entry.data ?? {}, null, 2)
+        };
+      }) : [];
+
 
     return {
       stage: MODULE_STAGE, version: MODULE_VERSION,
@@ -2536,7 +2667,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       equipmentForm: this.equipmentForm, equipmentFormOptions, equipmentTypeOptions, armorTypeOptions,
       isArmorForm, isShieldForm, hasArmorFields,
       toolTypeOptions, toolAbilityOptions, baseToolOptions,
-      consumableTypeOptions, consumableSubtypeOptions, consumableGrantedEffectRows,
+      consumableTypeOptions, consumableSubtypeOptions, consumableGrantedEffectRows, consumableSpellEffectRows,
       equipmentFormLabel: EQUIPMENT_FORMS.find(form => form.id === this.equipmentForm)?.label ?? "Equipment",
       armorDexFull: effective?.armor?.dex === null || effective?.armor?.dex === undefined,
       armorDexValue: effective?.armor?.dex ?? 0,
@@ -2679,6 +2810,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-effect-multi]').forEach(input => input.addEventListener("change", event => this.#updateGrantedEffectMulti(event)));
     root.querySelectorAll('[data-consumable-effect-input]').forEach(input => input.addEventListener("change", event => this.#updateConsumableEffectConfig(event)));
     root.querySelectorAll('[data-consumable-effect-activity]').forEach(input => input.addEventListener("change", event => this.#updateConsumableEffectActivityBinding(event)));
+    root.querySelector('[data-action="browse-consumable-spell-effect"]')?.addEventListener("click", event => this.#browseConsumableSpellEffect(event));
+    root.querySelectorAll('[data-consumable-spell-effect-input]').forEach(input => input.addEventListener("change", event => this.#updateConsumableSpellEffect(event)));
+    root.querySelectorAll('[data-consumable-spell-effect-activity]').forEach(input => input.addEventListener("change", event => this.#updateConsumableSpellEffectActivityBinding(event)));
+    root.querySelectorAll('[data-action="remove-consumable-spell-effect"]').forEach(button => button.addEventListener("click", event => this.#removeConsumableSpellEffect(event)));
     root.querySelectorAll('[data-action="add-effect-row"]').forEach(button => button.addEventListener("click", event => this.#addGrantedEffectRow(event)));
     root.querySelectorAll('[data-action="remove-effect-row"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedEffectRow(event)));
     root.querySelector('[data-action="add-composed-activity"]')?.addEventListener("click", event => this.#addComposedActivity(event));
@@ -4497,7 +4632,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       .some(entry => {
         const source = entry.data ?? {};
         const flags = source.flags?.[MODULE_ID] ?? {};
-        const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState" : (entry.type ?? source.type);
+        const type = flags.restoreResource ? "restoreResource" : flags.actorStateChanges ? "actorState"
+          : flags.applyGrantedEffects === true ? "applyEffects" : (entry.type ?? source.type);
         if (!String(source.name ?? entry.name ?? "").trim()) return true;
         // Unknown native Base Item Activity types remain preserve-first and do not block the build.
         if (!composableTypes.has(type)) return !entry.importedBase;
@@ -4684,6 +4820,136 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
+  async #browseConsumableSpellEffect(event) {
+    event.preventDefault();
+    if (this.triggerBrowserOpen) return;
+    const CompendiumBrowser = nativeCompendiumBrowserClass();
+    if (!CompendiumBrowser?.selectOne) {
+      ui.notifications.error("The native D&D5e Compendium Browser is unavailable.");
+      return;
+    }
+    this.triggerBrowserOpen = true;
+    this.#setBrowserBlock(true);
+    try {
+      const uuid = await CompendiumBrowser.selectOne({
+        mode: CompendiumBrowser.MODES?.ADVANCED ?? 2,
+        tab: "spells",
+        hint: "Select a Spell whose persistent Active Effect will be imported into this Consumable.",
+        filters: { locked: { documentClass: "Item", types: new Set(["spell"]) } },
+        window: { modal: true }
+      });
+      if (!uuid) return;
+      const document = await fromUuid(uuid);
+      if (!isSpellItemDocument(document)) {
+        ui.notifications.warn("Select a Spell Item.");
+        return;
+      }
+      const snapshots = await extractSelectedSpellEffectsAsync(document);
+      if (!snapshots.length) {
+        ui.notifications.warn(`${document.name} has no persistent Active Effect payload that can be imported here. Direct spell resolution belongs in a Cast Spell Activity.`);
+        return;
+      }
+      const baseLevel = Math.clamp(Math.trunc(Number(document.system?.level) || 0), 0, 9);
+      for (const snapshot of snapshots) {
+        const id = foundry.utils.randomID();
+        const duration = spellEffectDurationConfig(snapshot, document);
+        const entry = {
+          id,
+          sourceId: null,
+          name: String(snapshot.name || document.name || "Spell Effect"),
+          img: snapshot.img || document.img || "icons/svg/aura.svg",
+          included: true,
+          disabled: false,
+          summary: `Spell Effect from ${document.name}`,
+          spellEffectImport: true,
+          spellUuid: document.uuid,
+          spellName: document.name,
+          spellImg: document.img ?? "",
+          spellEffectId: snapshot.id ?? null,
+          spellEffectName: snapshot.name || document.name,
+          spellLevel: baseLevel,
+          data: {
+            name: String(snapshot.name || document.name || "Spell Effect"),
+            img: snapshot.img || document.img || "icons/svg/aura.svg",
+            type: snapshot.type || "base",
+            system: { changes: clone(snapshot.changes ?? []) },
+            description: String(snapshot.description ?? ""),
+            disabled: false,
+            duration: { value: null, units: "seconds" },
+            transfer: false,
+            statuses: clone(snapshot.statuses ?? []),
+            flags: { ...clone(snapshot.flags ?? {}), [MODULE_ID]: {
+              key: `spell-effect:${id}`,
+              spellEffectImport: true,
+              consumableSpellEffect: {
+                spellUuid: document.uuid, spellName: document.name,
+                spellEffectId: snapshot.id ?? null, spellEffectName: snapshot.name || document.name,
+                spellLevel: baseLevel
+              },
+              consumableEffect: normalizeConsumableEffectConfig({
+                activityIds: ["all"], ...duration, stacking: "replace"
+              })
+            } }
+          }
+        };
+        this.customImportedEffects.push(entry);
+      }
+      this.#renderPreservingScroll();
+      ui.notifications.info(`${document.name}: imported ${snapshots.length} persistent Active Effect${snapshots.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      console.error(`${MODULE_ID} | Consumable Spell Effect browser failed.`, error);
+      ui.notifications.error("Item Creator could not import the Spell effect.");
+    } finally {
+      this.triggerBrowserOpen = false;
+      this.#setBrowserBlock(false);
+    }
+  }
+
+  #updateConsumableSpellEffect(event) {
+    const entry = this.customImportedEffects.find(row => row.id === event.currentTarget.dataset.consumableSpellEffectId && row?.spellEffectImport === true);
+    const part = event.currentTarget.dataset.consumableSpellEffectInput;
+    if (!entry || !part) return;
+    ensureConsumableSpellEffectEntry(entry);
+    const config = entry.data.flags[MODULE_ID].consumableEffect;
+    const value = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    if (part === "spellLevel") {
+      entry.spellLevel = Math.clamp(Math.trunc(Number(value) || 0), 0, 9);
+      entry.data.flags[MODULE_ID].consumableSpellEffect.spellLevel = entry.spellLevel;
+    } else if (part === "durationValue") config.durationValue = Math.max(1, Number(value) || 1);
+    else if (part === "included") entry.included = Boolean(value);
+    else if (part === "stacking") config.stacking = ["replace", "refresh", "ignore", "stack"].includes(value) ? value : "replace";
+    else if (part === "durationMode") config.durationMode = ["permanent", "shortOrLongRest", "longRest", "rounds", "turns", "minutes", "hours"].includes(value) ? value : "longRest";
+    entry.data.flags[MODULE_ID].consumableEffect = normalizeConsumableEffectConfig(config);
+    this.#renderPreservingScroll();
+  }
+
+  #updateConsumableSpellEffectActivityBinding(event) {
+    const entry = this.customImportedEffects.find(row => row.id === event.currentTarget.dataset.consumableSpellEffectId && row?.spellEffectImport === true);
+    const activityId = String(event.currentTarget.dataset.activityId ?? "");
+    if (!entry || !activityId) return;
+    ensureConsumableSpellEffectEntry(entry);
+    const config = entry.data.flags[MODULE_ID].consumableEffect;
+    const selected = new Set(config.activityIds ?? ["all"]);
+    if (activityId === "all") {
+      if (event.currentTarget.checked) { selected.clear(); selected.add("all"); }
+      else selected.delete("all");
+    } else {
+      selected.delete("all");
+      if (event.currentTarget.checked) selected.add(activityId);
+      else selected.delete(activityId);
+    }
+    if (!selected.size) selected.add("all");
+    config.activityIds = [...selected];
+    this.#renderPreservingScroll();
+  }
+
+  #removeConsumableSpellEffect(event) {
+    event.preventDefault();
+    const id = event.currentTarget.dataset.consumableSpellEffectId;
+    this.customImportedEffects = this.customImportedEffects.filter(entry => entry.id !== id);
+    this.#renderPreservingScroll();
+  }
+
   #addGrantedEffectRow(event) {
     event.preventDefault();
     const key = event.currentTarget.dataset.effectKey;
@@ -4758,7 +5024,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), consumableUse: true };
       const composerType = source.flags?.[MODULE_ID]?.restoreResource ? "restoreResource"
         : source.flags?.[MODULE_ID]?.actorStateChanges ? "actorState"
-          : (source.type || "utility");
+          : source.flags?.[MODULE_ID]?.applyGrantedEffects === true ? "applyEffects"
+            : (source.type || "utility");
       rows.push({
         id: source.flags?.[MODULE_ID]?.composerId || foundry.utils.randomID(),
         activityId: source._id, sourceId, name: source.name || activity?.name || activityTypeLabel(composerType),
@@ -4773,7 +5040,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   #newComposedActivitySource(type = "utility") {
-    const nativeType = ["restoreResource", "actorState"].includes(type) ? "utility" : type;
+    const nativeType = ["restoreResource", "actorState", "applyEffects"].includes(type) ? "utility" : type;
     const ActivityClass = CONFIG.DND5E.activityTypes?.[nativeType]?.documentClass;
     if (!ActivityClass) throw new Error(`Unsupported Activity type: ${type}`);
     const document = new ActivityClass({}, { parent: this.#activityParentForComposer() });
@@ -4781,7 +5048,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     delete source._index;
     source._id = foundry.utils.randomID();
     source.type = nativeType;
-    source.name = type === "restoreResource" ? "Restore Resource" : type === "actorState" ? "Actor State Changes" : activityTypeLabel(type);
+    source.name = type === "restoreResource" ? "Restore Resource" : type === "actorState" ? "Actor State Changes" : type === "applyEffects" ? "Apply Granted Effects" : activityTypeLabel(type);
     if (type === "restoreResource") {
       source.img = "icons/svg/regen.svg";
       source.flags ??= {};
@@ -4792,6 +5059,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       source.flags ??= {};
       source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), actorStateChanges: normalizeActorStateChangesConfig() };
     }
+    if (type === "applyEffects") {
+      source.img = "icons/svg/aura.svg";
+      source.flags ??= {};
+      source.flags[MODULE_ID] = { ...(source.flags[MODULE_ID] ?? {}), applyGrantedEffects: true };
+      source.roll ??= {};
+      source.roll.formula = ""; source.roll.name = ""; source.roll.prompt = false; source.roll.visible = false;
+    }
     source.img ||= ActivityClass.metadata?.img ?? null;
     source.activation ??= {};
     source.activation.type ||= "action";
@@ -4799,6 +5073,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     source.duration ??= {};
     source.duration.units ||= "inst";
     source.duration.override = false;
+    if (type === "applyEffects") { source.duration.units = "inst"; source.duration.value = null; source.duration.concentration = false; }
     source.range ??= {};
     source.range.units ||= "self";
     source.range.override = false;
@@ -5038,8 +5313,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (part === "type") {
       const commonKeys = ["activation", "consumption", "description", "duration", "effects", "range", "target", "uses", "visibility"];
       const replacement = this.#newComposedActivitySource(value);
-      const previousDefaultName = entry.type === "restoreResource" ? "Restore Resource" : entry.type === "actorState" ? "Actor State Changes" : activityTypeLabel(data.type);
-      const nextDefaultName = value === "restoreResource" ? "Restore Resource" : value === "actorState" ? "Actor State Changes" : activityTypeLabel(value);
+      const previousDefaultName = entry.type === "restoreResource" ? "Restore Resource" : entry.type === "actorState" ? "Actor State Changes" : entry.type === "applyEffects" ? "Apply Granted Effects" : activityTypeLabel(data.type);
+      const nextDefaultName = value === "restoreResource" ? "Restore Resource" : value === "actorState" ? "Actor State Changes" : value === "applyEffects" ? "Apply Granted Effects" : activityTypeLabel(value);
       replacement.name = (!data.name || data.name === previousDefaultName) ? nextDefaultName : data.name;
       for (const key of commonKeys) if (data[key] !== undefined) replacement[key] = clone(data[key]);
       // Preserve unrelated module flags, but only keep Restore Resource configuration when that composer type is selected.
@@ -5049,6 +5324,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       else ensureRestoreResourceActivityDefaults(replacement);
       if (value !== "actorState") delete replacement.flags[MODULE_ID].actorStateChanges;
       else replacement.flags[MODULE_ID].actorStateChanges = normalizeActorStateChangesConfig(replacement.flags[MODULE_ID].actorStateChanges);
+      if (value !== "applyEffects") delete replacement.flags[MODULE_ID].applyGrantedEffects;
+      else {
+        replacement.flags[MODULE_ID].applyGrantedEffects = true;
+        replacement.duration ??= {}; replacement.duration.units = "inst"; replacement.duration.value = null; replacement.duration.concentration = false;
+        replacement.roll ??= {}; replacement.roll.formula = ""; replacement.roll.name = ""; replacement.roll.prompt = false; replacement.roll.visible = false;
+      }
       replacement.flags[MODULE_ID].composerId = entry.id;
       entry.data = replacement; entry.type = value; entry.name = replacement.name; entry.img = replacement.img; entry.composed = true;
       this.#renderPreservingScroll();
@@ -5233,9 +5514,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
     if (!['actorDefault', 'highest', 'int', 'wis', 'cha', 'fixed'].includes(spell.spellcastingMode)) return false;
     if (spell.spellcastingMode === 'fixed') {
-      if (spell.hasAttack && !Number.isFinite(Number(spell.fixedAttackBonus))) return false;
-      const save = Number(spell.fixedSaveDc);
-      if (spell.hasSave && (!Number.isFinite(save) || save < 1 || save > 40)) return false;
+      if (spell.hasAttack && !String(spell.fixedAttackBonus ?? "").trim()) return false;
+      if (spell.hasSave && !String(spell.fixedSaveDc ?? "").trim()) return false;
     }
     if (!['owned', 'equipped', 'equippedAttuned'].includes(spell.availability)) return false;
     if (!this.#validateProgressionSetting(spell, { tierable: false })) return false;
@@ -5263,8 +5543,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       castLevelMode: 'base',
       fixedCastLevel: spell.level,
       spellcastingMode: 'actorDefault',
-      fixedAttackBonus: 5,
-      fixedSaveDc: 13,
+      fixedAttackBonus: "5",
+      fixedSaveDc: "13",
       exposeAsActivity: true,
       showInSpellbook: false,
       availability: 'equipped',
@@ -5651,7 +5931,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         ui.notifications.warn("Select a Spell Item.");
         return;
       }
-      const snapshots = extractSelectedSpellEffects(document);
+      const snapshots = await extractSelectedSpellEffectsAsync(document);
       if (!snapshots.length) {
         ui.notifications.warn(`${document.name} has no transferable Active Effects. No Spell was assigned.`);
         return;
