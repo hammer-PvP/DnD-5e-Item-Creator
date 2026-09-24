@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.95 — Published Item Library
+
+- Added the **Item Creator — Published Items** canonical library. Item Creator creates and manages a dedicated **World Item Compendium**, so GM-authored publications survive Item Creator module updates and are not stored in the World Items Directory by default.
+- Added the **Published Items** browser inside Item Creator with automatic Weapon, Equipment, Consumable, Tool, and Other categorization, search/type filters, archived-item filtering, native Compendium access, and drag-and-drop of real Compendium Item documents.
+- Added direct **Edit** of a published Item from the library. Published editing restores the normal Item Creator draft without requiring a temporary World Item.
+- Added **Publish New** for new drafts and existing World Items. Existing `Edit with Item Creator` World Item workflows remain supported, giving existing GMs a direct migration path into the canonical library.
+- Added **Update Published**. Publication updates edit the existing Compendium Item in place, preserve its `_id`/UUID/publication identity, and increment a lightweight publication revision. Existing Actor and World copies remain independent and are never synchronized automatically.
+- Added **Create Copy** for published Items. Copies receive a new Compendium Item `_id`, UUID, and publication identity so GMs can keep independent variants for testing or comparison without modifying the original publication.
+- Added explicit **Archive/Restore** and protected permanent **Delete** actions. Archive preserves the publication document and UUID while hiding it from the default Published Items view.
+- Added **World Test Item / World Copy** actions and native drag-and-drop. World/Actor copies are use/test instances only; Item Creator does not monitor or synchronize inventory copies.
+- Excluded the Published Item Library from Item Creator base/template source discovery so the canonical output library cannot recursively become its own authoring source.
+- Removed Item Creator's dependency on deprecated `CONST.ACTIVE_EFFECT_MODES`. New/generated Active Effect changes now persist through D&D5e 6.x `system.changes[].type` string values; legacy numeric `mode` values remain read-only compatibility input and are normalized when an Item is explicitly rebuilt/published.
+- Normalized Materialization Core Active Effect output to the same D&D5e 6.x change contract and advanced the bundled Materialization Core implementation to **0.3.3**.
+- Updated the verified environment to **Foundry VTT 14.368 / D&D5e 6.0.5**, retaining Foundry minimum 14.367 and D&D5e compatibility 6.0.1–6.0.999.
+- Crafting/Recipe management, inventory monitoring, automatic replacement of Actor/World copies, rollback/history/diff/version locking, and cross-module synchronization are intentionally outside Item Creator's Published Library responsibility.
+
 ## 0.7.94a — Production Stabilization
 
 - Replaced the direct monkey patch of `dnd5e.documents.activity.AttackActivity.prototype.rollAttack` with a cooperative **libWrapper `WRAPPER`** whenever libWrapper is active. This removes the live conflict warning observed when Item Creator and Character Builder both participate in the D&D5e attack-roll pipeline.

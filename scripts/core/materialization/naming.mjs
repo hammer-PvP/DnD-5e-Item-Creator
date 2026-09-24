@@ -1,4 +1,5 @@
 import { setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
+import { normalizeEffectChanges } from "../../utils/effect-change-types.mjs";
 
 /**
  * Canonical naming helpers for concrete Items produced by materializers.
@@ -113,8 +114,10 @@ function effectChanges(effect) {
 }
 
 function setEffectChanges(effect, changes) {
-  if (Array.isArray(effect?.changes) || !effect?.system || !Object.hasOwn(effect.system, "changes")) effect.changes = changes;
-  else effect.system.changes = changes;
+  if (!effect || typeof effect !== "object") return;
+  effect.system ??= {};
+  effect.system.changes = normalizeEffectChanges(changes);
+  delete effect.changes;
 }
 
 function applyIdentityProperty(itemData, key, value) {

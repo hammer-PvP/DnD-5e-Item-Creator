@@ -1,3 +1,5 @@
+import { normalizeEffectChanges } from "./effect-change-types.mjs";
+
 /**
  * D&D5e 6.x compatibility helpers.
  *
@@ -99,10 +101,14 @@ export function normalizeDnd6ItemSource(source) {
   } else if (system.rarities instanceof Set) system.rarities = [...system.rarities];
 
   for (const effect of valuesOf(source.effects)) {
-    const changes = valuesOf(effect?.system?.changes ?? effect?.changes);
+    if (!effect || typeof effect !== "object") continue;
+    const changes = normalizeEffectChanges(effect?.system?.changes ?? effect?.changes ?? []);
     for (const change of changes) {
       if (change?.key) change.key = dnd6EffectPath(change.key);
     }
+    effect.system ??= {};
+    effect.system.changes = changes;
+    delete effect.changes;
   }
   return source;
 }

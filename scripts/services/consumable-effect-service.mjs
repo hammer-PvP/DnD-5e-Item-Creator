@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
+import { normalizeEffectChanges } from "../utils/effect-change-types.mjs";
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -244,6 +245,9 @@ function sourceForActor(effect, item, actor, runtime, config, instanceId) {
   const source = effect.toObject instanceof Function ? effect.toObject(false) : clone(effect);
   delete source._id;
   delete source.origin;
+  source.system ??= {};
+  source.system.changes = normalizeEffectChanges(source.system?.changes ?? source.changes ?? []);
+  delete source.changes;
   source.name = `${item.name} — ${String(effect.name ?? "Effect").replace(/^Item Creator\s*[—-]\s*/i, "")}`;
   applySpellLevelContext(source, effect);
   source.img = effect.img || item.img;

@@ -2,7 +2,7 @@ import { MODULE_ID } from "../../constants.mjs";
 import { primaryItemRarity } from "../../utils/dnd6-compat.mjs";
 
 export const MATERIALIZATION_SETTINGS_KEY = "materializationSettings";
-export const MATERIALIZATION_CORE_VERSION = "0.3.2";
+export const MATERIALIZATION_CORE_VERSION = "0.3.3";
 export const MATERIALIZATION_PRICING_SCHEMA_VERSION = 1;
 
 export const OFFICIAL_RARITY_PRICES = Object.freeze({

@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { actorTotalLevel, selectProgressionTier, variantEligible } from "./level-progression.mjs";
+import { EFFECT_CHANGE_TYPES, normalizeEffectChanges } from "../utils/effect-change-types.mjs";
 import {
   RESOURCE_DICE, auditResourceDefinitions, featureUseTarget, findResourceFeature, findResourceScale,
   getResourceDefinition, normalizeResourceModification, validateResourceModification
@@ -697,6 +698,9 @@ export class ItemCreatorRuntimeEffectService {
       desired.add(blueprint.id);
       const data = blueprint.toObject();
       delete data._id;
+      data.system ??= {};
+      data.system.changes = normalizeEffectChanges(data.system?.changes ?? data.changes ?? []);
+      delete data.changes;
       data.origin = item.uuid;
       data.transfer = false;
       data.disabled = false;
@@ -1044,7 +1048,7 @@ export class ItemCreatorRuntimeEffectService {
       if (!faces || faces === group.baseFaces) continue;
       changes.push({
         key: group.path,
-        mode: CONST.ACTIVE_EFFECT_MODES.OVERRIDE,
+        type: EFFECT_CHANGE_TYPES.OVERRIDE,
         value: resourceDieValue(group.path, faces),
         priority: 90
       });
@@ -1070,7 +1074,7 @@ export class ItemCreatorRuntimeEffectService {
       transfer: false,
       disabled: false,
       statuses: [],
-      changes,
+      system: { changes: normalizeEffectChanges(changes) },
       flags: { [MODULE_ID]: { resourceDieRuntime: true, ledgerVersion: 3, baseSnapshots } }
     };
     if (runtimeEffect) {
@@ -1080,7 +1084,7 @@ export class ItemCreatorRuntimeEffectService {
         img: data.img,
         origin: data.origin,
         disabled: false,
-        "system.changes": changes,
+        "system.changes": data.system.changes,
         [`flags.${MODULE_ID}`]: data.flags[MODULE_ID]
       }], { itemCreatorRuntime: true, render: true });
     } else {

@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
+import { normalizeEffectChangeType, normalizeEffectChanges } from "../utils/effect-change-types.mjs";
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -37,16 +38,7 @@ function activityEffects(activity) {
 }
 
 function modeToken(mode) {
-  const text = String(mode ?? "").trim().toLowerCase();
-  if (["add", "multiply", "override", "upgrade", "downgrade", "custom"].includes(text)) return text;
-  const numeric = Number(mode);
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.ADD)) return "add";
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.MULTIPLY)) return "multiply";
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.OVERRIDE)) return "override";
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.UPGRADE)) return "upgrade";
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.DOWNGRADE)) return "downgrade";
-  if (numeric === Number(CONST.ACTIVE_EFFECT_MODES.CUSTOM)) return "custom";
-  return "add";
+  return normalizeEffectChangeType(mode);
 }
 
 function modeName(mode) {
@@ -110,7 +102,8 @@ function modifier(value) {
 function importedCustomEffect(effect, remainingChanges) {
   const data = sourceObject(effect);
   data.system ??= {};
-  data.system.changes = clone(remainingChanges);
+  data.system.changes = normalizeEffectChanges(clone(remainingChanges));
+  delete data.changes;
   delete data._id;
   delete data.origin;
   const name = effect?.name || "Imported Active Effect";

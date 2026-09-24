@@ -1,6 +1,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
+import { EFFECT_CHANGE_TYPES, normalizeEffectChange } from "../utils/effect-change-types.mjs";
 
 export const TRIGGER_CATEGORIES = Object.freeze({
   attack: "Attack",
@@ -634,7 +635,7 @@ function formulaForPayload(row, stacks) {
 
 function addChange(changes, key, mode, value, priority = null) {
   if (value === null || value === undefined || value === "") return;
-  changes.push({ key: dnd6EffectPath(key), mode, value: String(value), ...(priority ? { priority } : {}) });
+  changes.push({ key: dnd6EffectPath(key), type: mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
 function addEligibleRollChanges(changes, event, mode, value) {
@@ -646,8 +647,8 @@ function addEligibleRollChanges(changes, event, mode, value) {
 }
 
 export function buildTriggeredEffectChanges(setting, stacks, actor = null, { payloads = null } = {}) {
-  const add = CONST.ACTIVE_EFFECT_MODES.ADD;
-  const downgrade = CONST.ACTIVE_EFFECT_MODES.DOWNGRADE;
+  const add = EFFECT_CHANGE_TYPES.ADD;
+  const downgrade = EFFECT_CHANGE_TYPES.DOWNGRADE;
   const changes = [];
   let highestSpellcasting = -Infinity;
   if (actor) {
@@ -987,7 +988,7 @@ function sanitizedSpellEffectFlags(value = {}) {
 function selectedSpellEffectSnapshot(effect, document) {
   const data = effect?.toObject instanceof Function ? effect.toObject() : clone(effect ?? {});
   if (data.disabled) return null;
-  const changes = clone(data.system?.changes ?? data.changes ?? []).map(change => ({
+  const changes = clone(data.system?.changes ?? data.changes ?? []).map(change => normalizeEffectChange({
     ...change,
     key: change?.key ? dnd6EffectPath(change.key) : change?.key
   }));

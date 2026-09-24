@@ -1,5 +1,6 @@
 import { MODULE_ID, defaultSourceSettings } from "../constants.mjs";
 import { primaryItemRarity } from "../utils/dnd6-compat.mjs";
+import { PUBLISHED_LIBRARY_PACK_NAME } from "./published-item-library-service.mjs";
 
 const SUPPORTED_TYPES = new Set(["weapon", "equipment", "tool", "consumable"]);
 
@@ -240,6 +241,7 @@ export class ItemCreatorSourceRegistry {
     const summaries = [];
     for (const pack of game.packs) {
       if (pack.documentName !== "Item") continue;
+      if (pack.collection === `world.${PUBLISHED_LIBRARY_PACK_NAME}`) continue;
       let index;
       try { index = await pack.getIndex({ fields: ["type", "system.type.value"] }); }
       catch (error) { console.warn(`${MODULE_ID} | Unable to inspect Item pack ${pack.collection}.`, error); continue; }

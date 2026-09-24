@@ -3167,3 +3167,215 @@ body.ic-protected-active { overflow: hidden; }
 .item-creator [data-composed-activity-requires-uses]:disabled { opacity: .5; cursor: not-allowed; }
 .item-creator select[data-action="insert-composed-formula-token"] { min-width: 170px; }
 \n.ic-restore-resource-list { display: grid; gap: 10px; }\n.ic-restore-resource-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; padding: 10px; border: 1px solid var(--color-border-light-tertiary); border-radius: 6px; }\n.ic-restore-resource-remove { align-self: end; }\n
+/* v0.7.95 — Published Item Library */
+.item-creator .ic-edit-mode-banner.published {
+  border-color: color-mix(in srgb, var(--color-warm-2, #c89b3c) 70%, transparent);
+}
+
+.item-creator .ic-published-entry {
+  margin-top: 16px;
+}
+
+.item-creator .ic-published-entry > button {
+  width: 100%;
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 36px 1fr 20px;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.item-creator .ic-published-entry > button > i:first-child {
+  font-size: 1.35rem;
+}
+
+.item-creator .ic-published-entry span {
+  display: grid;
+  gap: 3px;
+}
+
+.item-creator .ic-published-entry small {
+  opacity: .75;
+  font-weight: 400;
+}
+
+.ic-published-save-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ic-published-library .window-content {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ic-published-shell {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  min-height: 0;
+}
+
+.ic-published-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--color-border-light-primary, #777);
+}
+
+.ic-published-header h1 {
+  margin: 2px 0 4px;
+}
+
+.ic-published-header p {
+  margin: 0;
+  opacity: .72;
+}
+
+.ic-published-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 190px auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--color-border-light-primary, #777);
+}
+
+.ic-published-search {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.ic-published-search input,
+.ic-published-toolbar select {
+  width: 100%;
+}
+
+.ic-published-archived {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ic-published-list {
+  overflow: auto;
+  padding: 14px 20px 24px;
+}
+
+.ic-published-group + .ic-published-group {
+  margin-top: 18px;
+}
+
+.ic-published-group > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ic-published-group > header h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.ic-published-group > header span {
+  margin-left: auto;
+  opacity: .65;
+}
+
+.ic-published-cards {
+  display: grid;
+  gap: 7px;
+}
+
+.ic-published-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--color-border-light-primary, #777);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .08);
+}
+
+.ic-published-card.archived {
+  opacity: .58;
+}
+
+.ic-published-card > img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border: 0;
+  border-radius: 4px;
+}
+
+.ic-published-card-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ic-published-card-main strong,
+.ic-published-card-main small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ic-published-card-main small {
+  opacity: .72;
+}
+
+.ic-published-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ic-published-card-actions button {
+  min-width: 34px;
+}
+
+.ic-published-card-actions button.danger {
+  color: var(--color-level-error, #b22);
+}
+
+.ic-published-empty {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  opacity: .75;
+}
+
+.ic-published-empty > i {
+  font-size: 2.4rem;
+  margin-bottom: 8px;
+}
+
+.ic-published-empty h2,
+.ic-published-empty p {
+  margin: 4px 0;
+}
+
+@media (max-width: 760px) {
+  .ic-published-toolbar {
+    grid-template-columns: 1fr;
+  }
+  .ic-published-card {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+  .ic-published-card-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}

@@ -5,6 +5,7 @@ import { ProtectedTransactionDialogService } from "./protected-transaction-dialo
 import { TriggeredConsumptionDecisionApp } from "../apps/triggered-consumption-decision-app.mjs";
 import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
 import { diagnosticLog, diagnosticWarn } from "../utils/diagnostics.mjs";
+import { EFFECT_CHANGE_TYPES, normalizeEffectChange, normalizeEffectChangeType } from "../utils/effect-change-types.mjs";
 import {
   buildTriggeredEffectChanges, contextualRollModifierFormula, extractSelectedSpellEffectsAsync, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
@@ -723,9 +724,7 @@ function rollResultIsFailure(roll, rollType) {
 }
 
 function additiveChange(change) {
-  const mode = change?.mode ?? change?.type;
-  const addMode = globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
-  return Number(mode) === Number(addMode) || String(mode ?? "").toLowerCase() === "add";
+  return normalizeEffectChangeType(change) === EFFECT_CHANGE_TYPES.ADD;
 }
 
 function attackBonusPath(activity) {
@@ -3431,7 +3430,7 @@ export class ItemCreatorTriggeredEffectService {
           slot: `spell:${payload.id}:${snapshotId}`,
           name: `Item Creator — ${setting.name}: ${payload.spellName || "Selected Spell"}${snapshot?.name ? ` — ${snapshot.name}` : ""}`,
           img: snapshot?.img || payload.spellImg || item.img || "icons/svg/aura.svg",
-          changes: clone(snapshot?.changes ?? []).map(change => ({
+          changes: clone(snapshot?.changes ?? []).map(change => normalizeEffectChange({
             ...change,
             key: change?.key ? dnd6EffectPath(change.key) : change?.key
           })),

@@ -4,6 +4,8 @@ import { ItemCreatorApp } from "./apps/item-creator-app.mjs";
 import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
 import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
+import { PublishedItemLibraryApp } from "./apps/published-item-library-app.mjs";
+import { PublishedItemLibraryService } from "./services/published-item-library-service.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
 import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
@@ -27,6 +29,7 @@ import {
 
 let appInstance = null;
 let scrollFactoryInstance = null;
+let publishedLibraryInstance = null;
 let supplierInstance = null;
 let supplierConfigInstance = null;
 let sourceSettingsInstance = null;
@@ -84,6 +87,7 @@ Hooks.once("init", () => {
     open: () => openItemCreator(),
     edit: item => openItemCreator({ item }),
     openScrollFactory: () => openScrollFactory(),
+    openPublished: () => openPublishedLibrary(),
     get scrollFactory() { return scrollFactoryInstance; },
     openSupplier: () => openSupplier(),
     configureSupplier: options => openSupplierConfiguration(options),
@@ -130,6 +134,13 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", async () => {
+  if (game.user?.isGM) {
+    try {
+      await PublishedItemLibraryService.ensurePack();
+    } catch (error) {
+      console.warn(`${MODULE_ID} | Unable to initialize Published Item Library.`, error);
+    }
+  }
   if (isSupplierEnabled()) await initializeDefaultSources();
   try {
     // Validate enabled Item Creator sources after every full world reload.
@@ -167,12 +178,18 @@ function contextItem(target) {
   return id ? game.items.get(String(id)) : null;
 }
 
-function isEditableWorldItem(item) {
+function isSupportedCreatorItem(item) {
   const supported = item?.type === "weapon"
     || (item?.type === "equipment" && item?.system?.type?.value !== "vehicle")
     || item?.type === "tool"
     || item?.type === "consumable";
-  return Boolean(game.user.isGM && (item?.documentName ?? item?.constructor?.documentName) === "Item" && supported && !item.parent && !item.pack);
+  const documentName = item?.documentName ?? item?.constructor?.documentName;
+  const validLocation = !item?.parent && (!item?.pack || PublishedItemLibraryService.isLibraryItem(item));
+  return Boolean(game.user.isGM && documentName === "Item" && supported && validLocation);
+}
+
+function isEditableWorldItem(item) {
+  return Boolean(isSupportedCreatorItem(item) && !item.pack);
 }
 
 function addEditContextOption(options) {
@@ -192,7 +209,7 @@ function addEditContextOption(options) {
 
 function openItemCreator({ item = null } = {}) {
   if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Item Creator.");
-  if (item && !isEditableWorldItem(item)) return ui.notifications.warn("Only world Weapon, Equipment, Tool, and Consumable Items can be edited with Item Creator.");
+  if (item && !isSupportedCreatorItem(item)) return ui.notifications.warn("Only supported World Items or Item Creator Published Items can be edited with Item Creator.");
 
   if (appInstance?.element?.isConnected) {
     const sameTarget = (appInstance.editingItemId ?? null) === (item?.id ?? null);
@@ -204,6 +221,28 @@ function openItemCreator({ item = null } = {}) {
   appInstance = new ItemCreatorApp({ editItem: item });
   appInstance.render({ force: true });
   return appInstance;
+}
+
+function openPublishedLibrary() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can use the Item Creator Published Library.");
+  if (publishedLibraryInstance?.element?.isConnected) {
+    publishedLibraryInstance.bringToFront?.();
+    return publishedLibraryInstance;
+  }
+  publishedLibraryInstance = new PublishedItemLibraryApp({
+    onEdit: async item => {
+      if (appInstance?.element?.isConnected) {
+        ui.notifications.warn("Close the current Item Creator draft before editing a published Item.");
+        appInstance.bringToFront?.();
+        return;
+      }
+      await publishedLibraryInstance?.close?.();
+      publishedLibraryInstance = null;
+      openItemCreator({ item });
+    }
+  });
+  publishedLibraryInstance.render({ force: true });
+  return publishedLibraryInstance;
 }
 
 function openScrollFactory() {

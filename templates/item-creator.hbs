@@ -9,12 +9,12 @@
     </header>
 
     {{#if editMode}}
-    <section class="ic-edit-mode-banner">
-      <i class="fa-solid fa-pen-to-square"></i>
+    <section class="ic-edit-mode-banner {{#if editingPublishedItem}}published{{/if}}">
+      <i class="fa-solid {{#if editingPublishedItem}}fa-box-archive{{else}}fa-pen-to-square{{/if}}"></i>
       <span>
-        <small>Editing World Item</small>
+        <small>{{#if editingPublishedItem}}Editing Published Item · Revision {{publicationRevision}}{{else}}Editing World Item{{/if}}</small>
         <strong>{{editingItemName}}</strong>
-        <em>{{#if editingManagedItem}}Full Item Creator draft restored{{else}}Native D&D5e data imported{{/if}}</em>
+        <em>{{#if editingManagedItem}}Full Item Creator draft restored{{else}}Native D&amp;D5e data imported{{/if}}</em>
       </span>
     </section>
     {{/if}}
@@ -76,6 +76,14 @@
         </button>
         {{/each}}
       </div>
+
+      <section class="ic-published-entry">
+        <button type="button" data-action="open-published-library">
+          <i class="fa-solid fa-box-archive"></i>
+          <span><strong>Published Items</strong><small>Browse, edit, duplicate, archive, and test the canonical Item Creator library.</small></span>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+      </section>
 
       <aside class="ic-alpha-note">
         <i class="fa-solid fa-flask"></i>
@@ -2072,26 +2080,46 @@
           <p>{{reviewSummary.enhancements}} Enhancement(s), {{reviewSummary.grantedEffects}} Granted Effect(s), {{reviewSummary.triggeredEffects}} Triggered Effect(s), {{reviewSummary.grantedSpells}} Granted Spell(s), and {{reviewSummary.resources}} Resource Modification(s).</p>
         </section>
 
-        <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editMode}}Update Item modifies the selected World Item in place. Save as Copy creates a separate World Item and leaves the original unchanged. Existing copies already placed on Actors are not automatically updated.{{else}}Save Item creates a new world Item. Return to any previous step to revise the name or configuration; existing draft selections are preserved.{{/if}}</p></aside>
+        <aside><i class="fa-solid fa-circle-info"></i><p>{{#if editingPublishedItem}}Update Published keeps this publication's UUID and increments its revision. Create Copy creates an independent publication. World test copies are never synchronized automatically.{{else if editingWorldItem}}Update World Item preserves the current World copy. Publish New creates a canonical publication in the Item Creator library. Existing Actor copies are never updated automatically.{{else}}Publish New stores the canonical Item in the Item Creator Published Library. Create World Test Item is optional and creates an independent World copy for testing/use.{{/if}}</p></aside>
       </section>
       {{/if}}
     </section>
 
     <footer class="ic-navigation">
       <button type="button" data-action="back"><i class="fa-solid fa-chevron-left"></i> Back</button>
-      {{#if editMode}}
-      <div class="ic-edit-save-actions">
-        <button type="button" class="ic-save-copy" data-action="save-copy" {{#unless reviewReady}}disabled{{/unless}}>
-          <i class="fa-solid fa-copy"></i><span>{{#if savingItem}}Working…{{else}}Save as Copy{{/if}}</span>
+      {{#if editingPublishedItem}}
+      <div class="ic-edit-save-actions ic-published-save-actions">
+        <button type="button" class="ic-save-copy" data-action="world-test" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-vial"></i><span>{{#if savingItem}}Working…{{else}}World Test Item{{/if}}</span>
         </button>
-        <button type="button" class="ic-primary-continue ic-save-item" data-action="update-item" {{#unless reviewReady}}disabled{{/unless}}>
-          <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Updating…{{else}}Update Item{{/if}}</span>
+        <button type="button" class="ic-save-copy" data-action="published-copy" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-code-branch"></i><span>{{#if savingItem}}Working…{{else}}Create Copy{{/if}}</span>
+        </button>
+        <button type="button" class="ic-primary-continue ic-save-item" data-action="update-published" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-cloud-arrow-up"></i><span>{{#if savingItem}}Updating…{{else}}Update Published{{/if}}</span>
+        </button>
+      </div>
+      {{else if editingWorldItem}}
+      <div class="ic-edit-save-actions ic-published-save-actions">
+        <button type="button" class="ic-save-copy" data-action="world-copy" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-copy"></i><span>{{#if savingItem}}Working…{{else}}World Copy{{/if}}</span>
+        </button>
+        <button type="button" class="ic-save-copy" data-action="publish-new" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-box-archive"></i><span>{{#if savingItem}}Publishing…{{else}}Publish New{{/if}}</span>
+        </button>
+        <button type="button" class="ic-primary-continue ic-save-item" data-action="update-world-item" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Updating…{{else}}Update World Item{{/if}}</span>
         </button>
       </div>
       {{else}}
-      <button type="button" class="ic-primary-continue ic-save-item" data-action="save-item" {{#unless reviewReady}}disabled{{/unless}}>
-        <i class="fa-solid fa-floppy-disk"></i><span>{{#if savingItem}}Creating…{{else}}Save Item{{/if}}</span>
-      </button>
+      <div class="ic-edit-save-actions">
+        <button type="button" class="ic-save-copy" data-action="world-test" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-vial"></i><span>{{#if savingItem}}Working…{{else}}World Test Item{{/if}}</span>
+        </button>
+        <button type="button" class="ic-primary-continue ic-save-item" data-action="publish-new" {{#unless reviewReady}}disabled{{/unless}}>
+          <i class="fa-solid fa-box-archive"></i><span>{{#if savingItem}}Publishing…{{else}}Publish New{{/if}}</span>
+        </button>
+      </div>
       {{/if}}
     </footer>
     {{/if}}

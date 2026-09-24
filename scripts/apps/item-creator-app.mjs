@@ -4,7 +4,9 @@ import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
 import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
 import { dnd6EffectPath, primaryItemRarity } from "../utils/dnd6-compat.mjs";
+import { EFFECT_CHANGE_TYPES, normalizeEffectChangeType } from "../utils/effect-change-types.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
+import { PublishedItemLibraryService } from "../services/published-item-library-service.mjs";
 import { clampCharacterLevel, settingHasProgression, validUnlockSetting } from "../services/level-progression.mjs";
 import {
   RESOURCE_CATEGORIES, RESOURCE_DICE, defaultResourceModification, getResourceDefinition,
@@ -935,8 +937,9 @@ function effectChanges(effect) {
 }
 
 function effectModeName(mode) {
-  if (Number(mode) === Number(CONST.ACTIVE_EFFECT_MODES.UPGRADE)) return "minimum";
-  if (Number(mode) === Number(CONST.ACTIVE_EFFECT_MODES.OVERRIDE)) return "fixed";
+  const type = normalizeEffectChangeType(mode);
+  if (type === EFFECT_CHANGE_TYPES.UPGRADE) return "minimum";
+  if (type === EFFECT_CHANGE_TYPES.OVERRIDE) return "fixed";
   return "add";
 }
 
@@ -1324,6 +1327,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     super(options);
     this.editingItem = editItem;
     this.editingItemId = editItem?.id ?? null;
+    this.editingPublishedItem = PublishedItemLibraryService.isPublishedItem(editItem);
+    this.editingWorldItem = Boolean(editItem && !editItem.pack);
     this.editingManagedItem = false;
     this.editingImportedItem = false;
     this.editStateInitialized = false;
@@ -1645,8 +1650,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   async #initializeEditState(registry) {
     if (this.editStateInitialized || !this.editingItem) return;
     const item = this.editingItem;
-    if (item.parent || item.pack || !isSupportedItemDocument(item)) {
-      throw new Error("Only world Weapon, Equipment, Tool, and Consumable Items can be edited with Item Creator.");
+    if (item.parent || (item.pack && !PublishedItemLibraryService.isPublishedItem(item)) || !isSupportedItemDocument(item)) {
+      throw new Error("Only supported World Items or Item Creator Published Items can be edited with Item Creator.");
     }
 
     this.selectedType = item.type;
@@ -2630,7 +2635,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return {
       stage: MODULE_STAGE, version: MODULE_VERSION,
       editMode: Boolean(this.editingItem), editingManagedItem: this.editingManagedItem,
+      editingPublishedItem: this.editingPublishedItem, editingWorldItem: this.editingWorldItem,
       editingImportedItem: this.editingImportedItem, editingItemName: this.editingItem?.name ?? "",
+      publicationRevision: Math.max(1, Number(this.editingItem?.flags?.[MODULE_ID]?.publication?.revision) || 1),
       step: this.step, steps,
       itemTypes: ITEM_TYPES
         .filter(type => type.feature !== "supplier" || game.itemCreator?.supplierEnabled === true)
@@ -2730,7 +2737,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         progressions: levelProgressionCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
-      savingItem: this.savingItem, readyStatus: this.editingItem ? "Ready to update" : "Ready to create"
+      savingItem: this.savingItem, readyStatus: this.editingPublishedItem ? "Ready to update publication" : this.editingWorldItem ? "Ready to update or publish" : "Ready to publish"
     };
   }
 
@@ -2749,9 +2756,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelectorAll('[data-action="step"]').forEach(button => button.addEventListener("click", event => this.#changeStep(event)));
     root.querySelector('[data-action="continue"]')?.addEventListener("click", event => this.#continue(event));
     root.querySelector('[data-action="back"]')?.addEventListener("click", event => this.#back(event));
-    root.querySelector('[data-action="save-item"]')?.addEventListener("click", event => this.#saveItem(event));
-    root.querySelector('[data-action="update-item"]')?.addEventListener("click", event => this.#updateItem(event));
-    root.querySelector('[data-action="save-copy"]')?.addEventListener("click", event => this.#saveCopy(event));
+    root.querySelector('[data-action="publish-new"]')?.addEventListener("click", event => this.#publishNew(event));
+    root.querySelector('[data-action="update-world-item"]')?.addEventListener("click", event => this.#updateWorldItemAction(event));
+    root.querySelector('[data-action="world-copy"]')?.addEventListener("click", event => this.#createWorldCopyAction(event));
+    root.querySelector('[data-action="update-published"]')?.addEventListener("click", event => this.#updatePublishedAction(event));
+    root.querySelector('[data-action="published-copy"]')?.addEventListener("click", event => this.#createPublishedCopyAction(event));
+    root.querySelector('[data-action="world-test"]')?.addEventListener("click", event => this.#createWorldTestAction(event));
+    root.querySelector('[data-action="open-published-library"]')?.addEventListener("click", event => this.#openPublishedLibrary(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-action="custom-equipment"]')?.addEventListener("click", event => this.#createCustomEquipment(event));
     root.querySelector('[data-action="custom-tool"]')?.addEventListener("click", event => this.#createCustomTool(event));
@@ -3227,21 +3238,47 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     };
   }
 
-  async #saveItem(event) {
+  async #publishNew(event) {
     event.preventDefault();
-    return this.#commitItem("create");
+    return this.#commitItem("publish");
   }
 
-  async #updateItem(event) {
+  async #updateWorldItemAction(event) {
     event.preventDefault();
-    if (!this.editingItem) return;
-    return this.#commitItem("update");
+    if (!this.editingWorldItem) return;
+    return this.#commitItem("updateWorld");
   }
 
-  async #saveCopy(event) {
+  async #createWorldCopyAction(event) {
     event.preventDefault();
-    if (!this.editingItem) return;
-    return this.#commitItem("copy");
+    return this.#commitItem("worldCopy");
+  }
+
+  async #updatePublishedAction(event) {
+    event.preventDefault();
+    if (!this.editingPublishedItem) return;
+    return this.#commitItem("updatePublished");
+  }
+
+  async #createPublishedCopyAction(event) {
+    event.preventDefault();
+    if (!this.editingPublishedItem) return;
+    return this.#commitItem("publishedCopy");
+  }
+
+  async #createWorldTestAction(event) {
+    event.preventDefault();
+    return this.#commitItem("worldTest");
+  }
+
+  async #openPublishedLibrary(event) {
+    event.preventDefault();
+    if (this.editingItem || this.selectedType || this.itemName.trim()) {
+      ui.notifications.warn("Finish or close the current draft before opening Published Items.");
+      return;
+    }
+    await this.close();
+    game.itemCreator?.openPublished?.();
   }
 
   #mergeOriginalFlags(data) {
@@ -3276,8 +3313,9 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (effects?.length) await this.editingItem.createEmbeddedDocuments("ActiveEffect", clone(effects), { keepId: true });
   }
 
-  async #updateWorldItem(data) {
-    if (!this.editingItem || this.editingItem.parent || this.editingItem.pack) throw new Error("The original world Item is no longer available for updating.");
+  async #updateEditingItem(data) {
+    if (!this.editingItem || this.editingItem.parent) throw new Error("The original Item is no longer available for updating.");
+    if (this.editingItem.pack && !PublishedItemLibraryService.isPublishedItem(this.editingItem)) throw new Error("Only Item Creator publications can be updated from a Compendium.");
     const rollbackSource = clone(this.originalItemSource ?? this.editingItem.toObject());
     const rollbackEffects = clone(rollbackSource.effects ?? []);
     const rollbackActivities = clone(rollbackSource.system?.activities ?? {});
@@ -3298,7 +3336,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const rollbackData = clone(rollbackSource);
         delete rollbackData._id;
         delete rollbackData.effects;
-        delete rollbackData.folder;
         delete rollbackData.sort;
         delete rollbackData.ownership;
         delete rollbackData._stats;
@@ -3331,22 +3368,71 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
 
     const itemName = this.itemName.trim();
-    const isUpdate = mode === "update";
-    const isCopy = mode === "copy";
-    const title = isUpdate ? "Confirm Item Update" : "Confirm Item Creation";
-    const heading = title;
-    const message = isUpdate
-      ? `Update <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong> in the Items Directory? Existing copies already placed on Actors will not be changed.`
-      : isCopy
-        ? `Create a new World Item based on <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong>? The original Item will remain unchanged.`
-        : `Create <strong>${foundry.utils.escapeHTML(itemName)}</strong> in the Items Directory?`;
+    const action = {
+      publish: {
+        title: "Publish New Item",
+        heading: "Publish New Item",
+        key: `publish-item-${this.editingItemId ?? "new"}`,
+        icon: "fa-box-archive",
+        message: `Publish <strong>${foundry.utils.escapeHTML(itemName)}</strong> to the Item Creator Published Library?`,
+        processingTitle: "Publishing Item…",
+        success: result => `${result.name} published successfully.`
+      },
+      updateWorld: {
+        title: "Update World Item",
+        heading: "Update World Item",
+        key: `update-world-item-${this.editingItemId}`,
+        icon: "fa-pen-to-square",
+        message: `Update <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong> in the World Items Directory? Existing Actor copies will not be changed.`,
+        processingTitle: "Updating World Item…",
+        success: result => `${result.name} was updated in World Items.`
+      },
+      worldCopy: {
+        title: "Create World Copy",
+        heading: "Create World Copy",
+        key: `world-copy-${this.editingItemId ?? "new"}`,
+        icon: "fa-copy",
+        message: `Create a separate World Item copy of <strong>${foundry.utils.escapeHTML(itemName)}</strong>?`,
+        processingTitle: "Creating World Copy…",
+        success: result => `${result.name} was created as a World Item copy.`
+      },
+      updatePublished: {
+        title: "Update Published Item",
+        heading: "Update Published Item",
+        key: `update-published-${this.editingItemId}`,
+        icon: "fa-cloud-arrow-up",
+        message: `Update the canonical publication <strong>${foundry.utils.escapeHTML(this.editingItem?.name ?? itemName)}</strong>? Its UUID will be preserved and its revision will increase. Existing Actor or World copies will not be changed.`,
+        processingTitle: "Updating Publication…",
+        success: result => `${result.name} publication updated to revision ${result.flags?.[MODULE_ID]?.publication?.revision ?? "?"}.`
+      },
+      publishedCopy: {
+        title: "Create Published Copy",
+        heading: "Create Published Copy",
+        key: `published-copy-${this.editingItemId}`,
+        icon: "fa-code-branch",
+        message: `Create an independent published copy of <strong>${foundry.utils.escapeHTML(itemName)}</strong>? The original publication remains unchanged.`,
+        processingTitle: "Creating Published Copy…",
+        success: result => `${result.name} published as an independent copy.`
+      },
+      worldTest: {
+        title: "Create World Test Item",
+        heading: "Create World Test Item",
+        key: `world-test-${this.editingItemId ?? "new"}`,
+        icon: "fa-vial",
+        message: `Create <strong>${foundry.utils.escapeHTML(itemName)}</strong> in World Items for testing/use? The canonical publication, if any, will not be changed.`,
+        processingTitle: "Creating World Test Item…",
+        success: result => `${result.name} created in World Items.`
+      }
+    }[mode];
+    if (!action) throw new Error(`Unsupported Item Creator commit mode: ${mode}`);
+
     const confirmed = await ProtectedTransactionDialogService.confirm({
-      key: isUpdate ? `update-item-${this.editingItemId}` : isCopy ? `copy-item-${this.editingItemId}` : "create-item",
+      key: action.key,
       matchClass: "ic-confirm-item-dialog",
       dialogOptions: {
         classes: ["ic-confirm-item-dialog"],
-        window: { title, modal: true },
-        content: `<div class="ic-confirm-item-content"><i class="fa-solid ${isUpdate ? "fa-pen-to-square" : "fa-hammer"}"></i><div><h2>${heading}</h2><p>${message}</p></div></div>`,
+        window: { title: action.title, modal: true },
+        content: `<div class="ic-confirm-item-content"><i class="fa-solid ${action.icon}"></i><div><h2>${action.heading}</h2><p>${action.message}</p></div></div>`,
         yes: { label: "OK", icon: "fa-solid fa-check" },
         no: { label: "Cancel", icon: "fa-solid fa-xmark" }
       }
@@ -3354,39 +3440,68 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!confirmed) return;
 
     this.savingItem = true;
-    const processingTitle = isUpdate ? "Updating Item…" : isCopy ? "Creating Item Copy…" : "Creating Item…";
-    const processingMessage = isUpdate
-      ? "Updating the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait."
-      : "Building the Item, Activities, Active Effects, granted Spells, and source metadata. Please wait.";
     try {
       const result = await ProtectedTransactionDialogService.runProcessing({
-        title: processingTitle,
-        message: processingMessage,
+        title: action.processingTitle,
+        message: "Building the Item, Activities, Active Effects, granted Spells, progression, and source metadata. Please wait.",
         operation: async () => {
           const { data: builtData } = await ItemCreatorItemBuilder.build(this.#builderDraft());
-          const data = this.#mergeOriginalFlags(clone(builtData));
-          if (isUpdate) return this.#updateWorldItem(data);
+          let data = this.#mergeOriginalFlags(clone(builtData));
 
-          if (isCopy && this.originalItemSource) {
-            data.folder = this.editingItem?.folder?.id ?? this.originalItemSource.folder ?? null;
-            data.ownership = clone(this.originalItemSource.ownership ?? { default: 0 });
+          if (mode === "publish") {
+            return PublishedItemLibraryService.createPublished(data, {
+              sourceItem: this.editingWorldItem ? this.editingItem : null
+            });
           }
-          const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
-          const item = await ItemClass.create(data, { renderSheet: false });
-          if (!item) throw new Error("Foundry did not return the created Item document.");
-          return item;
+
+          if (mode === "updatePublished") {
+            await PublishedItemLibraryService.ensurePack({ unlock: true });
+            data = PublishedItemLibraryService.preparePublishedUpdateData(this.editingItem, data);
+            return this.#updateEditingItem(data);
+          }
+
+          if (mode === "publishedCopy") {
+            return PublishedItemLibraryService.createPublished(data, { copiedFrom: this.editingItem });
+          }
+
+          if (mode === "updateWorld") return this.#updateEditingItem(data);
+
+          if (mode === "worldCopy" || mode === "worldTest") {
+            delete data._id;
+            delete data._stats;
+            data.folder = mode === "worldCopy" && this.editingWorldItem
+              ? (this.editingItem?.folder?.id ?? this.originalItemSource?.folder ?? null)
+              : null;
+            data.ownership = mode === "worldCopy" && this.editingWorldItem
+              ? clone(this.originalItemSource?.ownership ?? { default: 0 })
+              : { default: 0 };
+            if (this.editingPublishedItem) {
+              data.flags ??= {};
+              data.flags[MODULE_ID] ??= {};
+              const publication = this.editingItem.flags?.[MODULE_ID]?.publication ?? {};
+              data.flags[MODULE_ID].publicationSource = {
+                uuid: this.editingItem.uuid,
+                publicationId: publication.id ?? null,
+                revision: Math.max(1, Number(publication.revision) || 1)
+              };
+              delete data.flags[MODULE_ID].publication;
+            }
+            const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+            const created = await ItemClass.create(data, { renderSheet: false });
+            if (!created) throw new Error("Foundry did not return the created World Item document.");
+            return created;
+          }
+
+          throw new Error(`Unhandled Item Creator commit mode: ${mode}`);
         }
       });
-      ui.notifications.info(isUpdate
-        ? `${result.name} was updated successfully.`
-        : `${result.name} was created successfully${isCopy ? " as a new copy" : ""}.`);
+      ui.notifications.info(action.success(result));
       await this.close();
       ui.items?.render?.();
+      game.packs.get(PublishedItemLibraryService.packId)?.render?.(true);
     } catch (error) {
-      console.error(`${MODULE_ID} | Item ${isUpdate ? "update" : "creation"} failed.`, error);
-      ui.notifications.error(isUpdate
-        ? `Item update failed. The original Item was not intentionally replaced: ${error?.message ?? "Unknown error"}`
-        : `Item creation failed. No new Item was created: ${error?.message ?? "Unknown error"}`);
+      console.error(`${MODULE_ID} | Item ${mode} operation failed.`, error);
+      ui.notifications.error(`${action.title} failed: ${error?.message ?? "Unknown error"}`);
       this.savingItem = false;
       this.step = "review";
       this.render({ force: true });

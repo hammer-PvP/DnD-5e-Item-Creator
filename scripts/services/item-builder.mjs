@@ -1,4 +1,5 @@
 import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
+import { EFFECT_CHANGE_TYPES, normalizeEffectChanges } from "../utils/effect-change-types.mjs";
 import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
 import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
 import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/materialization/index.mjs";
@@ -6,7 +7,7 @@ import { getResourceDefinition, resourceModificationLabel } from "./resource-mod
 import { triggeredEffectSummary } from "./triggered-effect-registry.mjs";
 import { dnd6EffectPath, normalizeDnd6ItemSource, primaryItemRarity } from "../utils/dnd6-compat.mjs";
 
-const MODES = () => CONST.ACTIVE_EFFECT_MODES;
+const MODES = () => EFFECT_CHANGE_TYPES;
 
 function finalizeRarityAndPricing(data, draft) {
   data.system ??= {};
@@ -201,7 +202,7 @@ function effectData({ key, label, availability, changes, description = "", progr
     disabled: false,
     transfer: false,
     statuses: [],
-    changes,
+    system: { changes: normalizeEffectChanges(changes) },
     flags: {
       [MODULE_ID]: {
         blueprint: true,
@@ -225,6 +226,10 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
   for (const entry of customEffects ?? []) {
     if (entry?.included === false || !entry?.data) continue;
     const effect = cleanDocumentSource(entry.data);
+    effect.system ??= {};
+    const importedChanges = effect.system.changes ?? effect.changes ?? [];
+    effect.system.changes = normalizeEffectChanges(importedChanges);
+    delete effect.changes;
     const id = foundry.utils.randomID();
     if (entry.sourceId) effectIdMap.set(entry.sourceId, id);
     effect._id = id;
@@ -275,7 +280,7 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
 
 function addChange(changes, key, mode, value, priority) {
   if (value === null || value === undefined || value === "") return;
-  changes.push({ key: dnd6EffectPath(key), mode, value: String(value), ...(priority ? { priority } : {}) });
+  changes.push({ key: dnd6EffectPath(key), type: mode, value: String(value), ...(priority ? { priority } : {}) });
 }
 
 function expandAbilities(target) {

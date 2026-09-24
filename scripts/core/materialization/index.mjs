@@ -18,8 +18,9 @@ import {
   recipeTargetCompatibility
 } from "./recipes.mjs";
 import { normalizeDnd6ItemSource, primaryItemRarity, setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
+import { normalizeEffectChanges } from "../../utils/effect-change-types.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.3.2";
+export const MATERIALIZATION_ENGINE_VERSION = "0.3.3";
 
 /**
  * HAMMER Materialization Core
@@ -96,8 +97,10 @@ function effectChanges(effect) {
 }
 
 function setEffectChanges(effect, changes) {
-  if (Array.isArray(effect?.changes) || !effect?.system || !Object.hasOwn(effect.system, "changes")) effect.changes = changes;
-  else effect.system.changes = changes;
+  if (!effect || typeof effect !== "object") return;
+  effect.system ??= {};
+  effect.system.changes = normalizeEffectChanges(changes);
+  delete effect.changes;
 }
 
 function hasNativeBlueprintData(data) {
@@ -667,7 +670,7 @@ function ensureResolvedSelectionName(effect, blueprintData, selection) {
       }
     }
   } else {
-    changes.push({ key: "name", mode: globalThis.CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5, value: `{} of ${label} Resistance`, priority: 20 });
+    changes.push({ key: "name", type: "override", value: `{} of ${label} Resistance`, priority: 20 });
   }
   setEffectChanges(output, changes);
   return output;

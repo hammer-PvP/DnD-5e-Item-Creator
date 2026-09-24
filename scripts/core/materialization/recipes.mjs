@@ -4,6 +4,7 @@ import {
   materializeIdentityChanges
 } from "./naming.mjs";
 import { primaryItemRarity, setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
+import { normalizeEffectChanges } from "../../utils/effect-change-types.mjs";
 
 /**
  * Versioned, source-agnostic recipes for official Item families whose template
@@ -331,8 +332,10 @@ function effectChanges(effect) {
 }
 
 function setEffectChanges(effect, changes) {
-  if (Array.isArray(effect?.changes) || !effect?.system || !Object.hasOwn(effect.system, "changes")) effect.changes = changes;
-  else effect.system.changes = changes;
+  if (!effect || typeof effect !== "object") return;
+  effect.system ??= {};
+  effect.system.changes = normalizeEffectChanges(changes);
+  delete effect.changes;
 }
 
 function effectsOf(data) {
@@ -401,11 +404,11 @@ function rarityForBonus(bonus) {
 }
 
 function effectModeAdd() {
-  return globalThis.CONST?.ACTIVE_EFFECT_MODES?.ADD ?? 2;
+  return "add";
 }
 
 function effectModeOverride() {
-  return globalThis.CONST?.ACTIVE_EFFECT_MODES?.OVERRIDE ?? 5;
+  return "override";
 }
 
 function damageTypeLabel(type) {
@@ -446,7 +449,7 @@ function materializeArmorOfResistance({ sourceDocument, baseDocument, selection 
     transfer: true,
     origin: sourceDocument?.uuid ?? "",
     system: {
-      changes: [{ key: "system.traits.dr.value", mode: effectModeAdd(), value: type, priority: 20 }]
+      changes: [{ key: "system.traits.dr.value", type: effectModeAdd(), value: type, priority: 20 }]
     },
     flags: {
       "hammer-materialization-core": {
@@ -569,7 +572,7 @@ function materializeDragonScaleMail({ sourceDocument, baseDocument, selection = 
   result.effects.push({
     _id: freshId(), name: `${damageTypeLabel(variant.resistance)} Resistance`, img: sourceData.img || result.img,
     type: "enchantment", disabled: false, transfer: true, origin: sourceDocument?.uuid ?? "",
-    system: { changes: [{ key: "system.traits.dr.value", mode: effectModeAdd(), value: variant.resistance, priority: 20 }] },
+    system: { changes: [{ key: "system.traits.dr.value", type: effectModeAdd(), value: variant.resistance, priority: 20 }] },
     flags: { "hammer-materialization-core": { recipeId: "dragon-scale-mail", dragon: variant.dragon, resistanceType: variant.resistance } }
   });
   const metadata = { kind: "blueprint", family: "dragon-scale-mail", strategy: "recipe-fallback", recipeId: "dragon-scale-mail", baseUuid: baseDocument?.uuid ?? "", blueprintUuid: sourceDocument?.uuid ?? "", selection: variant.dragon, targetContract: "recipe-validated" };
@@ -601,8 +604,8 @@ function materializeArmorOfVulnerability({ sourceDocument, baseDocument, selecti
     _id: freshId(), name: "Armor of Vulnerability", img: sourceData.img || result.img,
     type: "enchantment", disabled: false, transfer: true, origin: sourceDocument?.uuid ?? "",
     system: { changes: [
-      { key: "system.traits.dr.value", mode: effectModeAdd(), value: resistance, priority: 20 },
-      ...vulnerabilities.map(type => ({ key: "system.traits.dv.value", mode: effectModeAdd(), value: type, priority: 20 }))
+      { key: "system.traits.dr.value", type: effectModeAdd(), value: resistance, priority: 20 },
+      ...vulnerabilities.map(type => ({ key: "system.traits.dv.value", type: effectModeAdd(), value: type, priority: 20 }))
     ] },
     flags: { "hammer-materialization-core": { recipeId: "armor-of-vulnerability", resistanceType: resistance, vulnerabilityTypes: vulnerabilities } }
   });
@@ -652,7 +655,7 @@ function materializeWandOfTheWarMage({ sourceDocument, requestedBonus = null, ma
     transfer: true,
     origin: sourceDocument?.uuid ?? "",
     system: {
-      changes: [{ key: "system.rolls.attack.msak.bonus", mode: effectModeAdd(), value: bonus, priority: null }]
+      changes: [{ key: "system.rolls.attack.msak.bonus", type: effectModeAdd(), value: bonus, priority: null }]
     },
     flags: {
       "hammer-materialization-core": { recipeId: "wand-of-the-war-mage", bonus }
