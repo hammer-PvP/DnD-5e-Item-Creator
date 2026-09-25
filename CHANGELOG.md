@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.95b — Source Registry & Publishing Cleanup
+
+- Reworked Item Creator's Compendium Source Registry to use a deliberately **lean index contract**. Discovery now requests only shallow metadata required for listing/classification (name, image, Item type/subtype/base item, identifier, properties, rarity, magical bonus, and attunement); deep DataModel subtrees such as `system.activities`, damage, range, armor, uses, and other authored mechanics are no longer merged into pack indexes.
+- Full Item documents continue to load lazily by UUID only after the GM selects a source. This removes the known `dnd5e.equipment24` warning path where Foundry attempted to merge `appliedEffects` into a non-extensible nested index object, while reducing Source Registry startup work. Verbose diagnostics now emit one compact Source Registry pack/candidate summary instead of per-Item noise.
+- Removed automatic Compendium opening after **Publish New**, **Update Published**, **Create Published Copy**, archive/restore, background reorganization, and delete. Publication actions now keep focus in the current workflow and use the existing success notification; the explicit **Open Native Compendium** action remains available from Published Items.
+- Added D&D5e 6.x identifier normalization for every Item explicitly rebuilt/saved/published by Item Creator. `system.identifier` is normalized to lowercase ASCII `[a-z0-9_-]`, transliterating legacy accented identifiers (for example `presença-do-regente` → `presenca-do-regente`) and falling back to the Item name when needed. There is no World-wide migration.
+- Re-audited the historical Activities v2 reset/disabled-editor regression. The obsolete Reset control is no longer present and the current child-browser guard never sets the Item Creator root to `inert`, so no additional mechanics/UI rewrite was required in this patch.
+- No gameplay mechanics, inventory synchronization, Crafting Core integration, or Supplier behavior changes were added.
+
 ## 0.7.95a — Library Organization & UI Cleanup
 
 - Added a dedicated **Item Creator** folder/group in the Foundry Compendiums sidebar and automatically keeps the canonical **Item Creator — Published Items** World Compendium inside it. On first creation the sidebar folder is established before the pack is created/attached, preventing the library from being born as a loose pack.

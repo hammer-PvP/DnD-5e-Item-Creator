@@ -3504,7 +3504,6 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       ui.notifications.info(action.success(result));
       await this.close();
       ui.items?.render?.();
-      game.packs.get(PublishedItemLibraryService.packId)?.render?.(true);
     } catch (error) {
       console.error(`${MODULE_ID} | Item ${mode} operation failed.`, error);
       ui.notifications.error(`${action.title} failed: ${error?.message ?? "Unknown error"}`);

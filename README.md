@@ -1,10 +1,10 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.7.95a Library Organization & UI Cleanup
+**Version:** 0.7.95b Source Registry & Publishing Cleanup
 **Compatibility:** Foundry VTT 14.367+ (verified 14.368) / D&D5e 6.0.1–6.0.999 (verified target: 6.0.5)
 
-> **D&D5e 6.x line:** v0.7.95a organizes and hardens the Published Item Library introduced in v0.7.95 on the stabilized v0.7.94a runtime and is verified against D&D5e 6.0.5. The supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized in memory when reopened and are persisted in current 6.x form only after an explicit GM update/publication.
+> **D&D5e 6.x line:** v0.7.95b is a focused Source Registry and publishing cleanup on top of the v0.7.95a Published Library organization pass and the stabilized v0.7.94a runtime. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
 
 This compatibility pass normalizes persisted physical-item rarity data to `system.rarities`, writes D&D5e 6.x roll and movement Active Effect paths, updates Consumable target routing to the D&D5e 6.x Chat Message target model, and applies the same persistence normalization through Supplier and the shared Materialization Core. Consumable Granted Effects now delegate temporal and rest expiry to the native D&D5e/Foundry Active Effect lifecycle instead of running a parallel combat-bound duration clock; Item Creator continues to own effect provenance, recipient routing, and stacking policy. Triggered Effects now follow the same migration principle: their triggers no longer require Combat, their persistent Effects use native world-time-backed duration, and ending Combat only detaches turn bookkeeping instead of deleting the Effects. Exact Combat turn/round hooks remain as a precision layer while Combat exists.
 
@@ -21,7 +21,7 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, mat
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
-## Published Item Library (v0.7.95a)
+## Published Item Library (v0.7.95b)
 
 Item Creator now treats a dedicated **Item Creator — Published Items** Compendium as the canonical homebrew library. The backing pack is created as a World Compendium rather than a module-bundled content pack, so GM-authored publications survive ordinary Item Creator module updates. The Published Items screen is an Item Creator interface over those real Compendium Item documents, not a second database.
 
@@ -35,9 +35,15 @@ The library is organized at two native Foundry levels. In the Compendiums sideba
 
 The Published Library is excluded from Item Creator's template/base source discovery to avoid recursively using canonical output as an authoring source.
 
-### Active Effect change contract
+Source discovery itself is intentionally index-light in v0.7.95b. Compendium indexes provide only the shallow metadata needed to list and classify candidate Items; Activities, Effects, damage structures, range data, armor structures, and other deep mechanics are loaded only from the full Item document after selection. This avoids mutating/merging complex frozen D&D5e index subtrees and reduces startup work on large official packs.
 
-v0.7.95 also removes Item Creator's use of deprecated `CONST.ACTIVE_EFFECT_MODES`. New Active Effect writes use D&D5e 6.x `system.changes[].type` strings such as `add`, `override`, `upgrade`, and `downgrade`. Legacy numeric `mode` values remain accepted only as compatibility input and are normalized when the GM explicitly rebuilds/updates/publishes an Item; no silent World-wide migration is performed.
+Publishing no longer opens the native Compendium automatically. Publish, Update Published, and Create Copy remain in the Item Creator workflow and report success through notifications; the native pack opens only when the GM explicitly requests it.
+
+### D&D5e persisted-data normalization
+
+v0.7.95 removes Item Creator's use of deprecated `CONST.ACTIVE_EFFECT_MODES`. New Active Effect writes use D&D5e 6.x `system.changes[].type` strings such as `add`, `override`, `upgrade`, and `downgrade`. Legacy numeric `mode` values remain accepted only as compatibility input and are normalized when the GM explicitly rebuilds/updates/publishes an Item.
+
+v0.7.95b applies the same explicit-save rule to `system.identifier`: identifiers are normalized to lowercase ASCII letters/numbers/dashes/underscores, with accented legacy text transliterated and the Item name used as fallback when required. This happens only to Items the GM explicitly rebuilds/saves/publishes through Item Creator; the module does not scan or rewrite unrelated World content.
 
 ## Consumables v2 Activity & Effect Composer (v0.7.7c)
 

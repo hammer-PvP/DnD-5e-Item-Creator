@@ -36,6 +36,27 @@ function valuesOf(value) {
   return [];
 }
 
+
+/**
+ * Normalize D&D5e identifiers to the current persisted contract. D&D5e 6.x
+ * accepts only ASCII letters, numbers, dashes, and underscores. Existing valid
+ * identifiers are preserved byte-for-byte apart from lowercase normalization;
+ * legacy accented names are transliterated rather than rejected.
+ */
+export function normalizeDnd5eIdentifier(value, { fallback = "" } = {}) {
+  const normalize = input => {
+    const direct = String(input ?? "").trim().toLowerCase();
+    if (/^[a-z0-9_-]+$/.test(direct)) return direct;
+    return direct
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/-{2,}/g, "-")
+      .replace(/^-+|-+$/g, "");
+  };
+  return normalize(value) || normalize(fallback);
+}
+
 /** Return the primary/lowest rarity without invoking D&D5e's legacy rarity shim. */
 export function primaryItemRarity(value) {
   const sourceSystem = value?._source?.system ?? null;
@@ -92,6 +113,9 @@ export function dnd6EffectPath(key) {
 export function normalizeDnd6ItemSource(source) {
   if (!source || typeof source !== "object") return source;
   const system = source.system ??= {};
+
+  const identifier = normalizeDnd5eIdentifier(system.identifier, { fallback: source.name });
+  if (identifier) system.identifier = identifier;
 
   if (Object.prototype.hasOwnProperty.call(system, "rarity")) {
     const legacy = String(system.rarity ?? "").trim();

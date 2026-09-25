@@ -279,7 +279,9 @@ export class PublishedItemLibraryService {
       await item.update({ folder: target.id }, { render: false });
       changed = true;
     }
-    if (changed) pack.render?.(true);
+    // Foundry document updates refresh open directory views on their own. Do not
+    // call pack.render() here: CompendiumCollection#render opens the pack UI and
+    // would steal focus during background organization/publication workflows.
   }
 
   static async canonicalFolderId(itemData, { pack = null } = {}) {
@@ -402,7 +404,6 @@ export class PublishedItemLibraryService {
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     const created = await ItemClass.create(prepared, { pack: pack.collection, renderSheet: false });
     if (!created) throw new Error("Foundry did not return the published Item document.");
-    pack.render?.(true);
     return created;
   }
 
@@ -426,7 +427,6 @@ export class PublishedItemLibraryService {
         updatedAt: now()
       }
     });
-    pack.render?.(true);
     return item;
   }
 
@@ -434,7 +434,6 @@ export class PublishedItemLibraryService {
     if (!this.isPublishedItem(item)) throw new Error("Only Item Creator published Items can be deleted here.");
     const pack = await this.ensurePack({ unlock: true });
     await item.delete();
-    pack.render?.(true);
   }
 
   static async createWorldCopy(item) {

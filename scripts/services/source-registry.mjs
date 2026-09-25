@@ -1,19 +1,23 @@
 import { MODULE_ID, defaultSourceSettings } from "../constants.mjs";
-import { primaryItemRarity } from "../utils/dnd6-compat.mjs";
+import { normalizeDnd5eIdentifier, primaryItemRarity } from "../utils/dnd6-compat.mjs";
+import { diagnosticLog } from "../utils/diagnostics.mjs";
 import { PUBLISHED_LIBRARY_PACK_NAME } from "./published-item-library-service.mjs";
 
 const SUPPORTED_TYPES = new Set(["weapon", "equipment", "tool", "consumable"]);
 
+// Keep Compendium indexing deliberately shallow. The Source Registry only needs
+// discovery/classification metadata; full Item documents are lazy-loaded by UUID
+// after the GM selects a source. Requesting deep DataModel subtrees (especially
+// system.activities) forces Foundry to merge mutable index additions into nested
+// frozen structures from official D&D5e packs and can emit non-extensible-object
+// warnings such as `Cannot add property appliedEffects`.
 const PACK_INDEX_FIELDS = [
   "name", "img", "type",
   "system.identifier",
   "system.type.value", "system.type.subtype", "system.type.baseItem",
-  "system.mastery", "system.proficient", "system.ammunition.type",
-  "system.damage", "system.range", "system.properties",
-  "system.price", "system.weight", "system.quantity",
-  "system.rarities", "system.rarity", "system.magicalBonus", "system.attunement",
-  "system.equipped", "system.attuned", "system.armor", "system.strength",
-  "system.activities", "system.ability", "system.bonus", "system.chatFlavor"
+  "system.properties",
+  "system.rarities", "system.rarity",
+  "system.magicalBonus", "system.attunement"
 ];
 
 const OFFICIAL_SOURCE_LABELS = Object.freeze([
@@ -94,7 +98,7 @@ function isBaseWeapon(entry) {
 }
 
 function normalizeIdentifier(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return normalizeDnd5eIdentifier(value);
 }
 
 function normalizeSettings(stored) {
@@ -334,6 +338,7 @@ export class ItemCreatorSourceRegistry {
     this.activePackSummaries = packs;
 
     const iconPaths = new Set();
+    let indexedPackCount = 0;
     const sourceGroups = { weapon: new Map(), equipment: new Map(), tool: new Map(), consumable: new Map() };
     const templateGroups = { weapon: new Map(), equipment: new Map(), tool: new Map(), consumable: new Map() };
 
@@ -341,7 +346,10 @@ export class ItemCreatorSourceRegistry {
       const pack = game.packs.get(summary.collection);
       if (!pack) continue;
       let index;
-      try { index = await pack.getIndex({ fields: PACK_INDEX_FIELDS }); }
+      try {
+        index = await pack.getIndex({ fields: PACK_INDEX_FIELDS });
+        indexedPackCount += 1;
+      }
       catch (error) { console.warn(`${MODULE_ID} | Unable to index ${pack.collection}.`, error); continue; }
 
       // Icon choice is deliberately type-agnostic. Index every Item image in an
@@ -456,6 +464,14 @@ export class ItemCreatorSourceRegistry {
     // post-index signature rather than the pre-load placeholder signature.
     this.packRuntimeSignature = runtimePackSignature();
     this.signature = `${this.packRuntimeSignature}:${settings.initialized}:${settings.enabledSources.join("|")}:${settings.sourceOrder.join("|")}`;
+    diagnosticLog("Source Registry", "indexed", {
+      packs: indexedPackCount,
+      candidates: this.templateOptions.length + this.equipmentTemplateOptions.length + this.toolTemplateOptions.length + this.consumableTemplateOptions.length,
+      weapons: this.templateOptions.length,
+      equipment: this.equipmentTemplateOptions.length,
+      tools: this.toolTemplateOptions.length,
+      consumables: this.consumableTemplateOptions.length
+    });
     return this;
   }
 
