@@ -1374,6 +1374,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.descriptionCustomized = false;
     this.reviewBuildError = "";
     this.savingItem = false;
+    this.commitPending = false;
     this.restoreScrollTop = null;
     this.sourceRegistryValidated = false;
     this.templateBrowserOpen = false;
@@ -2737,7 +2738,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         progressions: levelProgressionCount,
         description: this.descriptionCustomized ? "Customized" : "Inherited from Template"
       },
-      savingItem: this.savingItem, readyStatus: this.editingPublishedItem ? "Ready to update publication" : this.editingWorldItem ? "Ready to update or publish" : "Ready to publish"
+      savingItem: this.savingItem || this.commitPending, readyStatus: this.editingPublishedItem ? "Ready to update publication" : this.editingWorldItem ? "Ready to update or publish" : "Ready to publish"
     };
   }
 
@@ -3352,10 +3353,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
   }
 
   async #commitItem(mode) {
-    if (this.savingItem) return;
+    if (this.savingItem || this.commitPending) return;
+    this.commitPending = true;
     this.#syncDescriptionFromEditor();
     if (!this.#isBaseComplete() || !this.#validateEnhancements().valid || !this.#validateGrantedEffects().valid || !this.#validateSpellsResources().valid) {
       ui.notifications.error("Item Creator found incomplete or invalid configuration. Review the enabled cards before saving.");
+      this.commitPending = false;
       return;
     }
 
@@ -3364,6 +3367,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     } catch (error) {
       console.error(`${MODULE_ID} | Final Item validation failed.`, error);
       ui.notifications.error(`The Item could not be validated: ${error?.message ?? "Unknown validation error"}`);
+      this.commitPending = false;
       return;
     }
 
@@ -3437,7 +3441,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         no: { label: "Cancel", icon: "fa-solid fa-xmark" }
       }
     });
-    if (!confirmed) return;
+    if (!confirmed) {
+      this.commitPending = false;
+      return;
+    }
 
     this.savingItem = true;
     try {
@@ -3455,8 +3462,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           }
 
           if (mode === "updatePublished") {
-            await PublishedItemLibraryService.ensurePack({ unlock: true });
-            data = PublishedItemLibraryService.preparePublishedUpdateData(this.editingItem, data);
+            data = await PublishedItemLibraryService.preparePublishedUpdate(this.editingItem, data);
             return this.#updateEditingItem(data);
           }
 
@@ -3503,6 +3509,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       console.error(`${MODULE_ID} | Item ${mode} operation failed.`, error);
       ui.notifications.error(`${action.title} failed: ${error?.message ?? "Unknown error"}`);
       this.savingItem = false;
+      this.commitPending = false;
       this.step = "review";
       this.render({ force: true });
     }

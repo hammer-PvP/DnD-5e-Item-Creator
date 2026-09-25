@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.95a — Library Organization & UI Cleanup
+
+- Added a dedicated **Item Creator** folder/group in the Foundry Compendiums sidebar and automatically keeps the canonical **Item Creator — Published Items** World Compendium inside it. On first creation the sidebar folder is established before the pack is created/attached, preventing the library from being born as a loose pack.
+- Added real Folder documents inside the Published Items Compendium with PHB-style organization: **Adventuring Gear**; **Armor → Light / Medium / Heavy / Shields / Other Armor**; **Tools → Artisan's Tools / Gaming Sets / Musical Instruments / Other Tools**; **Weapons → Simple Melee / Simple Ranged / Martial Melee / Martial Ranged / Other Weapons**; **Consumables → Potions / Scrolls / Other Consumables**; and **Other / Uncategorized**.
+- Existing v0.7.95 publications are reorganized idempotently when the library initializes. New publications enter the correct folder immediately, and **Update Published** reclassifies the same document if its native Item type/subtype changes while preserving `_id`, UUID, and publication identity.
+- Updated the Item Creator **Published Items** browser to mirror the Compendium's real hierarchy instead of presenting all Items as flat type groups. Folders are shown before their alphabetically sorted contents and search continues across the full tree.
+- Hardened final publication/update actions against rapid repeated activation by adding an application-level commit lock in addition to the protected transaction dialog and existing save lock.
+- Reviewed the older Activities v2 UX regressions from the pre-migration line. The current Composer already preserves editor interactivity when an Activity is omitted and no longer exposes the obsolete reset control; this patch further clarifies Range/Duration and Activity Uses/Recharge guidance without changing Activity mechanics.
+- No new gameplay mechanics, inventory synchronization, Crafting Core integration, version history, rollback, or Actor/World Item monitoring were added. This patch remains a focused Published Library organization and UI cleanup release.
+
 ## 0.7.95 — Published Item Library
 
 - Added the **Item Creator — Published Items** canonical library. Item Creator creates and manages a dedicated **World Item Compendium**, so GM-authored publications survive Item Creator module updates and are not stored in the World Items Directory by default.

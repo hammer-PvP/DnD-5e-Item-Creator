@@ -3379,3 +3379,49 @@ body.ic-protected-active { overflow: hidden; }
     justify-content: flex-end;
   }
 }
+
+/* v0.7.95a — Published Library hierarchy -------------------------------- */
+.ic-published-group > header {
+  position: sticky;
+  top: -14px;
+  z-index: 2;
+  padding: 7px 8px;
+  border: 1px solid rgba(209, 176, 107, .2);
+  border-radius: 5px;
+  background: rgba(20, 19, 24, .96);
+}
+
+.ic-published-root-items {
+  margin-bottom: 8px;
+}
+
+.ic-published-subgroup {
+  margin: 7px 0 10px 18px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(209, 176, 107, .25);
+}
+
+.ic-published-subgroup > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 6px;
+  padding: 3px 2px;
+  color: #e8dcc4;
+}
+
+.ic-published-subgroup > header > i {
+  color: var(--ic-gold);
+  opacity: .9;
+}
+
+.ic-published-subgroup > header h3 {
+  margin: 0;
+  font-size: .98rem;
+}
+
+.ic-published-subgroup > header span {
+  margin-left: auto;
+  opacity: .6;
+  font-size: .82rem;
+}

@@ -1431,16 +1431,16 @@
               </section>
 
               <section class="ic-activity-config-section">
-                <header><strong>Targeting & Timing</strong><small>Self/Touch/Special ranges do not require a numeric Range value. Instant durations do not require a Duration value.</small></header>
+                <header><strong>Targeting & Timing</strong><small>Choose the unit first. Numeric Range appears only for measured distances; numeric Duration appears only for timed units. Self, Touch, Special, and Instant need no number.</small></header>
                 <div class="ic-attack-activity-grid">
                   <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="30"></label>{{/if}}
+                  {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="e.g. 30"></label>{{/if}}
                   <label><span>Target Type</span><select data-composed-activity-input="targetType" data-composed-activity-id="{{id}}">{{#each targetOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>Target Count</span><input type="text" value="{{targetCount}}" data-composed-activity-input="targetCount" data-composed-activity-id="{{id}}" placeholder="1"></label>
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="targetPrompt" data-composed-activity-id="{{id}}" {{#if targetPrompt}}checked{{/if}}><span><strong>Prompt for Targets</strong><small>Use the normal D&amp;D5e target selection prompt when this Activity is activated.</small></span></label>
                   {{#unless isApplyEffects}}
                   <label><span>Duration Unit</span><select data-composed-activity-input="durationUnits" data-composed-activity-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  {{#if durationNeedsValue}}<label><span>Duration</span><input type="number" min="0" step="1" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="1"></label>{{/if}}
+                  {{#if durationNeedsValue}}<label><span>Duration</span><input type="number" min="0" step="1" value="{{durationValue}}" data-composed-activity-input="durationValue" data-composed-activity-id="{{id}}" placeholder="e.g. 1"></label>{{/if}}
                   <label class="ic-activity-toggle ic-span-two"><input type="checkbox" data-composed-activity-input="concentration" data-composed-activity-id="{{id}}" {{#if concentration}}checked{{/if}}><span><strong>Concentration</strong><small>Marks this Activity as requiring native D&amp;D5e Concentration.</small></span></label>
                   {{/unless}}
                 </div>
@@ -1624,7 +1624,7 @@
               </section>
 
               <section class="ic-activity-config-section">
-                <header><strong>Targeting & Timing</strong><small>Self/Touch/Special ranges do not require a numeric Range value. Instant durations do not require a Duration value.</small></header>
+                <header><strong>Targeting & Timing</strong><small>Choose the unit first. Numeric Range appears only for measured distances; numeric Duration appears only for timed units. Self, Touch, Special, and Instant need no number.</small></header>
                 <div class="ic-attack-activity-grid">
                   <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="30"></label>{{/if}}
@@ -1640,12 +1640,12 @@
               </section>
 
               <section class="ic-activity-config-section ic-activity-uses-section">
-                <header><strong>Activity Uses & Recharge</strong><small>These are the Activity's own charges. Leave Maximum Uses blank for unlimited use. Recharge Amount accepts a number or D&amp;D5e roll formula and never restores above the maximum.</small></header>
+                <header><strong>Activity Uses & Recharge</strong><small>These are this Activity's own charges. Leave Maximum Uses blank for unlimited use. Recharge Trigger decides when recovery occurs; Recharge Amount / Formula decides how many uses return, clamped to the maximum.</small></header>
                 <div class="ic-attack-activity-grid">
-                  <label><span>Maximum Uses / Charges</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Unlimited or formula"></label>
+                  <label><span>Maximum Uses / Charges</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Blank = unlimited"></label>
                   <label><span>Uses Spent per Activation</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}></label>
                   <label><span>Recharge Trigger</span><select data-composed-activity-input="recoveryPeriod" data-composed-activity-id="{{id}}" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}>{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  <label><span>{{#if recoveryIsRecharge}}Recharge Roll{{else}}Recharge Amount / Formula{{/if}}</span><input type="text" value="{{recoveryFormula}}" data-composed-activity-input="recoveryFormula" data-composed-activity-id="{{id}}" placeholder="{{#if recoveryIsRecharge}}6{{else}}1 + 1d4{{/if}}" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}></label>
+                  <label><span>{{#if recoveryIsRecharge}}Recharge Roll{{else}}Recharge Amount / Formula{{/if}}</span><input type="text" value="{{recoveryFormula}}" data-composed-activity-input="recoveryFormula" data-composed-activity-id="{{id}}" placeholder="{{#if recoveryIsRecharge}}e.g. 6{{else}}e.g. 1, 1d4, or @prof{{/if}}" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}></label>
                   {{#unless recoveryIsRecharge}}<label class="ic-span-two"><span>Recharge Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="recoveryFormula" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}>{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>{{/unless}}
                   <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
                 </div>

@@ -1,10 +1,10 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.7.95 Published Item Library
+**Version:** 0.7.95a Library Organization & UI Cleanup
 **Compatibility:** Foundry VTT 14.367+ (verified 14.368) / D&D5e 6.0.1–6.0.999 (verified target: 6.0.5)
 
-> **D&D5e 6.x line:** v0.7.95 builds the Published Item Library on the stabilized v0.7.94a runtime and is verified against D&D5e 6.0.5. The supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized in memory when reopened and are persisted in current 6.x form only after an explicit GM update/publication.
+> **D&D5e 6.x line:** v0.7.95a organizes and hardens the Published Item Library introduced in v0.7.95 on the stabilized v0.7.94a runtime and is verified against D&D5e 6.0.5. The supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized in memory when reopened and are persisted in current 6.x form only after an explicit GM update/publication.
 
 This compatibility pass normalizes persisted physical-item rarity data to `system.rarities`, writes D&D5e 6.x roll and movement Active Effect paths, updates Consumable target routing to the D&D5e 6.x Chat Message target model, and applies the same persistence normalization through Supplier and the shared Materialization Core. Consumable Granted Effects now delegate temporal and rest expiry to the native D&D5e/Foundry Active Effect lifecycle instead of running a parallel combat-bound duration clock; Item Creator continues to own effect provenance, recipient routing, and stacking policy. Triggered Effects now follow the same migration principle: their triggers no longer require Combat, their persistent Effects use native world-time-backed duration, and ending Combat only detaches turn bookkeeping instead of deleting the Effects. Exact Combat turn/round hooks remain as a precision layer while Combat exists.
 
@@ -21,7 +21,7 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, mat
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
-## Published Item Library (v0.7.95)
+## Published Item Library (v0.7.95a)
 
 Item Creator now treats a dedicated **Item Creator — Published Items** Compendium as the canonical homebrew library. The backing pack is created as a World Compendium rather than a module-bundled content pack, so GM-authored publications survive ordinary Item Creator module updates. The Published Items screen is an Item Creator interface over those real Compendium Item documents, not a second database.
 
@@ -31,7 +31,9 @@ Existing World Item workflows remain supported. **Edit with Item Creator** still
 
 Actor and World copies are intentionally independent. A GM may drag a Published Item to an Actor or the World Items Directory, or use **World Test Item**, but later publication updates never monitor, replace, or synchronize those copies. The GM remains responsible for replacing items already in play.
 
-The library automatically groups publications as Weapons, Equipment, Consumables, Tools, or Other from the native Item type. The Published Library is excluded from Item Creator's template/base source discovery to avoid recursively using canonical output as an authoring source.
+The library is organized at two native Foundry levels. In the Compendiums sidebar the World pack lives inside an **Item Creator** folder/group. Inside the pack, real Compendium Folder documents provide PHB-style organization: Adventuring Gear; Armor by weight class; Tools by native tool family; Weapons by simple/martial and melee/ranged classification; Consumables; and an explicit fallback for uncategorized content. Existing publications are reorganized automatically and an updated publication is moved to the correct folder if its native type/subtype changes. The Item Creator Published Items screen mirrors this same hierarchy.
+
+The Published Library is excluded from Item Creator's template/base source discovery to avoid recursively using canonical output as an authoring source.
 
 ### Active Effect change contract
 

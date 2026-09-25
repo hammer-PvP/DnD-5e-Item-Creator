@@ -34,11 +34,7 @@ export class PublishedItemLibraryApp extends HandlebarsApplicationMixin(Applicat
       type: this.typeFilter
     });
     const categoryOrder = PublishedItemLibraryService.categories;
-    const groups = categoryOrder.map(category => ({
-      ...category,
-      items: rows.filter(row => row.category === category.id),
-      count: rows.filter(row => row.category === category.id).length
-    })).filter(group => group.count > 0);
+    const groups = PublishedItemLibraryService.displayTree(rows);
 
     return {
       version: MODULE_VERSION,
@@ -178,6 +174,10 @@ export class PublishedItemLibraryApp extends HandlebarsApplicationMixin(Applicat
     const query = this.search.trim().toLowerCase();
     for (const card of this.element?.querySelectorAll("[data-published-item]") ?? []) {
       card.hidden = Boolean(query) && !String(card.dataset.search ?? "").includes(query);
+    }
+    for (const subgroup of this.element?.querySelectorAll(".ic-published-subgroup") ?? []) {
+      const visible = [...subgroup.querySelectorAll("[data-published-item]")].some(card => !card.hidden);
+      subgroup.hidden = !visible;
     }
     for (const group of this.element?.querySelectorAll(".ic-published-group") ?? []) {
       const visible = [...group.querySelectorAll("[data-published-item]")].some(card => !card.hidden);
