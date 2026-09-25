@@ -1736,7 +1736,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 21,
+      schemaVersion: 24,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -1911,7 +1911,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 21,
+      schemaVersion: 24,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -2072,7 +2072,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 21,
+      schemaVersion: 24,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),
@@ -2271,8 +2271,12 @@ export class ItemCreatorItemBuilder {
       };
       source.flags[MODULE_ID].consumableEffect ??= {
         activityIds: ["all"],
-        durationMode: "longRest",
-        durationValue: 1,
+        timing: {
+          model: "rest",
+          amount: 1,
+          unit: "intervals",
+          rest: "longRest"
+        },
         stacking: "replace"
       };
       return source;
@@ -2284,7 +2288,7 @@ export class ItemCreatorItemBuilder {
     data.flags ??= {};
     data.flags[MODULE_ID] = {
       created: true,
-      schemaVersion: 23,
+      schemaVersion: 24,
       moduleVersion: MODULE_VERSION,
       materializationCore: plain(materializationCore),
       pricing: plain(pricing),

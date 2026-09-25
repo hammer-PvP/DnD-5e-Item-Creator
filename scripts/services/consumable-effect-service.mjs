@@ -1,6 +1,7 @@
 import { MODULE_ID } from "../constants.mjs";
 import { safeDeleteActiveEffects, safeUpdateActiveEffects } from "./document-operation-service.mjs";
 import { normalizeEffectChanges } from "../utils/effect-change-types.mjs";
+import { TIMING_MODELS, legacyDurationToTiming, normalizeTimingModel, normalizeWorldTimeUnit, worldTimeDurationSeconds } from "../utils/timing-model.mjs";
 
 function clone(value) {
   return foundry.utils.deepClone(value);
@@ -108,30 +109,31 @@ function activeBlueprints(itemOrEffects, actor, activity = null) {
 
 function normalizeConfig(runtime) {
   const source = runtime?.config ?? {};
-  const durationMode = ["permanent", "shortOrLongRest", "longRest", "rounds", "turns", "minutes", "hours"].includes(source.durationMode)
-    ? source.durationMode : "longRest";
+  const legacy = legacyDurationToTiming({
+    durationMode: source.durationMode,
+    durationValue: source.durationValue
+  });
+  const timingSource = source.timing && typeof source.timing === "object" ? source.timing : legacy;
+  let model = normalizeTimingModel(timingSource.model, legacy.model);
+  if (![TIMING_MODELS.PERSISTENT, TIMING_MODELS.WORLD_TIME, TIMING_MODELS.REST].includes(model)) model = legacy.model;
+  const timing = {
+    model,
+    amount: Math.max(1, Number(timingSource.amount) || 1),
+    unit: normalizeWorldTimeUnit(timingSource.unit),
+    rest: timingSource.rest === "shortOrLongRest" ? "shortOrLongRest" : "longRest"
+  };
   const stacking = ["replace", "refresh", "ignore", "stack"].includes(source.stacking) ? source.stacking : "replace";
   const amountRaw = String(source.removeExhaustionAmount ?? "1").trim().toLowerCase();
-  return {
+  const result = {
     ...source,
-    durationMode,
-    durationValue: Math.max(1, Number(source.durationValue) || 1),
+    timing,
     stacking,
     removeExhaustion: Boolean(source.removeExhaustion),
     removeExhaustionAmount: amountRaw === "all" ? "all" : String(Math.max(1, Number.parseInt(amountRaw, 10) || 1))
   };
-}
-
-function durationSeconds(config) {
-  const value = Math.max(1, Number(config.durationValue) || 1);
-  // Item Creator no longer owns a parallel combat clock. Rounds/turns are
-  // represented as D&D time (one round = CONFIG.time.roundTime, normally 6s)
-  // so they keep advancing outside Combat through Foundry world time.
-  const roundSeconds = Math.max(1, Number(CONFIG.time?.roundTime) || 6);
-  if (["rounds", "turns"].includes(config.durationMode)) return value * roundSeconds;
-  if (config.durationMode === "minutes") return value * 60;
-  if (config.durationMode === "hours") return value * 3600;
-  return null;
+  delete result.durationMode;
+  delete result.durationValue;
+  return result;
 }
 
 function worldTime() {
@@ -140,29 +142,29 @@ function worldTime() {
 
 /**
  * Build a Foundry V14 / D&D5e 6.x native ActiveEffect duration.
- *
- * The ActiveEffect registry is the sole expiry authority. Item Creator keeps
- * its semantic duration mode in flags only for editing/provenance.
+ * Timing Model v1 makes the authority explicit: Persistent has no expiry,
+ * Rest/Calendar delegates to D&D5e expiry events, and World Time is expressed
+ * as native seconds so it advances identically inside and outside Combat.
  */
 function durationData(config) {
-  const value = Math.max(1, Number(config.durationValue) || 1);
-  if (config.durationMode === "permanent") {
+  const timing = config.timing ?? {};
+  if (timing.model === TIMING_MODELS.PERSISTENT) {
     return { value: null, units: "seconds", expiry: null, expired: false };
   }
-  if (config.durationMode === "shortOrLongRest") {
-    // D&D5e Long Rest fires both longRest and shortRest expiry events.
-    return { value: null, units: "seconds", expiry: "shortRest", expired: false };
+  if (timing.model === TIMING_MODELS.REST) {
+    return {
+      value: null,
+      units: "seconds",
+      expiry: timing.rest === "shortOrLongRest" ? "shortRest" : "longRest",
+      expired: false
+    };
   }
-  if (config.durationMode === "longRest") {
-    return { value: null, units: "seconds", expiry: "longRest", expired: false };
-  }
-  if (config.durationMode === "minutes") {
-    return { value, units: "minutes", expiry: null, expired: false };
-  }
-  if (config.durationMode === "hours") {
-    return { value, units: "hours", expiry: null, expired: false };
-  }
-  return { value: durationSeconds(config), units: "seconds", expiry: null, expired: false };
+  return {
+    value: worldTimeDurationSeconds(timing.amount, timing.unit),
+    units: "seconds",
+    expiry: null,
+    expired: false
+  };
 }
 
 function nativeEffectStart() {
@@ -176,9 +178,12 @@ function nativeEffectStart() {
 }
 
 function timingFlags(config) {
+  const timing = config.timing ?? {};
   return {
-    consumableDurationMode: config.durationMode,
-    consumableDurationValue: Math.max(1, Number(config.durationValue) || 1),
+    consumableTimingModel: timing.model,
+    consumableTimingAmount: Math.max(1, Number(timing.amount) || 1),
+    consumableTimingUnit: normalizeWorldTimeUnit(timing.unit),
+    consumableTimingRest: timing.rest === "shortOrLongRest" ? "shortOrLongRest" : "longRest",
     consumableAppliedAtWorldTime: worldTime()
   };
 }
@@ -278,10 +283,14 @@ function refreshUpdates(effects, config, _actor) {
     _id: effect.id,
     duration: durationData(config),
     start,
-    [`flags.${MODULE_ID}.consumableDurationMode`]: timing.consumableDurationMode,
-    [`flags.${MODULE_ID}.consumableDurationValue`]: timing.consumableDurationValue,
+    [`flags.${MODULE_ID}.consumableTimingModel`]: timing.consumableTimingModel,
+    [`flags.${MODULE_ID}.consumableTimingAmount`]: timing.consumableTimingAmount,
+    [`flags.${MODULE_ID}.consumableTimingUnit`]: timing.consumableTimingUnit,
+    [`flags.${MODULE_ID}.consumableTimingRest`]: timing.consumableTimingRest,
     [`flags.${MODULE_ID}.consumableAppliedAtWorldTime`]: timing.consumableAppliedAtWorldTime,
-    // Clear obsolete 0.7.7/0.7.92 parallel-clock state when an Effect is refreshed.
+    // Clear pre-Timing-Model and obsolete parallel-clock state when refreshed.
+    [`flags.${MODULE_ID}.-=consumableDurationMode`]: null,
+    [`flags.${MODULE_ID}.-=consumableDurationValue`]: null,
     [`flags.${MODULE_ID}.-=consumableExpiresAtWorldTime`]: null,
     [`flags.${MODULE_ID}.-=consumableCombatId`]: null,
     [`flags.${MODULE_ID}.-=consumableCombatStartRound`]: null,

@@ -929,10 +929,16 @@
               {{/each}}
             </div>
             <div class="ic-enhancement-fields two-columns">
-              <label><span>Effect Duration</span><select data-consumable-spell-effect-input="durationMode" data-consumable-spell-effect-id="{{id}}">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Timing Authority</span><select data-consumable-spell-effect-input="timingModel" data-consumable-spell-effect-id="{{id}}">{{#each timingModelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Stacking</span><select data-consumable-spell-effect-input="stacking" data-consumable-spell-effect-id="{{id}}">{{#each stackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-              {{#if durationNeedsValue}}<label><span>Duration Value</span><input type="number" min="1" step="1" value="{{durationValue}}" data-consumable-spell-effect-input="durationValue" data-consumable-spell-effect-id="{{id}}"></label>{{/if}}
+              {{#if timingIsWorldTime}}
+              <label><span>Duration</span><input type="number" min="1" step="1" value="{{timingAmount}}" data-consumable-spell-effect-input="timingAmount" data-consumable-spell-effect-id="{{id}}"></label>
+              <label><span>World Time Unit</span><select data-consumable-spell-effect-input="timingUnit" data-consumable-spell-effect-id="{{id}}">{{#each timingUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{else if timingIsRest}}
+              <label class="ic-triggered-wide"><span>Rest Boundary</span><select data-consumable-spell-effect-input="timingRest" data-consumable-spell-effect-id="{{id}}">{{#each timingRestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{/if}}
             </div>
+            <aside class="ic-timing-note"><i class="fa-solid fa-clock"></i><span>{{#if timingIsWorldTime}}World Time advances inside and outside Combat. One interval follows the system round time (normally 6 seconds).{{else if timingIsRest}}Rest / Calendar timing is delegated to the native D&D5e rest lifecycle.{{else}}Persistent effects have no clock and remain until removed or replaced by the configured use/stacking flow.{{/if}}</span></aside>
           </article>
           {{/each}}
         </div>
@@ -954,10 +960,16 @@
               {{/each}}
             </div>
             <div class="ic-enhancement-fields two-columns">
-              <label><span>Effect Duration</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="durationMode">{{#each durationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              <label><span>Timing Authority</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="timingModel">{{#each timingModelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Stacking</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="stacking">{{#each stackingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-              {{#if durationNeedsValue}}<label><span>Duration Value</span><input type="number" min="1" step="1" value="{{durationValue}}" data-consumable-effect-input="{{key}}" data-consumable-effect-part="durationValue" data-value-type="number"></label>{{/if}}
+              {{#if timingIsWorldTime}}
+              <label><span>Duration</span><input type="number" min="1" step="1" value="{{timingAmount}}" data-consumable-effect-input="{{key}}" data-consumable-effect-part="timingAmount" data-value-type="number"></label>
+              <label><span>World Time Unit</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="timingUnit">{{#each timingUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{else if timingIsRest}}
+              <label class="ic-triggered-wide"><span>Rest Boundary</span><select data-consumable-effect-input="{{key}}" data-consumable-effect-part="timingRest">{{#each timingRestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{/if}}
             </div>
+            <aside class="ic-timing-note"><i class="fa-solid fa-clock"></i><span>{{#if timingIsWorldTime}}World Time advances inside and outside Combat. One interval follows the system round time (normally 6 seconds).{{else if timingIsRest}}Rest / Calendar timing is delegated to the native D&D5e rest lifecycle.{{else}}Persistent effects have no clock and remain until removed/replaced by use or stacking.{{/if}}</span></aside>
           </article>
           {{/each}}
         </div>
@@ -1167,15 +1179,22 @@
                   <label><span>Minimum Amount</span><input type="number" min="0" step="1" value="{{trigger.minimumAmount}}" data-trigger-input="minimumAmount" data-trigger-scope="trigger" data-trigger-id="{{id}}" data-value-type="number"></label>
                   {{/if}}
                 </div>
+                {{#if combatOnlyTrigger}}
+                <aside class="ic-triggered-note ic-timing-note combat"><i class="fa-solid fa-swords"></i><span><strong>COMBAT ONLY trigger.</strong> This event exists only inside an active Combat and has no World Time substitute.</span></aside>
+                {{/if}}
               </section>
 
               <section class="ic-triggered-subsection">
                 <header><i class="fa-solid fa-list-ol"></i><strong>Activation Counting</strong></header>
-                <div class="ic-triggered-grid three-columns">
+                <div class="ic-triggered-grid four-columns">
                   <label><span>Count As</span><select data-trigger-input="counting" data-trigger-id="{{id}}">{{#each countingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  <label><span>Maximum per Turn</span><input type="number" min="0" max="99" step="1" value="{{maxPerTurn}}" data-trigger-input="maxPerTurn" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
-                  <label><span>Maximum per Round</span><input type="number" min="0" max="99" step="1" value="{{maxPerRound}}" data-trigger-input="maxPerRound" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
+                  <label><span>Maximum per 6-Second Interval</span><input type="number" min="0" max="99" step="1" value="{{maxPerInterval}}" data-trigger-input="maxPerInterval" data-trigger-id="{{id}}" data-value-type="number"><small>World Time · 0 = unlimited</small></label>
+                  <label><span>Maximum per Combat Turn <em class="ic-timing-badge combat">COMBAT ONLY</em></span><input type="number" min="0" max="99" step="1" value="{{maxPerCombatTurn}}" data-trigger-input="maxPerCombatTurn" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
+                  <label><span>Maximum per Combat Round <em class="ic-timing-badge combat">COMBAT ONLY</em></span><input type="number" min="0" max="99" step="1" value="{{maxPerCombatRound}}" data-trigger-input="maxPerCombatRound" data-trigger-id="{{id}}" data-value-type="number"><small>0 = unlimited</small></label>
                 </div>
+                {{#if combatOnlyCounting}}
+                <aside class="ic-triggered-note ic-timing-note combat"><i class="fa-solid fa-swords"></i><span><strong>COMBAT ONLY counting.</strong> This counting mode requires an active Combat. It has no World Time fallback.</span></aside>
+                {{/if}}
               </section>
 
               <section class="ic-triggered-subsection">
@@ -1184,8 +1203,15 @@
                   <label class="ic-triggered-span-two"><span>Application Mode</span><select data-trigger-input="mode" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each applicationModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
 
                   {{#if isSingleActivation}}
-                  <label><span>Expires At</span><select data-trigger-input="expiration" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each singleActivationExpirationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Timing Authority</span><select data-trigger-input="model" data-trigger-scope="applicationTiming" data-trigger-id="{{id}}">{{#each timingModelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   <label><span>When Triggered Again</span><select data-trigger-input="retrigger" data-trigger-scope="application" data-trigger-id="{{id}}">{{#each retriggerBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if applicationWorldTime}}
+                  <label><span>Duration</span><input type="number" min="1" max="999999" step="1" value="{{applicationTiming.amount}}" data-trigger-input="amount" data-trigger-scope="applicationTiming" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>World Time Unit</span><select data-trigger-input="unit" data-trigger-scope="applicationTiming" data-trigger-id="{{id}}">{{#each applicationWorldTimeUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/if}}
+                  {{#if applicationCombatOnly}}
+                  <label class="ic-triggered-span-two"><span>Combat Boundary <em class="ic-timing-badge combat">COMBAT ONLY</em></span><select data-trigger-input="boundary" data-trigger-scope="applicationTiming" data-trigger-id="{{id}}">{{#each singleActivationExpirationOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/if}}
                   {{else}}
                   {{#if showStackQuantityFields}}
                   <label><span>Stacks per Activation</span><input type="number" min="1" max="99" step="1" value="{{stacks.granted}}" data-trigger-input="granted" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
@@ -1193,30 +1219,37 @@
                   {{/if}}
                   <label class="ic-triggered-span-two"><span>Stack Behavior</span><select data-trigger-input="behavior" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each stackBehaviorOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
 
-                  {{#if showDurationFields}}
-                  <label><span>Duration</span><input type="number" min="1" max="999" step="1" value="{{stacks.durationAmount}}" data-trigger-input="durationAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  {{#unless isSingleAttack}}
+                  <label><span>Timing Authority</span><select data-trigger-input="model" data-trigger-scope="stackTiming" data-trigger-id="{{id}}">{{#each timingModelOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{/unless}}
+
+                  {{#if stackWorldTime}}
+                  <label><span>{{#if showDecayFields}}Tick Interval{{else}}Duration{{/if}}</span><input type="number" min="1" max="999999" step="1" value="{{stackTiming.amount}}" data-trigger-input="amount" data-trigger-scope="stackTiming" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>World Time Unit</span><select data-trigger-input="unit" data-trigger-scope="stackTiming" data-trigger-id="{{id}}">{{#each stackWorldTimeUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{/if}}
 
                   {{#if showInactivityGrace}}
-                  <label><span>Inactivity Grace</span><input type="number" min="0" max="999" step="1" value="{{stacks.inactivityGrace}}" data-trigger-input="inactivityGrace" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>Inactivity Grace</span><input type="number" min="0" max="999" step="1" value="{{stacks.inactivityGrace}}" data-trigger-input="inactivityGrace" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"><small>Number of timing ticks before decay begins.</small></label>
                   {{/if}}
                   {{#if showDecayFields}}
                   <label><span>Stacks Lost per Tick</span><input type="number" min="1" max="999" step="1" value="{{stacks.decayAmount}}" data-trigger-input="decayAmount" data-trigger-scope="stacks" data-trigger-id="{{id}}" data-value-type="number"></label>
                   {{/if}}
-                  {{#if showTrackingFields}}
-                  <label><span>Duration Follows</span><select data-trigger-input="durationUnit" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                  <label><span>Tick / Expire At</span><select data-trigger-input="tickTiming" data-trigger-scope="stacks" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+
+                  {{#if stackCombatOnly}}
+                  <label><span>Tracked Count</span><input type="number" min="1" max="999" step="1" value="{{stackTiming.amount}}" data-trigger-input="amount" data-trigger-scope="stackTiming" data-trigger-id="{{id}}" data-value-type="number"></label>
+                  <label><span>Duration Follows <em class="ic-timing-badge combat">COMBAT ONLY</em></span><select data-trigger-input="combatUnit" data-trigger-scope="stackTiming" data-trigger-id="{{id}}">{{#each durationUnitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  <label><span>Tick / Expire At</span><select data-trigger-input="combatTiming" data-trigger-scope="stackTiming" data-trigger-id="{{id}}">{{#each tickTimingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{/if}}
                   {{/if}}
                 </div>
                 {{#if isSingleActivation}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect. If the selected Actor is not currently taking a turn, the next matching turn boundary is used.</span></aside>
+                <aside class="ic-triggered-note ic-timing-note {{#if applicationCombatOnly}}combat{{else}}world{{/if}}"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Choose whether a new trigger refreshes its lifetime or is ignored while that recipient already has the effect.</span></aside>
                 {{else if isSingleAttack}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-bullseye"></i><span>The effect is applied after the successful attack roll and removed after the next damage roll from that same Activity. If no damage is rolled, it is removed at the end of the owner's current turn. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
+                <aside class="ic-triggered-note ic-timing-note world"><i class="fa-solid fa-bullseye"></i><span>The effect is event-based: it is applied after the successful attack roll and removed after the matching damage roll from that same Activity. If no damage roll resolves, a one-interval World Time safety expiry removes it. Damage bonuses can affect that roll; attack bonuses cannot retroactively alter an attack already rolled.</span></aside>
                 {{else}}
-                <aside class="ic-triggered-note"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}} Ending or deleting the Combat removes all stacks and effects.</span></aside>
+                <aside class="ic-triggered-note ic-timing-note {{#if stackCombatOnly}}combat{{else}}world{{/if}}"><i class="fa-solid fa-stopwatch"></i><span>{{durationGuidance}}</span></aside>
                 {{#if targetClockWarning}}
-                <aside class="ic-triggered-note ic-triggered-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>This Trigger applies one or more effects to target Actors, but the duration currently follows the <strong>source Actor</strong>. {{#if isSingleActivation}}Choose a recipient-based option under <strong>Expires At</strong> to count each target's own turn.{{else}}Choose <strong>Effect Recipient Turns</strong> under <strong>Duration Follows</strong> to count each target's own turns.{{/if}}</span></aside>
+                <aside class="ic-triggered-note ic-triggered-warning"><i class="fa-solid fa-triangle-exclamation"></i><span>This Trigger applies one or more effects to target Actors, but its Combat Boundary follows the <strong>source Actor</strong>. Choose a recipient-based Combat Boundary if each target should follow its own exact turn.</span></aside>
                 {{/if}}
                 {{/if}}
 
@@ -1278,7 +1311,7 @@
 
                       {{#if isSelectedSpellEffects}}
                       <div class="ic-trigger-source-picker ic-triggered-wide"><span><strong>Selected Spell</strong><small>{{#if spellName}}{{spellName}} — {{selectedSpellEffectCount}} transferable Active Effect(s){{else}}No Spell selected{{/if}}</small></span><button type="button" data-action="browse-trigger-effect-spell" data-trigger-id="{{../id}}" data-payload-id="{{id}}"><i class="fa-solid fa-books"></i> Browse Spell</button></div>
-                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. For target effects, choose <strong>Effect Recipient Turns</strong> in Application &amp; Duration to count the affected Actor's own turns.</span></aside>
+                      <aside class="ic-triggered-note ic-triggered-wide"><i class="fa-solid fa-circle-info"></i><span>Only the selected Spell's Active Effects and conditions are copied. The Spell is not cast: no slot, action, target workflow, saving throw, original duration, or concentration is used. Application and expiration come from this Triggered Effect. Use <strong>World Time</strong> for elapsed duration, or choose a recipient-based <strong>Combat Boundary</strong> when the rule literally depends on that target's turn.</span></aside>
                       {{else if isContextualModifier}}
                       <label><span>Roll Type</span><select data-trigger-payload-input="contextualRollType" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each contextualRollTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       <label><span>Relationship</span><select data-trigger-payload-input="contextualRelationship" data-trigger-id="{{../id}}" data-payload-id="{{id}}">{{#each contextualRelationshipOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
@@ -1431,7 +1464,7 @@
               </section>
 
               <section class="ic-activity-config-section">
-                <header><strong>Targeting & Timing</strong><small>Choose the unit first. Numeric Range appears only for measured distances; numeric Duration appears only for timed units. Self, Touch, Special, and Instant need no number.</small></header>
+                <header><strong>Targeting &amp; Timing <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong><small>Activity duration and Concentration are delegated to the native D&amp;D5e Activity contract. Choose the unit first; numeric fields appear only when the native unit requires them.</small></header>
                 <div class="ic-attack-activity-grid">
                   <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="e.g. 30"></label>{{/if}}
@@ -1624,7 +1657,7 @@
               </section>
 
               <section class="ic-activity-config-section">
-                <header><strong>Targeting & Timing</strong><small>Choose the unit first. Numeric Range appears only for measured distances; numeric Duration appears only for timed units. Self, Touch, Special, and Instant need no number.</small></header>
+                <header><strong>Targeting &amp; Timing <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong><small>Activity duration and Concentration are delegated to the native D&amp;D5e Activity contract. Choose the unit first; numeric fields appear only when the native unit requires them.</small></header>
                 <div class="ic-attack-activity-grid">
                   <label><span>Range Unit</span><select data-composed-activity-input="rangeUnits" data-composed-activity-id="{{id}}">{{#each rangeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if rangeNeedsValue}}<label><span>Range</span><input type="number" min="0" step="1" value="{{rangeValue}}" data-composed-activity-input="rangeValue" data-composed-activity-id="{{id}}" placeholder="30"></label>{{/if}}
@@ -1640,11 +1673,12 @@
               </section>
 
               <section class="ic-activity-config-section ic-activity-uses-section">
-                <header><strong>Activity Uses & Recharge</strong><small>These are this Activity's own charges. Leave Maximum Uses blank for unlimited use. Recharge Trigger decides when recovery occurs; Recharge Amount / Formula decides how many uses return, clamped to the maximum.</small></header>
+                <header><strong>Activity Uses &amp; Recharge <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong><small>These are this Activity's own charges and native D&amp;D5e recovery periods. Leave Maximum Uses blank for unlimited use. Combat-bound recovery periods only advance when their native Combat event exists.</small></header>
                 <div class="ic-attack-activity-grid">
                   <label><span>Maximum Uses / Charges</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Blank = unlimited"></label>
                   <label><span>Uses Spent per Activation</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}></label>
                   <label><span>Recharge Trigger</span><select data-composed-activity-input="recoveryPeriod" data-composed-activity-id="{{id}}" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}>{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if recoveryCombatOnly}}<p class="ic-timing-note combat"><span class="ic-timing-badge combat">COMBAT ONLY</span> This native D&amp;D5e recovery advances only when its Combat event exists.</p>{{/if}}
                   <label><span>{{#if recoveryIsRecharge}}Recharge Roll{{else}}Recharge Amount / Formula{{/if}}</span><input type="text" value="{{recoveryFormula}}" data-composed-activity-input="recoveryFormula" data-composed-activity-id="{{id}}" placeholder="{{#if recoveryIsRecharge}}e.g. 6{{else}}e.g. 1, 1d4, or @prof{{/if}}" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}></label>
                   {{#unless recoveryIsRecharge}}<label class="ic-span-two"><span>Recharge Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="recoveryFormula" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}>{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>{{/unless}}
                   <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
@@ -1787,7 +1821,7 @@
 
                 <div class="ic-spell-config-grid">
                   <section class="ic-spell-config-panel">
-                    <h4>Uses and Recovery</h4>
+                    <h4>Uses and Recovery <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></h4>
                     <label><span>Use Limit</span><select data-granted-spell-input="useLimit" data-spell-id="{{id}}">{{#each useLimitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     {{#if isLimited}}
                     <div class="ic-spell-inline-fields">

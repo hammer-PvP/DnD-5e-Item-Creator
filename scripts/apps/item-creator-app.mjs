@@ -17,12 +17,13 @@ import {
   CONTEXTUAL_OPERATIONS, CONTEXTUAL_RELATIONSHIPS, CONTEXTUAL_ROLL_TYPES, DURATION_UNITS,
   EFFECT_APPLICATION_MODES, EFFECT_RECIPIENTS, EFFECT_SCALING, INSTANT_HEALING_CALCULATIONS, RETRIGGER_BEHAVIORS, SAVE_DC_MODES,
   SINGLE_ACTIVATION_EXPIRATIONS, STACK_BEHAVIORS, TICK_TIMINGS, TRIGGER_CATEGORIES, TRIGGER_EFFECT_TYPES,
-  TRIGGER_EVENTS, VALUE_CALCULATIONS,
+  TRIGGER_EVENTS, TRIGGER_TIMING_MODELS, TRIGGER_WORLD_TIME_UNITS, VALUE_CALCULATIONS,
   defaultTriggeredEffect, defaultTriggeredEffectPayload, extractSelectedSpellEffectsAsync,
   refreshSelectedSpellEffectSnapshots, isDamageTriggeredEffect, isNumericTriggeredEffect,
   isRollDiceTriggeredEffect, isTraitTriggeredEffect, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   triggeredEffectSummary, validateTriggeredEffect
 } from "../services/triggered-effect-registry.mjs";
+import { REST_LIFETIMES, TIMING_MODELS, WORLD_TIME_UNITS, legacyDurationToTiming, normalizeTimingModel, normalizeWorldTimeUnit } from "../utils/timing-model.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin, DialogV2 } = foundry.applications.api;
 
@@ -145,48 +146,77 @@ function actorStateChangesConfig(source = {}) {
 }
 
 function normalizeConsumableEffectConfig(value = {}) {
-  // Consumables v2 owns lifecycle per Granted Effect. There is intentionally
-  // no hidden/global Effect Defaults layer: new effects start from a neutral
-  // local default and then persist their own routing, duration, and stacking.
+  // Timing Model v1 owns lifecycle per Granted Effect. Legacy durationMode /
+  // durationValue are accepted as read compatibility and normalized on save.
+  const legacy = legacyDurationToTiming({ durationMode: value?.durationMode, durationValue: value?.durationValue });
+  const timingSource = value?.timing && typeof value.timing === "object" ? value.timing : legacy;
+  let model = normalizeTimingModel(timingSource.model, legacy.model);
+  if (![TIMING_MODELS.PERSISTENT, TIMING_MODELS.WORLD_TIME, TIMING_MODELS.REST].includes(model)) model = TIMING_MODELS.REST;
   const source = {
     activityIds: ["all"],
-    durationMode: "longRest",
-    durationValue: 1,
     stacking: "replace",
-    ...(value ?? {})
+    ...(value ?? {}),
+    timing: {
+      model,
+      amount: Math.max(1, Number(timingSource.amount) || 1),
+      unit: normalizeWorldTimeUnit(timingSource.unit, "intervals"),
+      rest: REST_LIFETIMES.some(([entry]) => entry === timingSource.rest) ? timingSource.rest : "longRest"
+    }
   };
   source.activityIds = Array.isArray(source.activityIds) && source.activityIds.length ? [...new Set(source.activityIds.map(String))] : ["all"];
   if (source.activityIds.includes("all")) source.activityIds = ["all"];
-  if (!["permanent", "shortOrLongRest", "longRest", "rounds", "turns", "minutes", "hours"].includes(source.durationMode)) source.durationMode = "longRest";
   if (!["replace", "refresh", "ignore", "stack"].includes(source.stacking)) source.stacking = "replace";
-  source.durationValue = Math.max(1, Number(source.durationValue) || 1);
+  delete source.durationMode;
+  delete source.durationValue;
   return source;
 }
 
+function consumableTimingView(config = {}) {
+  const timing = normalizeConsumableEffectConfig(config).timing;
+  return {
+    timingModel: timing.model,
+    timingAmount: timing.amount,
+    timingUnit: timing.unit,
+    timingRest: timing.rest,
+    timingModelOptions: fixedOptions([
+      [TIMING_MODELS.PERSISTENT, "Persistent"],
+      [TIMING_MODELS.WORLD_TIME, "World Time"],
+      [TIMING_MODELS.REST, "Rest / Calendar"]
+    ], timing.model),
+    timingUnitOptions: fixedOptions(WORLD_TIME_UNITS, timing.unit),
+    timingRestOptions: fixedOptions(REST_LIFETIMES, timing.rest),
+    timingIsWorldTime: timing.model === TIMING_MODELS.WORLD_TIME,
+    timingIsRest: timing.model === TIMING_MODELS.REST,
+    timingIsPersistent: timing.model === TIMING_MODELS.PERSISTENT
+  };
+}
+
 function spellEffectDurationConfig(snapshot = {}, spell = null) {
+  const asTiming = (unit, amount) => ({ timing: { model: TIMING_MODELS.WORLD_TIME, unit, amount: Math.max(1, Number(amount) || 1), rest: "" } });
   const duration = snapshot?.duration ?? {};
   const units = String(duration.units ?? "").toLowerCase();
   const raw = Number(duration.value);
   if (Number.isFinite(raw) && raw > 0) {
     if (units === "seconds") {
-      if (raw % 3600 === 0) return { durationMode: "hours", durationValue: Math.max(1, raw / 3600) };
-      if (raw % 60 === 0) return { durationMode: "minutes", durationValue: Math.max(1, raw / 60) };
-      return { durationMode: "rounds", durationValue: Math.max(1, Math.ceil(raw / 6)) };
+      if (raw % 3600 === 0) return asTiming("hours", raw / 3600);
+      if (raw % 60 === 0) return asTiming("minutes", raw / 60);
+      return asTiming("intervals", Math.ceil(raw / Math.max(1, Number(CONFIG.time?.roundTime) || 6)));
     }
-    if (["minute", "minutes"].includes(units)) return { durationMode: "minutes", durationValue: Math.max(1, raw) };
-    if (["hour", "hours"].includes(units)) return { durationMode: "hours", durationValue: Math.max(1, raw) };
-    if (["round", "rounds"].includes(units)) return { durationMode: "rounds", durationValue: Math.max(1, raw) };
-    if (["turn", "turns"].includes(units)) return { durationMode: "turns", durationValue: Math.max(1, raw) };
+    if (["minute", "minutes"].includes(units)) return asTiming("minutes", raw);
+    if (["hour", "hours"].includes(units)) return asTiming("hours", raw);
+    if (["day", "days"].includes(units)) return asTiming("days", raw);
+    if (["round", "rounds", "turn", "turns"].includes(units)) return asTiming("intervals", raw);
   }
   const spellDuration = spell?.system?.duration ?? {};
   const value = Number(spellDuration.value);
   const spellUnits = String(spellDuration.units ?? "").toLowerCase();
   if (Number.isFinite(value) && value > 0) {
-    if (["minute", "minutes"].includes(spellUnits)) return { durationMode: "minutes", durationValue: value };
-    if (["hour", "hours"].includes(spellUnits)) return { durationMode: "hours", durationValue: value };
-    if (["round", "rounds"].includes(spellUnits)) return { durationMode: "rounds", durationValue: value };
+    if (["minute", "minutes"].includes(spellUnits)) return asTiming("minutes", value);
+    if (["hour", "hours"].includes(spellUnits)) return asTiming("hours", value);
+    if (["day", "days"].includes(spellUnits)) return asTiming("days", value);
+    if (["round", "rounds", "turn", "turns"].includes(spellUnits)) return asTiming("intervals", value);
   }
-  return { durationMode: "longRest", durationValue: 1 };
+  return { timing: { model: TIMING_MODELS.REST, rest: "longRest", amount: 1, unit: "intervals" } };
 }
 
 function spellLevelOptions(selected = 0) {
@@ -2275,23 +2305,39 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         : CONSUMPTION_EVENTS;
       const allowedConsumptionTimings = CONSUMPTION_TIMINGS.filter(([value]) => value !== "afterRoll"
         || !["damageRoll", "healingRoll"].includes(consumption.event));
-      const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration)
-        .find(option => option.selected)?.label ?? application.expiration;
-      const timingLabel = fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming)
-        .find(option => option.selected)?.label ?? stack.tickTiming;
-      const durationReference = stack.durationUnit === "recipientTurns"
-        ? "Each effect follows the turns of the Actor that received it. Every target has an independent duration."
-        : stack.durationUnit === "ownerTurns"
-          ? "The duration follows the source Actor who owns the Item, even when the effect is applied to a target."
-          : stack.durationUnit === "combatTurns"
-            ? "The duration advances on every Combat turn."
-            : "The duration advances once per Combat round.";
+      const applicationTiming = application.timing ?? { model: TIMING_MODELS.COMBAT, boundary: "ownerTurnEndCurrent", amount: 1, unit: "intervals" };
+      const stackTiming = stack.timing ?? { model: TIMING_MODELS.WORLD_TIME, amount: 1, unit: "intervals", combatUnit: "ownerTurns", combatTiming: "ownerTurnEnd" };
+      const expirationLabel = fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, applicationTiming.boundary)
+        .find(option => option.selected)?.label ?? applicationTiming.boundary;
+      const combatTimingLabel = fixedOptions(TICK_TIMINGS[stackTiming.combatUnit] ?? [], stackTiming.combatTiming)
+        .find(option => option.selected)?.label ?? stackTiming.combatTiming;
+      const worldUnitLabel = fixedOptions(TRIGGER_WORLD_TIME_UNITS, stackTiming.unit)
+        .find(option => option.selected)?.label ?? stackTiming.unit;
+      const applicationWorldUnitLabel = fixedOptions(TRIGGER_WORLD_TIME_UNITS, applicationTiming.unit)
+        .find(option => option.selected)?.label ?? applicationTiming.unit;
+      const applicationCombatOnly = application.mode === "singleActivation" && applicationTiming.model === TIMING_MODELS.COMBAT;
+      const applicationWorldTime = application.mode === "singleActivation" && applicationTiming.model === TIMING_MODELS.WORLD_TIME;
+      const stackCombatOnly = application.mode === "stacking" && stack.behavior !== "singleAttack" && stackTiming.model === TIMING_MODELS.COMBAT;
+      const stackWorldTime = application.mode === "stacking" && stackTiming.model === TIMING_MODELS.WORLD_TIME;
+      const durationReference = stackCombatOnly
+        ? (stackTiming.combatUnit === "recipientTurns"
+          ? "Each target follows its own exact Combat turn boundaries."
+          : stackTiming.combatUnit === "ownerTurns"
+            ? "The source Actor's exact Combat turn boundaries control this duration."
+            : stackTiming.combatUnit === "combatTurns"
+              ? "Every Combat turn advances this duration."
+              : "Combat rounds advance this duration.")
+        : `World Time advances inside and outside Combat. One interval follows CONFIG.time.roundTime (normally 6 seconds).`;
       const durationGuidance = application.mode === "singleActivation"
-        ? `This application expires at ${expirationLabel}. Each recipient is tracked independently.`
-        : `${stack.durationAmount} ${stack.durationUnit === "recipientTurns" ? "Effect Recipient Turn(s)" : stack.durationUnit === "ownerTurns" ? "Source Actor Turn(s)" : stack.durationUnit === "combatTurns" ? "Combat Turn(s)" : "Combat Round(s)"}; ${timingLabel}. ${durationReference}`;
-      const targetClockWarning = hasTargetRecipients && (application.mode === "singleActivation"
-        ? application.expiration.startsWith("owner")
-        : stack.durationUnit === "ownerTurns");
+        ? (applicationCombatOnly
+          ? `COMBAT ONLY — expires at ${expirationLabel}. No World Time fallback is used.`
+          : `World Time — ${applicationTiming.amount} ${applicationWorldUnitLabel}. The duration advances inside and outside Combat.`)
+        : stack.behavior === "singleAttack"
+          ? "Event-based lifecycle — removed by the matching damage roll, with a one-interval World Time safety expiry."
+          : stackCombatOnly
+            ? `COMBAT ONLY — ${stackTiming.amount} tracked unit(s), ${combatTimingLabel}. No World Time fallback is used.`
+            : `World Time — ${stackTiming.amount} ${worldUnitLabel}. ${durationReference}`;
+      const targetClockWarning = hasTargetRecipients && applicationCombatOnly && applicationTiming.boundary.startsWith("owner");
       return {
         ...row,
         index: index + 1,
@@ -2311,7 +2357,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         hasInstantHealing,
         onlyInstantHealing,
         consumptionBlocked,
-        singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, application.expiration),
+        singleActivationExpirationOptions: fixedOptions(SINGLE_ACTIVATION_EXPIRATIONS, applicationTiming.boundary),
+        timingModelOptions: fixedOptions(TRIGGER_TIMING_MODELS, application.mode === "singleActivation" ? applicationTiming.model : stackTiming.model),
+        applicationWorldTimeUnitOptions: fixedOptions(TRIGGER_WORLD_TIME_UNITS, applicationTiming.unit),
+        stackWorldTimeUnitOptions: fixedOptions(TRIGGER_WORLD_TIME_UNITS, stackTiming.unit),
         retriggerBehaviorOptions: fixedOptions(RETRIGGER_BEHAVIORS, application.retrigger),
         consumptionEventOptions: fixedOptions(allowedConsumptionEvents, consumption.event),
         consumptionDecisionOptions: fixedOptions(CONSUMPTION_DECISIONS, consumption.decision),
@@ -2321,8 +2370,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         consumptionAfterRoll: consumption.timing === "afterRoll",
         stackBehaviorOptions: fixedOptions(STACK_BEHAVIORS.filter(([behavior]) => behavior !== "singleAttack"
           || (trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(trigger.event))), stack.behavior),
-        durationUnitOptions: fixedOptions(DURATION_UNITS, stack.durationUnit),
-        tickTimingOptions: fixedOptions(TICK_TIMINGS[stack.durationUnit] ?? [], stack.tickTiming),
+        durationUnitOptions: fixedOptions(DURATION_UNITS, stackTiming.combatUnit),
+        tickTimingOptions: fixedOptions(TICK_TIMINGS[stackTiming.combatUnit] ?? [], stackTiming.combatTiming),
         spellLevelOptions: [{ value: "any", label: "Any Spell Level", selected: trigger.spellLevel === "any" },
           ...Array.from({ length: 10 }, (_unused, i) => ({ value: i, label: i === 0 ? "Cantrip" : spellLevelLabel(i), selected: Number(trigger.spellLevel) === i }))],
         spellSlotLevelOptions: [{ value: "any", label: "Any Slot Level", selected: trigger.spellSlotLevel === "any" },
@@ -2357,6 +2406,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         targetClockWarning,
         durationReference,
         durationGuidance,
+        applicationTiming,
+        stackTiming,
+        applicationCombatOnly,
+        applicationWorldTime,
+        stackCombatOnly,
+        stackWorldTime,
+        combatOnlyTrigger: trigger.category === "combat",
+        combatOnlyCounting: ["perCombatTurn", "perCombatRound"].includes(row.counting),
         effects: effectRows
       };
     });
@@ -2475,10 +2532,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           ],
           recoveryOptions: [
             { value: "", label: "No Recovery", selected: !row.recoveryPeriod },
-            ...Object.entries(CONFIG.DND5E.limitedUsePeriods ?? {}).filter(([, config]) => !config.deprecated).map(([value, config]) => ({
-              value, label: localizedLabel(config, value), selected: row.recoveryPeriod === value
-            }))
+            ...Object.entries(CONFIG.DND5E.limitedUsePeriods ?? {}).filter(([, config]) => !config.deprecated).map(([value, config]) => {
+              const combatOnly = config?.type === "combat";
+              const label = localizedLabel(config, value);
+              return {
+                value,
+                label: combatOnly ? `${label} — COMBAT ONLY` : label,
+                selected: row.recoveryPeriod === value,
+                combatOnly
+              };
+            })
           ],
+          recoveryCombatOnly: CONFIG.DND5E.limitedUsePeriods?.[row.recoveryPeriod]?.type === "combat",
           damageTypeOptions: configOptions(CONFIG.DND5E.damageTypes, row.damageType, { blankValue: "", blankLabel: "Select Damage Type" }),
           healingTypeOptions: configOptions(CONFIG.DND5E.healingTypes, row.healingType),
           utilityPresetOptions: fixedOptions([
@@ -2595,12 +2660,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           { value: "all", label: "All Item Activities", selected: selected.has("all") },
           ...activeConsumableActivities.map(activity => ({ ...activity, selected: selected.has(activity.value) }))
         ],
-        durationMode: config.durationMode, durationValue: config.durationValue, stacking: config.stacking,
-        durationNeedsValue: ["rounds", "turns", "minutes", "hours"].includes(config.durationMode),
-        durationOptions: fixedOptions([
-          ["permanent", "Permanent"], ["shortOrLongRest", "Until next Short or Long Rest"], ["longRest", "Until next Long Rest"],
-          ["rounds", "Rounds"], ["turns", "Owner Turns"], ["minutes", "Minutes"], ["hours", "Hours"]
-        ], config.durationMode),
+        ...consumableTimingView(config), stacking: config.stacking,
         stackingOptions: fixedOptions([
           ["replace", "Replace Existing"], ["refresh", "Refresh Duration"], ["ignore", "Ignore New Use"], ["stack", "Allow Stacking"]
         ], config.stacking)
@@ -2619,12 +2679,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
             { value: "all", label: "All Item Activities", selected: selected.has("all") },
             ...activeConsumableActivities.map(activity => ({ ...activity, selected: selected.has(activity.value) }))
           ],
-          durationMode: config.durationMode, durationValue: config.durationValue, stacking: config.stacking,
-          durationNeedsValue: ["rounds", "turns", "minutes", "hours"].includes(config.durationMode),
-          durationOptions: fixedOptions([
-            ["permanent", "Permanent"], ["shortOrLongRest", "Until next Short or Long Rest"], ["longRest", "Until next Long Rest"],
-            ["rounds", "Rounds"], ["turns", "Owner Turns"], ["minutes", "Minutes"], ["hours", "Hours"]
-          ], config.durationMode),
+          ...consumableTimingView(config), stacking: config.stacking,
           stackingOptions: fixedOptions([
             ["replace", "Replace Existing"], ["refresh", "Refresh Duration"], ["ignore", "Ignore New Use"], ["stack", "Allow Stacking"]
           ], config.stacking),
@@ -4826,7 +4881,12 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         const cfg = setting.consumable;
         const availableIds = new Set(this.customImportedActivities.filter(row => !row.removed && row.included !== false && !row.disabled).map(row => row.id));
         const validBindings = cfg.activityIds.includes("all") || cfg.activityIds.every(id => availableIds.has(id));
-        if (!validBindings || (["rounds", "turns", "minutes", "hours"].includes(cfg.durationMode) && !(Number(cfg.durationValue) >= 1))) errors[key] = true;
+        const timingValid = cfg.timing?.model === TIMING_MODELS.PERSISTENT
+          || (cfg.timing?.model === TIMING_MODELS.REST && REST_LIFETIMES.some(([period]) => period === cfg.timing.rest))
+          || (cfg.timing?.model === TIMING_MODELS.WORLD_TIME
+            && Number(cfg.timing?.amount) >= 1
+            && WORLD_TIME_UNITS.some(([unit]) => unit === cfg.timing?.unit));
+        if (!validBindings || !timingValid) errors[key] = true;
       }
     }
     return { valid: !Object.keys(errors).length, errors };
@@ -4916,9 +4976,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const value = event.currentTarget.dataset.valueType === "number"
       ? Math.max(1, Number(event.currentTarget.value) || 1)
       : event.currentTarget.value;
-    setting.consumable[part] = value;
+    if (part === "stacking") setting.consumable.stacking = value;
+    else {
+      setting.consumable.timing ??= {};
+      if (part === "timingModel") setting.consumable.timing.model = value;
+      else if (part === "timingAmount") setting.consumable.timing.amount = value;
+      else if (part === "timingUnit") setting.consumable.timing.unit = value;
+      else if (part === "timingRest") setting.consumable.timing.rest = value;
+    }
     setting.consumable = normalizeConsumableEffectConfig(setting.consumable);
-    if (["durationMode", "stacking"].includes(part)) this.#renderPreservingScroll();
+    if (["timingModel", "stacking"].includes(part)) this.#renderPreservingScroll();
   }
 
   #updateConsumableEffectActivityBinding(event) {
@@ -5036,10 +5103,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (part === "spellLevel") {
       entry.spellLevel = Math.clamp(Math.trunc(Number(value) || 0), 0, 9);
       entry.data.flags[MODULE_ID].consumableSpellEffect.spellLevel = entry.spellLevel;
-    } else if (part === "durationValue") config.durationValue = Math.max(1, Number(value) || 1);
-    else if (part === "included") entry.included = Boolean(value);
+    } else if (part === "included") entry.included = Boolean(value);
     else if (part === "stacking") config.stacking = ["replace", "refresh", "ignore", "stack"].includes(value) ? value : "replace";
-    else if (part === "durationMode") config.durationMode = ["permanent", "shortOrLongRest", "longRest", "rounds", "turns", "minutes", "hours"].includes(value) ? value : "longRest";
+    else {
+      config.timing ??= {};
+      if (part === "timingModel") config.timing.model = value;
+      else if (part === "timingAmount") config.timing.amount = Math.max(1, Number(value) || 1);
+      else if (part === "timingUnit") config.timing.unit = value;
+      else if (part === "timingRest") config.timing.rest = value;
+    }
     entry.data.flags[MODULE_ID].consumableEffect = normalizeConsumableEffectConfig(config);
     this.#renderPreservingScroll();
   }
@@ -5882,11 +5954,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     if (scope === "trigger") row.trigger[part] = value;
     else if (scope === "application") row.application[part] = value;
+    else if (scope === "applicationTiming") {
+      row.application ??= {};
+      row.application.timing ??= {};
+      row.application.timing[part] = value;
+    }
     else if (scope === "effectApplication") {
       row.effectApplication ??= {};
       row.effectApplication[part] = value;
     }
     else if (scope === "stacks") row.stacks[part] = value;
+    else if (scope === "stackTiming") {
+      row.stacks ??= {};
+      row.stacks.timing ??= {};
+      row.stacks.timing[part] = value;
+    }
     else if (scope === "consumption") {
       row.consumption ??= {};
       row.consumption[part] = value;
@@ -5898,7 +5980,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (scope === "trigger" && part === "category") {
       const events = TRIGGER_EVENTS[value] ?? TRIGGER_EVENTS.attack;
       row.trigger.event = events[0]?.[0] ?? "attackRolled";
-      row.counting = value === "attack" ? "perAttackRoll" : value === "combat" ? "perTurn" : "perActivity";
+      row.counting = value === "attack" ? "perAttackRoll" : value === "combat" ? "perCombatTurn" : "perActivity";
     }
     if (scope === "trigger" && part === "event") {
       row.trigger.spellSelectionMode = value === "specificSpellCast" ? "specific" : "filters";
@@ -5907,21 +5989,32 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       else if (["spellCast", "spellAttackCast", "spellSaveCast", "specificSpellCast", "spellCastUsingSlot", "spellCastWithoutSlot"].includes(value)) row.counting = "perActivity";
     }
     if (scope === "application" && part === "mode" && value === "singleActivation") {
-      row.application.expiration ||= "ownerTurnEndCurrent";
+      row.application.timing ??= {
+        model: TIMING_MODELS.COMBAT,
+        boundary: "ownerTurnEndCurrent",
+        amount: 1,
+        unit: "intervals"
+      };
       row.application.retrigger ||= "refresh";
     }
-    if (scope === "application" && part === "expiration") row.application.expirationExplicit = true;
+    if (scope === "applicationTiming" && part === "model") {
+      if (value === TIMING_MODELS.COMBAT) row.application.timing.boundary ||= "ownerTurnEndCurrent";
+      else if (value === TIMING_MODELS.WORLD_TIME) {
+        row.application.timing.amount = Math.max(1, Number(row.application.timing.amount) || 1);
+        row.application.timing.unit = normalizeWorldTimeUnit(row.application.timing.unit);
+      }
+    }
     if (scope === "effectApplication" && part === "mode" && value === "saveGated") {
       if ((row.effects ?? []).some(payload => normalizeTriggeredEffectPayload(payload).type === "restoreHitPoints")) {
         row.effectApplication.mode = "immediate";
         ui.notifications?.warn?.("Instant healing resolves immediately and cannot use the Save-Gated effect workflow.");
       } else {
-      row.effectApplication.saveAbility ||= "wis";
-      row.effectApplication.saveDcMode ||= "fixed";
-      row.effectApplication.saveDc ||= 15;
-      for (const payload of row.effects ?? []) payload.recipient = "target";
-      row.consumption ??= {};
-      row.consumption.enabled = false;
+        row.effectApplication.saveAbility ||= "wis";
+        row.effectApplication.saveDcMode ||= "fixed";
+        row.effectApplication.saveDc ||= 15;
+        for (const payload of row.effects ?? []) payload.recipient = "target";
+        row.consumption ??= {};
+        row.consumption.enabled = false;
       }
     }
 
@@ -5931,17 +6024,31 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       row.stacks.behavior = "refresh";
     }
 
-    if (scope === "stacks" && part === "durationUnit") {
-      row.stacks.durationUnitExplicit = true;
-      row.stacks.tickTiming = TICK_TIMINGS[value]?.[1]?.[0] ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
+    if (scope === "stackTiming" && part === "model") {
+      if (value === TIMING_MODELS.WORLD_TIME) {
+        row.stacks.timing.amount = Math.max(1, Number(row.stacks.timing.amount) || 1);
+        row.stacks.timing.unit = normalizeWorldTimeUnit(row.stacks.timing.unit);
+      } else if (value === TIMING_MODELS.COMBAT) {
+        row.stacks.timing.combatUnit ||= "ownerTurns";
+        row.stacks.timing.combatTiming ||= TICK_TIMINGS[row.stacks.timing.combatUnit]?.[1]?.[0]
+          ?? TICK_TIMINGS[row.stacks.timing.combatUnit]?.[0]?.[0] ?? "ownerTurnEnd";
+      }
+    }
+    if (scope === "stackTiming" && part === "combatUnit") {
+      row.stacks.timing.combatTiming = TICK_TIMINGS[value]?.[1]?.[0]
+        ?? TICK_TIMINGS[value]?.[0]?.[0] ?? "ownerTurnEnd";
     }
     if (scope === "stacks" && part === "behavior") {
       if (value === "refresh" || value === "singleAttack") row.stacks.maximum = 1;
       if (value === "singleAttack") {
         row.stacks.granted = 1;
-        row.stacks.durationAmount = 1;
-        row.stacks.durationUnit = "ownerTurns";
-        row.stacks.tickTiming = "ownerTurnEnd";
+        row.stacks.timing = {
+          model: TIMING_MODELS.WORLD_TIME,
+          amount: 1,
+          unit: "intervals",
+          combatUnit: "ownerTurns",
+          combatTiming: "ownerTurnEnd"
+        };
       }
     }
 

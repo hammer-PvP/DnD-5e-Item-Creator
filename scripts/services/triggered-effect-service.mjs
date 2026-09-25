@@ -6,6 +6,7 @@ import { TriggeredConsumptionDecisionApp } from "../apps/triggered-consumption-d
 import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
 import { diagnosticLog, diagnosticWarn } from "../utils/diagnostics.mjs";
 import { EFFECT_CHANGE_TYPES, normalizeEffectChange, normalizeEffectChangeType } from "../utils/effect-change-types.mjs";
+import { TIMING_MODELS, timingRoundSeconds, worldTimeDurationSeconds, worldTimeTicksElapsed } from "../utils/timing-model.mjs";
 import {
   buildTriggeredEffectChanges, contextualRollModifierFormula, extractSelectedSpellEffectsAsync, normalizeTriggeredEffect, normalizeTriggeredEffectPayload,
   validateTriggeredEffect
@@ -13,7 +14,7 @@ import {
 
 const SOCKET_CHANNEL = `module.${MODULE_ID}`;
 const LEDGER_FLAG = "triggeredEffectLedger";
-const LEDGER_VERSION = 5;
+const LEDGER_VERSION = 6;
 const MAX_RECENT_KEYS = 120;
 const CONSUMPTION_PREPARE_TIMEOUT_MS = 15000;
 const CONSUMPTION_STALE_MS = 5 * 60 * 1000;
@@ -405,7 +406,7 @@ function worldTime() {
 }
 
 function systemRoundSeconds() {
-  return Math.max(1, Number(CONFIG.time?.roundTime) || 6);
+  return timingRoundSeconds();
 }
 
 function combatMoment(combat) {
@@ -451,15 +452,19 @@ function normalizeEntry(value = {}, ownerActor = null) {
     remaining: Math.max(0, Number(value.remaining) || 0),
     idleTicks: Math.max(0, Number(value.idleTicks) || 0),
     independent: Array.isArray(value.independent) ? value.independent.map(entry => ({
-      id: entry.id || foundry.utils.randomID(), remaining: Math.max(0, Number(entry.remaining) || 0)
+      id: entry.id || foundry.utils.randomID(),
+      remaining: Math.max(0, Number(entry.remaining) || 0),
+      expiresAtWorldTime: Math.max(0, Number(entry.expiresAtWorldTime) || 0)
     })) : [],
     effectRefs,
     lastTriggerMoment: String(value.lastTriggerMoment ?? ""),
     recentActivationKeys: Array.isArray(value.recentActivationKeys) ? value.recentActivationKeys.slice(-MAX_RECENT_KEYS) : [],
-    turnActivationKey: String(value.turnActivationKey ?? ""),
-    turnActivations: Math.max(0, Number(value.turnActivations) || 0),
-    roundActivationKey: String(value.roundActivationKey ?? ""),
-    roundActivations: Math.max(0, Number(value.roundActivations) || 0),
+    intervalActivationKey: String(value.intervalActivationKey ?? value.turnActivationKey ?? ""),
+    intervalActivations: Math.max(0, Number(value.intervalActivations ?? value.turnActivations) || 0),
+    combatTurnActivationKey: String(value.combatTurnActivationKey ?? ""),
+    combatTurnActivations: Math.max(0, Number(value.combatTurnActivations) || 0),
+    combatRoundActivationKey: String(value.combatRoundActivationKey ?? value.roundActivationKey ?? ""),
+    combatRoundActivations: Math.max(0, Number(value.combatRoundActivations ?? value.roundActivations) || 0),
     lastEventId: String(value.lastEventId ?? ""),
     resolutionActivityUuid: String(value.resolutionActivityUuid ?? ""),
     resolutionItemUuid: String(value.resolutionItemUuid ?? ""),
@@ -477,14 +482,14 @@ function normalizeEntry(value = {}, ownerActor = null) {
     activeConsumptionPreparedAt: Math.max(0, Number(value.activeConsumptionPreparedAt) || 0),
     nativeStartedAtWorldTime: Math.max(0, Number(value.nativeStartedAtWorldTime) || 0),
     nativeDurationSeconds: Math.max(0, Number(value.nativeDurationSeconds) || 0),
-    nativeExpiresAtWorldTime: Math.max(0, Number(value.nativeExpiresAtWorldTime) || 0)
+    nativeExpiresAtWorldTime: Math.max(0, Number(value.nativeExpiresAtWorldTime) || 0),
+    worldTickAt: Math.max(0, Number(value.worldTickAt) || 0)
   };
 }
-
 function readLedger(actor) {
   const raw = clone(actor.getFlag(MODULE_ID, LEDGER_FLAG) ?? null);
   const entries = new Map();
-  if ([1, 2, 3, 4, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
+  if ([1, 2, 3, 4, 5, LEDGER_VERSION].includes(Number(raw?.version)) && Array.isArray(raw.entries)) {
     for (const value of raw.entries) {
       const entry = normalizeEntry(value, actor);
       if (Number(raw.version) === 1 && !entry.control && entry.sourceItemId && entry.triggerId) {
@@ -562,11 +567,12 @@ function activationKey(setting, event, targetActorUuid = "") {
   const actor = resolveActorDocument(event?.actorUuid, event?.actorId);
   const context = runtimeContext(actor, event);
   const temporalBucket = Math.floor(context.worldTime / systemRoundSeconds());
-  if (setting.counting === "perTurn") {
-    return context.combat ? `turn:${combatMoment(context.combat)}` : `turn:world:${temporalBucket}`;
+  if (setting.counting === "perInterval") return `interval:world:${temporalBucket}`;
+  if (setting.counting === "perCombatTurn") {
+    return context.combat?.started ? `combat-turn:${context.combatId}:${context.round}:${context.turn}` : "";
   }
-  if (setting.counting === "perRound") {
-    return context.combat ? `round:${context.combatId}:${context.round}` : `round:world:${temporalBucket}`;
+  if (setting.counting === "perCombatRound") {
+    return context.combat?.started ? `combat-round:${context.combatId}:${context.round}` : "";
   }
   if (setting.counting === "perTarget") {
     return `target:${event.activityUseId || event.messageId || event.activityUuid}:${targetActorUuid || event.targetActorUuid || "none"}`;
@@ -576,6 +582,7 @@ function activationKey(setting, event, targetActorUuid = "") {
 }
 
 function activationCycles(setting, event) {
+  if (["perCombatTurn", "perCombatRound"].includes(setting.counting) && !activationKey(setting, event)) return [];
   const targets = eventTargetActorUuids(event);
   if (setting.counting === "perTarget" && targets.length) {
     return targets.map(targetActorUuid => ({
@@ -585,7 +592,6 @@ function activationCycles(setting, event) {
   }
   return [{ activationKey: activationKey(setting, event), targetActorUuids: targets }];
 }
-
 function recipientGroups(setting, sourceActor, targetActorUuids) {
   const groups = new Map();
   const add = (actor, payload) => {
@@ -673,26 +679,56 @@ function persistentPayloadGroup(setting, group) {
 
 function singleActivationLifetime(setting) {
   if (setting.application?.mode !== "singleActivation") return null;
-  const expiration = setting.application.expiration;
-  const recipient = expiration?.startsWith("recipient");
-  if (["ownerTurnStartNext", "recipientTurnStartNext"].includes(expiration)) {
-    return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnStart", anchor: recipient ? "recipient" : "owner" };
+  const timing = setting.application?.timing ?? {};
+  if (timing.model === TIMING_MODELS.WORLD_TIME) {
+    return {
+      model: TIMING_MODELS.WORLD_TIME,
+      amount: Math.max(1, Number(timing.amount) || 1),
+      unit: timing.unit || "intervals",
+      anchor: "world"
+    };
   }
-  if (["ownerTurnEndNext", "recipientTurnEndNext"].includes(expiration)) {
-    return { durationAmount: 2, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner" };
+  const boundary = String(timing.boundary || "ownerTurnEndCurrent");
+  const recipient = boundary.startsWith("recipient");
+  if (["ownerTurnStartNext", "recipientTurnStartNext"].includes(boundary)) {
+    return { model: TIMING_MODELS.COMBAT, amount: 1, durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnStart", anchor: recipient ? "recipient" : "owner", boundary };
   }
-  return { durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner" };
+  if (["ownerTurnEndNext", "recipientTurnEndNext"].includes(boundary)) {
+    return { model: TIMING_MODELS.COMBAT, amount: 2, durationAmount: 2, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner", boundary };
+  }
+  return { model: TIMING_MODELS.COMBAT, amount: 1, durationAmount: 1, durationUnit: "ownerTurns", tickTiming: "ownerTurnEnd", anchor: recipient ? "recipient" : "owner", boundary };
 }
 
 function effectiveLifetime(setting) {
-  return singleActivationLifetime(setting) ?? {
-    durationAmount: Math.max(1, Number(setting.stacks.durationAmount) || 1),
-    durationUnit: setting.stacks.durationUnit,
-    tickTiming: setting.stacks.tickTiming,
-    anchor: setting.stacks.durationUnit === "recipientTurns" ? "recipient" : "owner"
+  const single = singleActivationLifetime(setting);
+  if (single) return single;
+  if (setting.stacks?.behavior === "singleAttack") {
+    return { model: TIMING_MODELS.WORLD_TIME, amount: 1, unit: "intervals", anchor: "world", singleAttackSafety: true };
+  }
+  const timing = setting.stacks?.timing ?? {};
+  if (timing.model === TIMING_MODELS.COMBAT) {
+    const amount = Math.max(1, Number(timing.amount) || 1);
+    const unit = timing.combatUnit || "ownerTurns";
+    return {
+      model: TIMING_MODELS.COMBAT,
+      amount,
+      durationAmount: amount,
+      durationUnit: unit,
+      tickTiming: timing.combatTiming || "ownerTurnEnd",
+      anchor: unit === "recipientTurns" ? "recipient" : "owner"
+    };
+  }
+  return {
+    model: TIMING_MODELS.WORLD_TIME,
+    amount: Math.max(1, Number(timing.amount) || 1),
+    unit: timing.unit || "intervals",
+    anchor: "world"
   };
 }
 
+function lifecycleRequiresCombat(setting) {
+  return effectiveLifetime(setting).model === TIMING_MODELS.COMBAT;
+}
 function consumptionEventMatches(configured, rollType) {
   if (configured === "d20Test") return ["attackRoll", "abilityCheck", "savingThrow"].includes(rollType);
   return configured === rollType;
@@ -789,56 +825,92 @@ function displayRollFormula(value) {
 
 function withinActivationLimits(entry, setting, combat, event = {}) {
   const temporalBucket = Math.floor((Number(event?.worldTime) || worldTime()) / systemRoundSeconds());
-  const turnKey = combat?.started ? `${combat.id}:${combat.round}:${combat.turn}` : `world:${temporalBucket}`;
-  const roundKey = combat?.started ? `${combat.id}:${combat.round}` : `world:${temporalBucket}`;
-  if (entry.turnActivationKey !== turnKey) {
-    entry.turnActivationKey = turnKey;
-    entry.turnActivations = 0;
+  const intervalKey = `world:${temporalBucket}`;
+  if (entry.intervalActivationKey !== intervalKey) {
+    entry.intervalActivationKey = intervalKey;
+    entry.intervalActivations = 0;
   }
-  if (entry.roundActivationKey !== roundKey) {
-    entry.roundActivationKey = roundKey;
-    entry.roundActivations = 0;
+  if (setting.maxPerInterval > 0 && entry.intervalActivations >= setting.maxPerInterval) return false;
+
+  if (combat?.started) {
+    const turnKey = `${combat.id}:${combat.round}:${combat.turn}`;
+    const roundKey = `${combat.id}:${combat.round}`;
+    if (entry.combatTurnActivationKey !== turnKey) {
+      entry.combatTurnActivationKey = turnKey;
+      entry.combatTurnActivations = 0;
+    }
+    if (entry.combatRoundActivationKey !== roundKey) {
+      entry.combatRoundActivationKey = roundKey;
+      entry.combatRoundActivations = 0;
+    }
+    if (setting.maxPerCombatTurn > 0 && entry.combatTurnActivations >= setting.maxPerCombatTurn) return false;
+    if (setting.maxPerCombatRound > 0 && entry.combatRoundActivations >= setting.maxPerCombatRound) return false;
   }
-  if (setting.maxPerTurn > 0 && entry.turnActivations >= setting.maxPerTurn) return false;
-  if (setting.maxPerRound > 0 && entry.roundActivations >= setting.maxPerRound) return false;
-  entry.turnActivations += 1;
-  entry.roundActivations += 1;
+
+  entry.intervalActivations += 1;
+  if (combat?.started) {
+    entry.combatTurnActivations += 1;
+    entry.combatRoundActivations += 1;
+  }
   return true;
 }
 
-
-function nativeLifetimeTicks(setting, entry) {
+function predictedWorldLifetimeSeconds(entry, setting, now = worldTime()) {
   const lifetime = effectiveLifetime(setting);
-  if (setting.application?.mode === "singleActivation" || ["singleAttack", "refresh", "shared"].includes(setting.stacks?.behavior)) {
-    return Math.max(1, Number(entry?.remaining) || Number(lifetime.durationAmount) || 1);
+  if (lifetime.model !== TIMING_MODELS.WORLD_TIME) return 0;
+  const step = worldTimeDurationSeconds(lifetime.amount, lifetime.unit);
+  const behavior = setting.stacks?.behavior;
+  if (setting.application?.mode === "singleActivation" || ["singleAttack", "refresh", "shared"].includes(behavior)) return step;
+  if (behavior === "independent") {
+    const expiries = (entry.independent ?? []).map(stack => Number(stack.expiresAtWorldTime) || 0).filter(Boolean);
+    return expiries.length ? Math.max(1, Math.max(...expiries) - now) : step;
   }
-  if (setting.stacks?.behavior === "independent") {
-    return Math.max(1, ...(entry?.independent ?? []).map(stack => Number(stack.remaining) || 0), Number(lifetime.durationAmount) || 1);
+  if (behavior === "continuousDecay") {
+    const decayTicks = Math.max(1, Math.ceil(Math.max(1, Number(entry.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
+    const untilNextTick = Number.isFinite(Number(entry.worldTickAt)) ? Math.max(1, Number(entry.worldTickAt) + step - now) : step;
+    return untilNextTick + step * Math.max(0, decayTicks - 1);
   }
-  if (setting.stacks?.behavior === "continuousDecay") {
-    return Math.max(1, Math.ceil(Math.max(1, Number(entry?.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
+  if (behavior === "delayedDecay") {
+    const grace = Math.max(0, Number(setting.stacks?.inactivityGrace) || 0);
+    const remainingGrace = Math.max(0, grace - Math.max(0, Number(entry.idleTicks) || 0));
+    const decayTicks = Math.max(1, Math.ceil(Math.max(1, Number(entry.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
+    const totalTicks = remainingGrace + decayTicks;
+    const untilNextTick = Number.isFinite(Number(entry.worldTickAt)) ? Math.max(1, Number(entry.worldTickAt) + step - now) : step;
+    return untilNextTick + step * Math.max(0, totalTicks - 1);
   }
-  if (setting.stacks?.behavior === "delayedDecay") {
-    return Math.max(1, Math.max(0, Number(setting.stacks?.inactivityGrace) || 0)
-      + Math.ceil(Math.max(1, Number(entry?.stacks) || 1) / Math.max(1, Number(setting.stacks?.decayAmount) || 1)));
-  }
-  return Math.max(1, Number(lifetime.durationAmount) || 1);
+  return step;
 }
 
-function refreshNativeLifetime(entry, setting) {
-  const started = worldTime();
-  const seconds = Math.max(systemRoundSeconds(), nativeLifetimeTicks(setting, entry) * systemRoundSeconds());
-  entry.nativeStartedAtWorldTime = started;
+function refreshNativeLifetime(entry, setting, { now = worldTime(), preserveTickAnchor = false } = {}) {
+  const lifetime = effectiveLifetime(setting);
+  if (lifetime.model !== TIMING_MODELS.WORLD_TIME) {
+    entry.nativeStartedAtWorldTime ||= now;
+    entry.nativeDurationSeconds = 0;
+    entry.nativeExpiresAtWorldTime = 0;
+    entry.worldTickAt = 0;
+    return;
+  }
+  const seconds = Math.max(1, predictedWorldLifetimeSeconds(entry, setting, now));
+  entry.nativeStartedAtWorldTime = now;
   entry.nativeDurationSeconds = seconds;
-  entry.nativeExpiresAtWorldTime = started + seconds;
+  entry.nativeExpiresAtWorldTime = now + seconds;
+  if (!preserveTickAnchor || !Number.isFinite(Number(entry.worldTickAt))) entry.worldTickAt = now;
 }
 
 function ensureNativeLifetime(entry, setting) {
-  if (entry.nativeStartedAtWorldTime > 0 && entry.nativeDurationSeconds > 0 && entry.nativeExpiresAtWorldTime > 0) return;
+  if (effectiveLifetime(setting).model !== TIMING_MODELS.WORLD_TIME) return;
+  if (Number.isFinite(Number(entry.nativeStartedAtWorldTime)) && entry.nativeDurationSeconds > 0 && entry.nativeExpiresAtWorldTime > 0) return;
   refreshNativeLifetime(entry, setting);
 }
 
 function nativeDurationData(entry, setting) {
+  const lifetime = effectiveLifetime(setting);
+  if (lifetime.model === TIMING_MODELS.COMBAT) {
+    return {
+      duration: { value: null, units: "seconds", expiry: null },
+      start: { time: entry.nativeStartedAtWorldTime || worldTime() }
+    };
+  }
   ensureNativeLifetime(entry, setting);
   return {
     duration: { value: entry.nativeDurationSeconds, units: "seconds", expiry: null },
@@ -846,21 +918,26 @@ function nativeDurationData(entry, setting) {
   };
 }
 
-function nativeLifetimeExpired(entry) {
-  return entry.nativeExpiresAtWorldTime > 0 && worldTime() >= entry.nativeExpiresAtWorldTime;
+function nativeLifetimeExpired(entry, setting, now = worldTime()) {
+  if (effectiveLifetime(setting).model !== TIMING_MODELS.WORLD_TIME) return false;
+  return entry.nativeExpiresAtWorldTime > 0 && now >= entry.nativeExpiresAtWorldTime;
 }
 function applyActivation(entry, setting, combat, event) {
   const stacks = setting.stacks;
+  const lifetime = effectiveLifetime(setting);
   const grant = Math.max(1, Number(stacks.granted) || 1);
   const maximum = Math.max(1, Number(stacks.maximum) || 1);
+  const now = Number(event?.worldTime ?? worldTime()) || worldTime();
+  const worldStep = lifetime.model === TIMING_MODELS.WORLD_TIME
+    ? worldTimeDurationSeconds(lifetime.amount, lifetime.unit) : 0;
+
   if (setting.application?.mode === "singleActivation") {
-    const lifetime = effectiveLifetime(setting);
     entry.stacks = 1;
-    entry.remaining = lifetime.durationAmount;
+    entry.remaining = lifetime.model === TIMING_MODELS.COMBAT ? lifetime.amount : 0;
     entry.independent = [];
   } else if (stacks.behavior === "singleAttack") {
     entry.stacks = 1;
-    entry.remaining = 1;
+    entry.remaining = 0;
     entry.independent = [];
     entry.resolutionActivityUuid = String(event.activityUuid ?? "");
     entry.resolutionItemUuid = String(event.itemUuid ?? "");
@@ -868,17 +945,21 @@ function applyActivation(entry, setting, combat, event) {
     entry.resolutionMessageId = String(event.messageId ?? "");
   } else if (stacks.behavior === "refresh") {
     entry.stacks = 1;
-    entry.remaining = Math.max(1, Number(stacks.durationAmount) || 1);
+    entry.remaining = lifetime.model === TIMING_MODELS.COMBAT ? lifetime.amount : 0;
     entry.independent = [];
   } else if (stacks.behavior === "shared") {
     entry.stacks = Math.min(maximum, entry.stacks + grant);
-    entry.remaining = Math.max(1, Number(stacks.durationAmount) || 1);
+    entry.remaining = lifetime.model === TIMING_MODELS.COMBAT ? lifetime.amount : 0;
     entry.independent = [];
   } else if (stacks.behavior === "independent") {
     const available = Math.max(0, maximum - entry.independent.length);
     const count = Math.min(grant, available);
     for (let i = 0; i < count; i += 1) {
-      entry.independent.push({ id: foundry.utils.randomID(), remaining: Math.max(1, Number(stacks.durationAmount) || 1) });
+      entry.independent.push({
+        id: foundry.utils.randomID(),
+        remaining: lifetime.model === TIMING_MODELS.COMBAT ? lifetime.amount : 0,
+        expiresAtWorldTime: lifetime.model === TIMING_MODELS.WORLD_TIME ? now + worldStep : 0
+      });
     }
     entry.stacks = entry.independent.length;
     entry.remaining = 0;
@@ -887,6 +968,7 @@ function applyActivation(entry, setting, combat, event) {
     entry.remaining = 0;
     entry.independent = [];
   }
+
   if (setting.application?.mode === "singleActivation" || stacks.behavior !== "singleAttack") {
     entry.resolutionActivityUuid = "";
     entry.resolutionItemUuid = "";
@@ -904,35 +986,47 @@ function applyActivation(entry, setting, combat, event) {
   entry.idleTicks = 0;
   entry.lastTriggerMoment = combatMoment(combat);
   entry.lastEventId = event.id;
-  refreshNativeLifetime(entry, setting);
+  entry.worldTickAt = lifetime.model === TIMING_MODELS.WORLD_TIME ? now : 0;
+  refreshNativeLifetime(entry, setting, { now });
+}
+
+function applyDecayTick(entry, setting) {
+  const behavior = setting.stacks.behavior;
+  if (behavior === "continuousDecay") {
+    entry.stacks = Math.max(0, entry.stacks - Math.max(1, Number(setting.stacks.decayAmount) || 1));
+    return true;
+  }
+  if (behavior === "delayedDecay") {
+    entry.idleTicks += 1;
+    if (entry.idleTicks > Math.max(0, Number(setting.stacks.inactivityGrace) || 0)) {
+      entry.stacks = Math.max(0, entry.stacks - Math.max(1, Number(setting.stacks.decayAmount) || 1));
+    }
+    return true;
+  }
+  return false;
 }
 
 function tickEntry(entry, setting, timing, combat) {
   const lifetime = effectiveLifetime(setting);
-  if (lifetime.tickTiming !== timing) return false;
+  if (lifetime.model !== TIMING_MODELS.COMBAT || lifetime.tickTiming !== timing) return false;
   if (entry.lastTriggerMoment === combatMoment(combat)) return false;
   const behavior = setting.stacks.behavior;
-  if (setting.application?.mode === "singleActivation"
-    || behavior === "singleAttack" || behavior === "refresh" || behavior === "shared") {
+  if (setting.application?.mode === "singleActivation" || behavior === "refresh" || behavior === "shared") {
     entry.remaining = Math.max(0, entry.remaining - 1);
     if (entry.remaining <= 0) entry.stacks = 0;
   } else if (behavior === "independent") {
     entry.independent = entry.independent.map(stack => ({ ...stack, remaining: stack.remaining - 1 }))
       .filter(stack => stack.remaining > 0);
     entry.stacks = entry.independent.length;
-  } else if (behavior === "continuousDecay") {
-    entry.stacks = Math.max(0, entry.stacks - Math.max(1, Number(setting.stacks.decayAmount) || 1));
-  } else if (behavior === "delayedDecay") {
-    entry.idleTicks += 1;
-    if (entry.idleTicks > Math.max(0, Number(setting.stacks.inactivityGrace) || 0)) {
-      entry.stacks = Math.max(0, entry.stacks - Math.max(1, Number(setting.stacks.decayAmount) || 1));
-    }
+  } else if (["continuousDecay", "delayedDecay"].includes(behavior)) {
+    applyDecayTick(entry, setting);
   }
   return true;
 }
 
 function matchingTick(setting, timing, actorId, currentActorId, entry = null) {
   const lifetime = effectiveLifetime(setting);
+  if (lifetime.model !== TIMING_MODELS.COMBAT) return false;
   if (["ownerTurns", "recipientTurns"].includes(lifetime.durationUnit)) {
     const anchorActorId = lifetime.anchor === "recipient" ? entry?.recipientActorId : actorId;
     if (!anchorActorId || anchorActorId !== currentActorId) return false;
@@ -943,6 +1037,48 @@ function matchingTick(setting, timing, actorId, currentActorId, entry = null) {
   return false;
 }
 
+function applyWorldTimeProgress(entry, setting, currentWorldTime = worldTime()) {
+  const lifetime = effectiveLifetime(setting);
+  if (lifetime.model !== TIMING_MODELS.WORLD_TIME) return false;
+  const behavior = setting.stacks?.behavior;
+  let changed = false;
+
+  if (behavior === "independent") {
+    const before = entry.independent.length;
+    entry.independent = entry.independent.filter(stack => {
+      const expiry = Number(stack.expiresAtWorldTime) || 0;
+      return !expiry || currentWorldTime < expiry;
+    });
+    entry.stacks = entry.independent.length;
+    changed = entry.independent.length !== before;
+    if (entry.stacks > 0) {
+      const expiries = entry.independent.map(stack => Number(stack.expiresAtWorldTime) || 0).filter(Boolean);
+      const maxExpiry = expiries.length ? Math.max(...expiries) : currentWorldTime + worldTimeDurationSeconds(lifetime.amount, lifetime.unit);
+      entry.nativeStartedAtWorldTime = currentWorldTime;
+      entry.nativeDurationSeconds = Math.max(1, maxExpiry - currentWorldTime);
+      entry.nativeExpiresAtWorldTime = maxExpiry;
+    }
+    return changed;
+  }
+
+  if (["continuousDecay", "delayedDecay"].includes(behavior)) {
+    if (!Number.isFinite(Number(entry.worldTickAt))) entry.worldTickAt = Number.isFinite(Number(entry.nativeStartedAtWorldTime)) ? Number(entry.nativeStartedAtWorldTime) : currentWorldTime;
+    const ticks = worldTimeTicksElapsed(entry.worldTickAt, currentWorldTime, lifetime.amount, lifetime.unit);
+    if (ticks <= 0) return false;
+    const step = worldTimeDurationSeconds(lifetime.amount, lifetime.unit);
+    for (let i = 0; i < ticks && entry.stacks > 0; i += 1) applyDecayTick(entry, setting);
+    entry.worldTickAt += ticks * step;
+    changed = true;
+    if (entry.stacks > 0) refreshNativeLifetime(entry, setting, { now: currentWorldTime, preserveTickAnchor: true });
+    return changed;
+  }
+
+  if (nativeLifetimeExpired(entry, setting, currentWorldTime)) {
+    entry.stacks = 0;
+    return true;
+  }
+  return false;
+}
 function singleAttackResolutionMatches(entry, setting, event) {
   if (setting?.application?.mode === "singleActivation" || setting?.stacks?.behavior !== "singleAttack") return false;
   if (!entry.resolutionActivityUuid || entry.resolutionActivityUuid !== event.activityUuid) return false;
@@ -961,6 +1097,7 @@ function effectFlags(entry, slot, setting = null, item = null, { marker = false,
     recipientActorUuid: entry.recipientActorUuid,
     effectSlot: slot,
     combatId: entry.combatId,
+    timingModel: setting ? effectiveLifetime(setting).model : "",
     stacks: entry.stacks,
     entryKey: entry.key,
     consumable,
@@ -1277,6 +1414,10 @@ export class ItemCreatorTriggeredEffectService {
       if (options?.itemCreatorRuntime) return;
       void this.#onCombatUpdated(combat, changes);
     });
+    Hooks.on("updateWorldTime", (currentWorldTime, _delta, options) => {
+      if (options?.itemCreatorRuntime || !isAuthoritativeGM()) return;
+      void this.#onWorldTimeUpdated(Number(currentWorldTime));
+    });
     Hooks.on("deleteCombat", combat => void this.clearCombat(combat.id, combat));
 
     Hooks.on("updateActor", (actor, _changes, options) => {
@@ -1423,22 +1564,28 @@ export class ItemCreatorTriggeredEffectService {
 
   static #lifecycleText(setting, entry) {
     const lifetime = effectiveLifetime(setting);
-    const unit = lifetime.durationUnit === "recipientTurns" ? "recipient turn(s)"
-      : lifetime.durationUnit === "ownerTurns"
-        ? (lifetime.anchor === "recipient" ? "recipient turn(s)" : "source-actor turn(s)")
-        : lifetime.durationUnit === "combatTurns" ? "combat turn(s)"
-          : lifetime.durationUnit === "rounds" ? "round(s)" : lifetime.durationUnit;
-    const timing = lifetime.tickTiming === "ownerTurnStart" ? "at the start of the tracked turn"
-      : lifetime.tickTiming === "ownerTurnEnd" ? "at the end of the tracked turn"
-        : lifetime.tickTiming === "combatTurnStart" ? "at the start of a combat turn"
-          : lifetime.tickTiming === "combatTurnEnd" ? "at the end of a combat turn"
-            : lifetime.tickTiming === "roundStart" ? "at the start of a round" : "at the end of a round";
-    const duration = `${lifetime.durationAmount} ${unit}, ${timing}`;
+    let duration;
+    if (lifetime.model === TIMING_MODELS.WORLD_TIME) {
+      const labels = { intervals: "6-second interval(s)", minutes: "minute(s)", hours: "hour(s)", days: "day(s)" };
+      duration = `World Time: ${lifetime.amount} ${labels[lifetime.unit] ?? lifetime.unit}`;
+      if (setting.stacks?.behavior === "singleAttack") duration = "Event-based: until the matching damage roll; one 6-second interval World Time safety expiry";
+    } else {
+      const unit = lifetime.durationUnit === "recipientTurns" ? "recipient turn(s)"
+        : lifetime.durationUnit === "ownerTurns"
+          ? (lifetime.anchor === "recipient" ? "recipient turn(s)" : "source-actor turn(s)")
+          : lifetime.durationUnit === "combatTurns" ? "combat turn(s)"
+            : lifetime.durationUnit === "rounds" ? "combat round(s)" : lifetime.durationUnit;
+      const timing = lifetime.tickTiming === "ownerTurnStart" ? "at the start of the tracked turn"
+        : lifetime.tickTiming === "ownerTurnEnd" ? "at the end of the tracked turn"
+          : lifetime.tickTiming === "combatTurnStart" ? "at the start of a combat turn"
+            : lifetime.tickTiming === "combatTurnEnd" ? "at the end of a combat turn"
+              : lifetime.tickTiming === "roundStart" ? "at the start of a round" : "at the end of a round";
+      duration = `COMBAT ONLY: ${lifetime.amount} ${unit}, ${timing}`;
+    }
     return setting.consumption?.enabled
       ? `${duration}, or until ${entry.usesMaximum} use(s) are consumed, whichever happens first`
       : duration;
   }
-
   static async #instantHealingAmount(sourceActor, payload, event) {
     const normalized = normalizeTriggeredEffectPayload(payload);
     const source = sourceSpellcastingModifier(event, sourceActor);
@@ -2484,7 +2631,17 @@ export class ItemCreatorTriggeredEffectService {
           dirty = true;
           continue;
         }
-        if (nativeLifetimeExpired(entry)) {
+        if (lifecycleRequiresCombat(setting)) {
+          const combat = entry.combatId ? game.combats?.get(entry.combatId) : null;
+          if (!combat?.started) {
+            diagnosticLog("Lifecycle", "combat-only-orphan", { actor: actor.uuid, entryKey: key, triggerId: entry.triggerId });
+            await this.#removeEntryEffects(entry);
+            ledger.entries.delete(key);
+            dirty = true;
+            continue;
+          }
+        }
+        if (nativeLifetimeExpired(entry, setting)) {
           diagnosticLog("Lifecycle", "ledger-expired", { actor: actor.uuid, entryKey: key, triggerId: entry.triggerId });
           await this.#removeEntryEffects(entry);
           ledger.entries.delete(key);
@@ -2548,6 +2705,57 @@ export class ItemCreatorTriggeredEffectService {
     });
   }
 
+  static async #onWorldTimeUpdated(currentWorldTime) {
+    if (!isAuthoritativeGM() || !Number.isFinite(currentWorldTime)) return;
+    for (const actor of game.actors ?? []) {
+      const raw = actor.getFlag?.(MODULE_ID, LEDGER_FLAG);
+      if (!raw?.entries?.length) continue;
+      await this.#enqueue(actor.uuid, async () => {
+        const ledger = readLedger(actor);
+        let changed = false;
+        for (const [key, entry] of [...ledger.entries]) {
+          if (entry.control) continue;
+          const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
+          if (!item || !setting || !itemAvailable(item, setting.availability)
+            || (setting.unlockOnLevel && actorTotalLevel(actor) < setting.unlockLevel)) {
+            await this.#removeEntryEffects(entry);
+            ledger.entries.delete(key);
+            changed = true;
+            continue;
+          }
+          if (effectiveLifetime(setting).model !== TIMING_MODELS.WORLD_TIME) continue;
+
+          // v5 ledgers did not store per-stack World Time expiries. Adopt the
+          // already-active entry conservatively from the current world time.
+          if (setting.stacks?.behavior === "independent" && entry.independent.length
+            && entry.independent.every(stack => !(Number(stack.expiresAtWorldTime) > 0))) {
+            const step = worldTimeDurationSeconds(effectiveLifetime(setting).amount, effectiveLifetime(setting).unit);
+            const existingExpiry = entry.nativeExpiresAtWorldTime > currentWorldTime
+              ? entry.nativeExpiresAtWorldTime : currentWorldTime + step;
+            for (const stack of entry.independent) stack.expiresAtWorldTime = existingExpiry;
+            changed = true;
+          }
+
+          const progressed = applyWorldTimeProgress(entry, setting, currentWorldTime);
+          if (!progressed) continue;
+          if (entry.stacks <= 0) {
+            await this.#removeEntryEffects(entry);
+            ledger.entries.delete(key);
+            diagnosticLog("Lifecycle", "world-time-expired", { actor: actor.uuid, entryKey: key, triggerId: entry.triggerId });
+          } else {
+            await this.#syncEntryEffects(actor, item, setting, entry);
+            diagnosticLog("Lifecycle", "world-time-tick", {
+              actor: actor.uuid, entryKey: key, triggerId: entry.triggerId,
+              stacks: entry.stacks, worldTime: currentWorldTime
+            });
+          }
+          changed = true;
+        }
+        if (changed) await this.#writeLedger(actor, ledger.entries);
+      });
+    }
+  }
+
   static async clearCombat(combatId, combatDocument = null) {
     if (!isAuthoritativeGM() || !combatId) return;
     const combat = combatDocument ?? game.combats?.get(combatId) ?? game.combat;
@@ -2556,21 +2764,42 @@ export class ItemCreatorTriggeredEffectService {
       await this.#enqueue(actor.uuid, async () => {
         const ledger = readLedger(actor);
         let changed = false;
-        for (const entry of ledger.entries.values()) {
+        for (const [key, entry] of [...ledger.entries]) {
           if (entry.combatId !== combatId) continue;
-          entry.combatId = "";
-          entry.turnActivationKey = "";
-          entry.turnActivations = 0;
-          entry.roundActivationKey = "";
-          entry.roundActivations = 0;
-          if (!entry.control) {
-            const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
-            if (item && setting) await this.#syncEntryEffects(actor, item, setting, entry);
+          entry.combatTurnActivationKey = "";
+          entry.combatTurnActivations = 0;
+          entry.combatRoundActivationKey = "";
+          entry.combatRoundActivations = 0;
+
+          if (entry.control) {
+            entry.combatId = "";
+            changed = true;
+            continue;
+          }
+
+          const { item, setting } = findConfig(actor, entry.sourceItemId, entry.triggerId);
+          if (!item || !setting) {
+            await this.#removeEntryEffects(entry);
+            ledger.entries.delete(key);
+            changed = true;
+            continue;
+          }
+
+          if (lifecycleRequiresCombat(setting)) {
+            // Timing Model v1: exact Combat boundaries have no World Time
+            // substitute. Their lifetime ends with the Combat that owns them.
+            await this.#removeEntryEffects(entry);
+            ledger.entries.delete(key);
+            diagnosticLog("Lifecycle", "combat-only-ended", { actor: actor.uuid, combatId, entryKey: key });
+          } else {
+            // World Time effects survive Combat deletion; only detach context.
+            entry.combatId = "";
+            await this.#syncEntryEffects(actor, item, setting, entry);
           }
           changed = true;
         }
         if (changed) {
-          diagnosticLog("Lifecycle", "combat-detached", { actor: actor.uuid, combatId });
+          diagnosticLog("Lifecycle", "combat-finalized", { actor: actor.uuid, combatId });
           await this.#writeLedger(actor, ledger.entries);
         }
       });
@@ -3134,6 +3363,12 @@ export class ItemCreatorTriggeredEffectService {
       if (!item || !setting || setting.effectApplication?.mode !== "saveGated") return;
       const context = runtimeContext(sourceActor, { combatId: seed.combatId });
       const combat = context.combat;
+      if (lifecycleRequiresCombat(setting) && !combat?.started) {
+        diagnosticWarn("Lifecycle", "save-gated-combat-only-no-combat", {
+          actor: sourceActor.uuid, item: item.uuid, triggerId: setting.id
+        });
+        return;
+      }
 
       const ledger = readLedger(sourceActor);
       const key = `${item.id}:${setting.id}:${recipient.uuid}`;
@@ -3263,8 +3498,15 @@ export class ItemCreatorTriggeredEffectService {
               const groupPayloads = payloadsForRecipientGroup(setting, group);
               const instantPayloads = groupPayloads.filter(payload => INSTANT_PAYLOAD_TYPES.has(payload.type));
               const persistent = persistentPayloadGroup(setting, group);
+              const combatLifecycleBlocked = persistent.payloads.length > 0 && lifecycleRequiresCombat(setting) && !context.combat?.started;
 
               if (setting.effectApplication?.mode === "saveGated") {
+                if (combatLifecycleBlocked) {
+                  diagnosticWarn("Lifecycle", "combat-only-no-combat", {
+                    actor: actor.uuid, item: item.uuid, triggerId: setting.id, event: event.type
+                  });
+                  continue;
+                }
                 if (await this.#postSaveGatedApplication(actor, item, setting, group, event, context.combat)) resolvedAny = true;
                 continue;
               }
@@ -3274,6 +3516,12 @@ export class ItemCreatorTriggeredEffectService {
               }
 
               if (!persistent.payloads.length) continue;
+              if (combatLifecycleBlocked) {
+                diagnosticWarn("Lifecycle", "combat-only-no-combat", {
+                  actor: actor.uuid, item: item.uuid, triggerId: setting.id, event: event.type
+                });
+                continue;
+              }
 
               let entry = group.existing;
               const wasActive = Boolean(entry?.stacks > 0);
@@ -3635,6 +3883,11 @@ export const __triggeredEffectTest = Object.freeze({
   normalizeEntry,
   applyActivation,
   effectiveLifetime,
+  lifecycleRequiresCombat,
+  applyWorldTimeProgress,
+  predictedWorldLifetimeSeconds,
+  nativeDurationData,
+  withinActivationLimits,
   consumptionEventMatches,
   clearActiveConsumption,
   consumptionIsStale,

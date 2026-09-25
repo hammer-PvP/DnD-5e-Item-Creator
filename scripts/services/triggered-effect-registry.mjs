@@ -2,6 +2,7 @@ import { MODULE_ID } from "../constants.mjs";
 import { getResourceDefinition } from "./resource-modification-registry.mjs";
 import { dnd6EffectPath } from "../utils/dnd6-compat.mjs";
 import { EFFECT_CHANGE_TYPES, normalizeEffectChange } from "../utils/effect-change-types.mjs";
+import { COMBAT_BOUNDARIES, TIMING_MODELS, WORLD_TIME_UNITS, normalizeTimingModel, normalizeWorldTimeUnit } from "../utils/timing-model.mjs";
 
 export const TRIGGER_CATEGORIES = Object.freeze({
   attack: "Attack",
@@ -75,8 +76,9 @@ export const ACTIVATION_COUNTING = Object.freeze([
   ["perAttackRoll", "Once per Attack Roll"],
   ["perSuccessfulAttack", "Once per Successful Attack Roll"],
   ["perTarget", "Once per Trigger Target"],
-  ["perTurn", "Once per Turn"],
-  ["perRound", "Once per Round"]
+  ["perInterval", "Once per 6-Second Interval — World Time"],
+  ["perCombatTurn", "Once per Combat Turn — COMBAT ONLY"],
+  ["perCombatRound", "Once per Combat Round — COMBAT ONLY"]
 ]);
 
 export const APPLICATION_MODES = Object.freeze([
@@ -84,14 +86,7 @@ export const APPLICATION_MODES = Object.freeze([
   ["singleActivation", "Single Activation"]
 ]);
 
-export const SINGLE_ACTIVATION_EXPIRATIONS = Object.freeze([
-  ["ownerTurnEndCurrent", "End of Source Actor's Current Turn"],
-  ["ownerTurnStartNext", "Start of Source Actor's Next Turn"],
-  ["ownerTurnEndNext", "End of Source Actor's Next Turn"],
-  ["recipientTurnEndCurrent", "End of Effect Recipient's Current Turn"],
-  ["recipientTurnStartNext", "Start of Effect Recipient's Next Turn"],
-  ["recipientTurnEndNext", "End of Effect Recipient's Next Turn"]
-]);
+export const SINGLE_ACTIVATION_EXPIRATIONS = COMBAT_BOUNDARIES;
 
 export const EFFECT_RECIPIENTS = Object.freeze([
   ["owner", "Item Owner"],
@@ -160,11 +155,18 @@ export const STACK_BEHAVIORS = Object.freeze([
 ]);
 
 export const DURATION_UNITS = Object.freeze([
-  ["ownerTurns", "Source Actor Turns (Item Owner)"],
+  ["ownerTurns", "Source Actor Turns"],
   ["recipientTurns", "Effect Recipient Turns"],
   ["combatTurns", "Every Combat Turn"],
   ["rounds", "Combat Rounds"]
 ]);
+
+export const TRIGGER_TIMING_MODELS = Object.freeze([
+  [TIMING_MODELS.WORLD_TIME, "World Time"],
+  [TIMING_MODELS.COMBAT, "Combat Only"]
+]);
+
+export const TRIGGER_WORLD_TIME_UNITS = WORLD_TIME_UNITS;
 
 export const TICK_TIMINGS = Object.freeze({
   ownerTurns: Object.freeze([
@@ -307,12 +309,17 @@ export function defaultTriggeredEffect() {
       minimumAmount: 0
     },
     counting: "perSuccessfulAttack",
-    maxPerTurn: 0,
-    maxPerRound: 0,
+    maxPerInterval: 0,
+    maxPerCombatTurn: 0,
+    maxPerCombatRound: 0,
     application: {
       mode: "stacking",
-      expiration: "ownerTurnEndCurrent",
-      expirationExplicit: false,
+      timing: {
+        model: TIMING_MODELS.COMBAT,
+        boundary: "ownerTurnEndCurrent",
+        amount: 1,
+        unit: "intervals"
+      },
       retrigger: "refresh"
     },
     effectApplication: {
@@ -333,10 +340,13 @@ export function defaultTriggeredEffect() {
       granted: 1,
       maximum: 10,
       behavior: "delayedDecay",
-      durationAmount: 2,
-      durationUnit: "ownerTurns",
-      durationUnitExplicit: false,
-      tickTiming: "ownerTurnEnd",
+      timing: {
+        model: TIMING_MODELS.WORLD_TIME,
+        amount: 1,
+        unit: "intervals",
+        combatUnit: "ownerTurns",
+        combatTiming: "ownerTurnEnd"
+      },
       inactivityGrace: 2,
       decayAmount: 1
     },
@@ -401,42 +411,64 @@ export function normalizeTriggeredEffect(value = {}) {
   let event = validChoice(events, value.trigger?.event, events[0][0]);
   const selectedSpell = Boolean(String(value.trigger?.spellUuid ?? "").trim() || String(value.trigger?.spellName ?? "").trim());
   const explicitSpellSelection = value.trigger?.spellSelectionMode === "specific";
-  // v0.5.0a allowed Specific Spell Cast to be saved without a selected Spell or an explicit
-  // selection mode. That configuration never matched at runtime. Preserve the visible level/school
-  // filters by migrating only that legacy shape to Any Spell Cast. New Specific Spell drafts carry
-  // spellSelectionMode="specific" while the user is choosing the Spell and remain editable.
   if (category === "spell" && event === "specificSpellCast" && !selectedSpell && !explicitSpellSelection) event = "spellCast";
 
   const effects = (Array.isArray(value.effects) && value.effects.length ? value.effects : fallback.effects)
     .map(normalizeTriggeredEffectPayload);
   const hasTargetRecipient = effects.some(effect => effect.recipient === "target");
 
-  const durationUnitExplicit = Boolean(value.stacks?.durationUnitExplicit);
-  let durationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, fallback.stacks.durationUnit);
-  // v0.5.0c introduced target recipients but left the default clock on the Item owner. When a row
-  // has target-bound payloads and no explicit clock choice, migrate it to each effect recipient's
-  // turns. A manual selection is recorded and always preserved.
-  if (!durationUnitExplicit) {
-    if (hasTargetRecipient && durationUnit === "ownerTurns") durationUnit = "recipientTurns";
-    else if (!hasTargetRecipient && durationUnit === "recipientTurns") durationUnit = "ownerTurns";
-  }
-  const tickTiming = validChoice(TICK_TIMINGS[durationUnit] ?? [], value.stacks?.tickTiming,
-    TICK_TIMINGS[durationUnit]?.[1]?.[0] ?? TICK_TIMINGS[durationUnit]?.[0]?.[0]);
-
   const applicationMode = validChoice(APPLICATION_MODES, value.application?.mode, fallback.application.mode);
-  const expirationExplicit = Boolean(value.application?.expirationExplicit);
-  let expiration = validChoice(SINGLE_ACTIVATION_EXPIRATIONS, value.application?.expiration, fallback.application.expiration);
-  if (!expirationExplicit) {
+  const legacyExpirationExplicit = Boolean(value.application?.expirationExplicit);
+  let legacyBoundary = validChoice(SINGLE_ACTIVATION_EXPIRATIONS,
+    value.application?.timing?.boundary ?? value.application?.expiration,
+    fallback.application.timing.boundary);
+  // Preserve the old target-aware migration only for legacy rows that did not
+  // explicitly choose a boundary. Timing Model v1 rows always persist a boundary.
+  if (!value.application?.timing && !legacyExpirationExplicit) {
     const ownerToRecipient = {
       ownerTurnEndCurrent: "recipientTurnEndCurrent",
       ownerTurnStartNext: "recipientTurnStartNext",
       ownerTurnEndNext: "recipientTurnEndNext"
     };
     const recipientToOwner = Object.fromEntries(Object.entries(ownerToRecipient).map(([owner, recipient]) => [recipient, owner]));
-    if (hasTargetRecipient && ownerToRecipient[expiration]) expiration = ownerToRecipient[expiration];
-    else if (!hasTargetRecipient && recipientToOwner[expiration]) expiration = recipientToOwner[expiration];
+    if (hasTargetRecipient && ownerToRecipient[legacyBoundary]) legacyBoundary = ownerToRecipient[legacyBoundary];
+    else if (!hasTargetRecipient && recipientToOwner[legacyBoundary]) legacyBoundary = recipientToOwner[legacyBoundary];
   }
+  const applicationTimingModel = normalizeTimingModel(value.application?.timing?.model,
+    value.application?.timing ? TIMING_MODELS.COMBAT : TIMING_MODELS.COMBAT);
+  const applicationTiming = {
+    model: [TIMING_MODELS.WORLD_TIME, TIMING_MODELS.COMBAT].includes(applicationTimingModel)
+      ? applicationTimingModel : TIMING_MODELS.COMBAT,
+    boundary: legacyBoundary,
+    amount: Math.max(1, Number(value.application?.timing?.amount) || 1),
+    unit: normalizeWorldTimeUnit(value.application?.timing?.unit, "intervals")
+  };
   const retrigger = validChoice(RETRIGGER_BEHAVIORS, value.application?.retrigger, fallback.application.retrigger);
+
+  const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
+  const singleAttack = behavior === "singleAttack";
+  // All generic legacy stack clocks (owner/recipient/combat turns and rounds)
+  // become explicit World Time intervals. Exact turn-boundary semantics remain
+  // available only when the GM selects Combat Only in Timing Model v1.
+  const legacyDurationUnit = validChoice(DURATION_UNITS, value.stacks?.durationUnit, "rounds");
+  const explicitStackTiming = value.stacks?.timing && typeof value.stacks.timing === "object";
+  const stackTimingModel = explicitStackTiming
+    ? normalizeTimingModel(value.stacks.timing.model, TIMING_MODELS.WORLD_TIME)
+    : TIMING_MODELS.WORLD_TIME;
+  const stackTiming = {
+    model: singleAttack ? TIMING_MODELS.WORLD_TIME
+      : ([TIMING_MODELS.WORLD_TIME, TIMING_MODELS.COMBAT].includes(stackTimingModel) ? stackTimingModel : TIMING_MODELS.WORLD_TIME),
+    amount: singleAttack ? 1 : Math.max(1, Number(value.stacks?.timing?.amount ?? value.stacks?.durationAmount) || 1),
+    unit: singleAttack ? "intervals" : normalizeWorldTimeUnit(value.stacks?.timing?.unit,
+      ["minutes", "hours", "days"].includes(value.stacks?.durationUnit) ? value.stacks.durationUnit : "intervals"),
+    combatUnit: validChoice(DURATION_UNITS, value.stacks?.timing?.combatUnit ?? legacyDurationUnit, "ownerTurns"),
+    combatTiming: ""
+  };
+  const combatTimings = TICK_TIMINGS[stackTiming.combatUnit] ?? [];
+  stackTiming.combatTiming = validChoice(combatTimings,
+    value.stacks?.timing?.combatTiming ?? value.stacks?.tickTiming,
+    combatTimings?.[1]?.[0] ?? combatTimings?.[0]?.[0] ?? "ownerTurnEnd");
+
   const consumptionEvent = validChoice(CONSUMPTION_EVENTS, value.consumption?.event, fallback.consumption.event);
   const consumptionDecision = validChoice(CONSUMPTION_DECISIONS, value.consumption?.decision, fallback.consumption.decision);
   const legacyConsumptionTiming = value.consumption?.timing === "afterFailure" ? "afterRoll" : value.consumption?.timing;
@@ -445,13 +477,23 @@ export function normalizeTriggeredEffect(value = {}) {
   const onlyInstantHealing = effects.length > 0 && effects.every(effect => effect.type === "restoreHitPoints");
   let normalizedConsumptionEvent = consumptionEvent;
   if (hasRollDiceEffect && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) normalizedConsumptionEvent = "d20Test";
-  if (consumptionTiming === "afterRoll" && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) {
-    consumptionTiming = "beforeRoll";
-  }
+  if (consumptionTiming === "afterRoll" && ["damageRoll", "healingRoll"].includes(normalizedConsumptionEvent)) consumptionTiming = "beforeRoll";
   const effectApplicationMode = validChoice(EFFECT_APPLICATION_MODES, value.effectApplication?.mode, fallback.effectApplication.mode);
   const saveDcMode = validChoice(SAVE_DC_MODES, value.effectApplication?.saveDcMode, fallback.effectApplication.saveDcMode);
 
-  return {
+  let counting = value.counting;
+  // Legacy generic Turn/Round counting used a 6-second World Time fallback.
+  // Make that authority explicit in v1 rather than silently switching behavior
+  // depending on whether Combat happens to exist.
+  if (["perTurn", "perRound"].includes(counting)) counting = "perInterval";
+  counting = validChoice(ACTIVATION_COUNTING, counting, fallback.counting);
+
+  const legacyWorldLimits = [value.maxPerTurn, value.maxPerRound]
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+  const legacyMaxPerInterval = legacyWorldLimits.length ? Math.min(...legacyWorldLimits) : 0;
+
+  const result = {
     ...fallback,
     ...clone(value),
     id: value.id || id(),
@@ -470,15 +512,13 @@ export function normalizeTriggeredEffect(value = {}) {
       spellSlotLevel: value.trigger?.spellSlotLevel === "any" ? "any" : Math.clamp(Number(value.trigger?.spellSlotLevel) || 1, 1, 9),
       minimumAmount: Math.max(0, Number(value.trigger?.minimumAmount) || 0)
     },
-    counting: validChoice(ACTIVATION_COUNTING, value.counting, fallback.counting),
-    maxPerTurn: Math.max(0, Number(value.maxPerTurn) || 0),
-    maxPerRound: Math.max(0, Number(value.maxPerRound) || 0),
+    counting,
+    maxPerInterval: Math.max(0, Number(value.maxPerInterval ?? legacyMaxPerInterval) || 0),
+    maxPerCombatTurn: Math.max(0, Number(value.maxPerCombatTurn) || 0),
+    maxPerCombatRound: Math.max(0, Number(value.maxPerCombatRound) || 0),
     application: {
-      ...fallback.application,
-      ...(clone(value.application ?? {})),
       mode: applicationMode,
-      expiration,
-      expirationExplicit,
+      timing: applicationTiming,
       retrigger
     },
     effectApplication: {
@@ -500,25 +540,28 @@ export function normalizeTriggeredEffect(value = {}) {
       decision: consumptionDecision,
       timing: consumptionTiming
     },
-    stacks: (() => {
-      const behavior = validChoice(STACK_BEHAVIORS, value.stacks?.behavior, fallback.stacks.behavior);
-      const singleAttack = behavior === "singleAttack";
-      return {
-        ...fallback.stacks,
-        ...(clone(value.stacks ?? {})),
-        granted: singleAttack ? 1 : Math.max(1, Number(value.stacks?.granted) || 1),
-        maximum: singleAttack ? 1 : Math.max(1, Number(value.stacks?.maximum) || 1),
-        behavior,
-        durationAmount: singleAttack ? 1 : Math.max(1, Number(value.stacks?.durationAmount) || 1),
-        durationUnit: singleAttack ? "ownerTurns" : durationUnit,
-        durationUnitExplicit,
-        tickTiming: singleAttack ? "ownerTurnEnd" : tickTiming,
-        inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
-        decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
-      };
-    })(),
+    stacks: {
+      ...fallback.stacks,
+      granted: singleAttack ? 1 : Math.max(1, Number(value.stacks?.granted) || 1),
+      maximum: singleAttack ? 1 : Math.max(1, Number(value.stacks?.maximum) || 1),
+      behavior,
+      timing: stackTiming,
+      inactivityGrace: Math.max(0, Number(value.stacks?.inactivityGrace) || 0),
+      decayAmount: Math.max(1, Number(value.stacks?.decayAmount) || 1)
+    },
     effects
   };
+
+  // Do not perpetuate the ambiguous pre-v1 timing vocabulary on explicit save.
+  delete result.maxPerTurn;
+  delete result.maxPerRound;
+  delete result.application.expiration;
+  delete result.application.expirationExplicit;
+  delete result.stacks.durationAmount;
+  delete result.stacks.durationUnit;
+  delete result.stacks.durationUnitExplicit;
+  delete result.stacks.tickTiming;
+  return result;
 }
 
 export function validateTriggeredEffectPayload(value) {
@@ -569,7 +612,11 @@ export function validateTriggeredEffect(value) {
   if (setting.unlockOnLevel && !(setting.unlockLevel >= 1 && setting.unlockLevel <= 20)) return false;
   if (!(setting.stacks.granted > 0 && setting.stacks.maximum > 0)) return false;
   if (!APPLICATION_MODES.some(([entry]) => entry === setting.application.mode)) return false;
-  if (!SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.expiration)) return false;
+  if (![TIMING_MODELS.WORLD_TIME, TIMING_MODELS.COMBAT].includes(setting.application.timing?.model)) return false;
+  if (setting.application.timing?.model === TIMING_MODELS.COMBAT
+    && !SINGLE_ACTIVATION_EXPIRATIONS.some(([entry]) => entry === setting.application.timing?.boundary)) return false;
+  if (setting.application.timing?.model === TIMING_MODELS.WORLD_TIME
+    && (!(Number(setting.application.timing?.amount) > 0) || !WORLD_TIME_UNITS.some(([entry]) => entry === setting.application.timing?.unit))) return false;
   if (!RETRIGGER_BEHAVIORS.some(([entry]) => entry === setting.application.retrigger)) return false;
   const contextualEffects = setting.effects.filter(effect => effect.type === "contextualRollModifier");
   if (contextualEffects.length && setting.consumption?.enabled) return false;
@@ -600,8 +647,13 @@ export function validateTriggeredEffect(value) {
   if (!STACK_BEHAVIORS.some(([entry]) => entry === setting.stacks.behavior)) return false;
   if (setting.application.mode === "stacking" && setting.stacks.behavior === "singleAttack"
     && !(setting.trigger.category === "attack" && ["attackHit", "criticalHit", "natural20"].includes(setting.trigger.event))) return false;
-  if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.durationUnit)) return false;
-  if (!(TICK_TIMINGS[setting.stacks.durationUnit] ?? []).some(([entry]) => entry === setting.stacks.tickTiming)) return false;
+  if (![TIMING_MODELS.WORLD_TIME, TIMING_MODELS.COMBAT].includes(setting.stacks.timing?.model)) return false;
+  if (setting.stacks.timing?.model === TIMING_MODELS.WORLD_TIME) {
+    if (!(Number(setting.stacks.timing?.amount) > 0) || !WORLD_TIME_UNITS.some(([entry]) => entry === setting.stacks.timing?.unit)) return false;
+  } else {
+    if (!DURATION_UNITS.some(([entry]) => entry === setting.stacks.timing?.combatUnit)) return false;
+    if (!(TICK_TIMINGS[setting.stacks.timing?.combatUnit] ?? []).some(([entry]) => entry === setting.stacks.timing?.combatTiming)) return false;
+  }
   if (!setting.effects.length || setting.effects.some(effect => !validateTriggeredEffectPayload(effect))) return false;
   return true;
 }
@@ -895,38 +947,55 @@ function payloadSummary(source, setting) {
 function frequencySummary(setting) {
   const count = optionLabel(ACTIVATION_COUNTING, setting.counting, setting.counting);
   const limits = [];
-  if (setting.maxPerTurn > 0) limits.push(`maximum ${setting.maxPerTurn} per turn`);
-  if (setting.maxPerRound > 0) limits.push(`maximum ${setting.maxPerRound} per round`);
+  if (setting.maxPerInterval > 0) limits.push(`maximum ${setting.maxPerInterval} per 6-second World Time interval`);
+  if (setting.maxPerCombatTurn > 0) limits.push(`maximum ${setting.maxPerCombatTurn} per Combat turn`);
+  if (setting.maxPerCombatRound > 0) limits.push(`maximum ${setting.maxPerCombatRound} per Combat round`);
   return [count, ...limits].join(", ");
 }
 
+function worldTimeUnitPhrase(unit, amount = 1) {
+  const singular = { intervals: "6-second interval", minutes: "minute", hours: "hour", days: "day" }[unit] ?? unit;
+  return Number(amount) === 1 ? singular : `${singular}s`;
+}
+
 function durationUnitPhrase(unit, amount = 1) {
-  const singular = { ownerTurns: "Owner Turn", recipientTurns: "Effect Recipient Turn", combatTurns: "Combat Turn", rounds: "Round" }[unit];
+  const singular = { ownerTurns: "Source Actor Turn", recipientTurns: "Effect Recipient Turn", combatTurns: "Combat Turn", rounds: "Combat Round" }[unit];
   if (!singular) return optionLabel(DURATION_UNITS, unit, unit);
   return Number(amount) === 1 ? singular : `${singular}s`;
 }
 
 function stackDurationSummary(setting) {
   if (setting.stacks.behavior === "singleAttack") {
-    return "Single Attack; remains through that attack's next damage roll, with end-of-current-turn cleanup if no damage is rolled";
+    return "Single Attack; remains through that attack's next damage roll, with a one-interval World Time safety expiry if no damage roll resolves";
   }
   const behavior = optionLabel(STACK_BEHAVIORS, setting.stacks.behavior, setting.stacks.behavior);
-  if (["refresh", "shared", "independent"].includes(setting.stacks.behavior)) {
-    const unit = durationUnitPhrase(setting.stacks.durationUnit, setting.stacks.durationAmount);
-    const timing = optionLabel(TICK_TIMINGS[setting.stacks.durationUnit] ?? [], setting.stacks.tickTiming, setting.stacks.tickTiming);
-    return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; duration ${setting.stacks.durationAmount} ${unit}, expires at ${timing}`;
+  const timing = setting.stacks.timing;
+  if (timing.model === TIMING_MODELS.COMBAT) {
+    const unit = durationUnitPhrase(timing.combatUnit, timing.amount);
+    const boundary = optionLabel(TICK_TIMINGS[timing.combatUnit] ?? [], timing.combatTiming, timing.combatTiming);
+    if (["refresh", "shared", "independent"].includes(setting.stacks.behavior)) {
+      return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; COMBAT ONLY duration ${timing.amount} ${unit}, expires at ${boundary}`;
+    }
+    const grace = setting.stacks.behavior === "delayedDecay" ? ` after ${setting.stacks.inactivityGrace} inactive tick(s)` : "";
+    return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; COMBAT ONLY loses ${setting.stacks.decayAmount} stack(s) per ${unit} at ${boundary}${grace}`;
   }
-  const unit = durationUnitPhrase(setting.stacks.durationUnit, 1);
-  const timing = optionLabel(TICK_TIMINGS[setting.stacks.durationUnit] ?? [], setting.stacks.tickTiming, setting.stacks.tickTiming);
+  const unit = worldTimeUnitPhrase(timing.unit, timing.amount);
+  if (["refresh", "shared", "independent"].includes(setting.stacks.behavior)) {
+    return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; World Time duration ${timing.amount} ${unit}`;
+  }
   const grace = setting.stacks.behavior === "delayedDecay" ? ` after ${setting.stacks.inactivityGrace} inactive tick(s)` : "";
-  return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; loses ${setting.stacks.decayAmount} stack(s) per ${unit} at ${timing}${grace}`;
+  return `${behavior}; +${setting.stacks.granted} stack(s), maximum ${setting.stacks.maximum}; loses ${setting.stacks.decayAmount} stack(s) every ${timing.amount} ${unit}${grace}`;
 }
 
 function applicationSummary(setting) {
   if (setting.application.mode !== "singleActivation") return stackDurationSummary(setting);
-  const expiration = optionLabel(SINGLE_ACTIVATION_EXPIRATIONS, setting.application.expiration, setting.application.expiration);
+  const timing = setting.application.timing;
   const retrigger = setting.application.retrigger === "ignore" ? "new triggers are ignored while active" : "new triggers refresh the duration";
-  return `Single Activation; expires at ${expiration}; ${retrigger}`;
+  if (timing.model === TIMING_MODELS.COMBAT) {
+    const expiration = optionLabel(SINGLE_ACTIVATION_EXPIRATIONS, timing.boundary, timing.boundary);
+    return `Single Activation; COMBAT ONLY, expires at ${expiration}; ${retrigger}`;
+  }
+  return `Single Activation; World Time duration ${timing.amount} ${worldTimeUnitPhrase(timing.unit, timing.amount)}; ${retrigger}`;
 }
 
 function consumptionSummary(setting) {

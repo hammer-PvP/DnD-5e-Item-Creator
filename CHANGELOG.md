@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.96 — Timing Model v1
+
+- Introduced a shared Timing Model vocabulary across Item Creator: **Persistent / Availability**, **World Time**, **Rest / Calendar**, **Combat Only**, and **Native D&D5e**. The labels describe the authority that owns a lifecycle rather than merely a display unit.
+- Reworked Triggered Effect lifecycle configuration so generic elapsed durations use **World Time** while literal initiative boundaries are explicit **Combat Only** choices. Combat-only boundaries have no fabricated six-second fallback outside initiative.
+- Reworked Triggered Effect activation frequency into distinct authorities: **Once per 6-Second Interval — World Time**, **Once per Combat Turn — Combat Only**, and **Once per Combat Round — Combat Only**, while event-scoped limits such as Activity/Attack/Target remain event based.
+- Added World Time stack ticking for Continuous Decay and Delayed Decay. Time jumps catch up every elapsed interval (for example 4→3→2→1→removed across four six-second ticks) without creating a browser timer or parallel clock.
+- World Time Triggered Effects survive the end/deletion of Combat and remain governed by Foundry world time. Combat Only effects end with the Combat context that owns their exact turn/round boundary.
+- Single Attack remains event-based through the matching Damage Roll and uses one World Time interval only as a safety expiry when no matching Damage Roll resolves.
+- Migrated Consumable Granted Effects to explicit **Persistent**, **World Time**, or **Rest / Calendar** timing. Legacy rounds/turns are read as elapsed World Time intervals, removing the misleading old Owner Turn vocabulary from this workflow. Native ActiveEffect duration/rest expiry remains the execution authority.
+- Additional Activities, their native recovery periods, Granted Spells, Spell duration, and Concentration remain explicitly **Native D&D5e**. Combat-bound native recovery choices are labelled as such rather than reimplemented by Item Creator.
+- Added legacy read normalization for pre-v1 Triggered Effect and Consumable duration fields. Reopening old Items remains supported; an explicit Item Creator save/rebuild writes Timing Model v1 data and stops perpetuating the ambiguous legacy timing fields.
+- Advanced Item Creator-managed document schema to **24** for newly rebuilt Items. No World-wide or Actor-inventory bulk migration is performed.
+- No new gameplay effect type was added in this release; this is a lifecycle/timing normalization release.
+
 ## 0.7.95b — Source Registry & Publishing Cleanup
 
 - Reworked Item Creator's Compendium Source Registry to use a deliberately **lean index contract**. Discovery now requests only shallow metadata required for listing/classification (name, image, Item type/subtype/base item, identifier, properties, rarity, magical bonus, and attunement); deep DataModel subtrees such as `system.activities`, damage, range, armor, uses, and other authored mechanics are no longer merged into pack indexes.

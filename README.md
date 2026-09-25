@@ -21,6 +21,12 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, mat
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
+## v0.7.96 — Timing Model v1
+
+Item Creator now treats timing as an explicit authority. **Persistent / Availability** covers Owned/Equipped/Attuned/level-gated effects; **World Time** covers six-second intervals, minutes, hours, and days inside or outside Combat; **Rest / Calendar** covers rest/day boundaries; **Combat Only** is reserved for literal initiative boundaries such as Actor/recipient turns and Combat rounds; and **Native D&D5e** is used when the system already owns the lifecycle, including Activity/Spell duration, Concentration, and native recovery.
+
+Triggered Effects no longer use an implicit “turn means about six seconds” fallback when the GM selects an exact Combat boundary. Generic elapsed durations use World Time instead. World Time stack decay advances by every elapsed interval and catches up when world time jumps. Consumable Granted Effects use Persistent, World Time, or Rest / Calendar timing, while legacy round/turn data is normalized on read. Existing Items are not bulk-migrated; when an Item is explicitly reopened and saved through Item Creator, the rebuilt document writes the Timing Model v1 schema.
+
 ## Published Item Library (v0.7.95b)
 
 Item Creator now treats a dedicated **Item Creator — Published Items** Compendium as the canonical homebrew library. The backing pack is created as a World Compendium rather than a module-bundled content pack, so GM-authored publications survive ordinary Item Creator module updates. The Published Items screen is an Item Creator interface over those real Compendium Item documents, not a second database.

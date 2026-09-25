@@ -3425,3 +3425,14 @@ body.ic-protected-active { overflow: hidden; }
   opacity: .6;
   font-size: .82rem;
 }
+
+/* Timing Model v1 */
+.ic-timing-note { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; padding: 9px 10px; border: 1px solid rgba(91,170,215,.34); border-radius: 6px; background: rgba(42,102,135,.12); color: rgba(255,255,255,.74); line-height: 1.4; }
+.ic-timing-note > i { color: #82c7ec; margin-top: 2px; }
+.ic-timing-badge { display: inline-flex; align-items: center; margin-left: 5px; padding: 1px 5px; border-radius: 999px; font-size: 9px; font-style: normal; font-weight: 800; letter-spacing: .045em; line-height: 1.4; vertical-align: middle; }
+.ic-timing-badge.combat { border: 1px solid rgba(224,171,72,.5); background: rgba(136,91,22,.24); color: rgba(255,231,181,.96); }
+.ic-triggered-note.ic-timing-note.world { border-color: rgba(91,170,215,.36); background: rgba(42,102,135,.14); }
+.ic-triggered-note.ic-timing-note.world > i { color: #82c7ec; }
+.ic-triggered-note.ic-timing-note.combat { border-color: rgba(224,171,72,.48); background: rgba(136,91,22,.16); color: rgba(255,236,198,.9); }
+.ic-triggered-note.ic-timing-note.combat > i { color: #e0ab48; }
+.ic-timing-badge.native { border: 1px solid rgba(126,174,126,.46); background: rgba(54,112,60,.2); color: rgba(211,244,213,.96); }
