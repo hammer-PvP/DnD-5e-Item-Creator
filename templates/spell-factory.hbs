@@ -5,7 +5,10 @@
       <h1>Spell Factory</h1>
       <p>v{{version}} · {{stage}}</p>
     </div>
-    <button type="button" data-action="open-published-spells" {{#if hasDraft}}disabled{{/if}}><i class="fa-solid fa-book-atlas"></i> Published Spells</button>
+    <div class="ic-spell-factory-header-actions">
+      <button type="button" data-action="open-spell-guide"><i class="fa-solid fa-circle-question"></i> Configuration Guide</button>
+      <button type="button" data-action="open-published-spells" {{#if hasDraft}}disabled{{/if}}><i class="fa-solid fa-book-atlas"></i> Published Spells</button>
+    </div>
   </header>
 
   {{#unless hasDraft}}
@@ -13,36 +16,66 @@
     <section class="ic-spell-factory-intro">
       <i class="fa-solid fa-wand-magic-sparkles"></i>
       <div>
-        <h2>Create a real D&D5e Spell</h2>
-        <p>Start blank or clone any Spell as a blueprint. Spell Factory creates an independent working draft in an Item Creator internal compendium; the original source is never modified and only reviewed output enters Published Spells.</p>
+        <h2>A workspace for a canonical homebrew Spell library</h2>
+        <p>Spell Factory is not a second Spell rules engine. It manages the safe workflow around the native D&D5e editor: start blank or clone a blueprint, develop a protected draft, review it, then publish a real Spell5e document to Item Creator — Published Spells. Original Compendium sources are never overwritten.</p>
       </div>
+    </section>
+
+    <section class="ic-spell-workflow-strip" aria-label="Spell Factory workflow">
+      <span><b>1</b><strong>Blank / Blueprint</strong><small>Choose the starting point.</small></span>
+      <i class="fa-solid fa-arrow-right"></i>
+      <span><b>2</b><strong>Protected Draft</strong><small>Work without touching the source.</small></span>
+      <i class="fa-solid fa-arrow-right"></i>
+      <span><b>3</b><strong>Edit Spell</strong><small>Use the native D&D5e sheet.</small></span>
+      <i class="fa-solid fa-arrow-right"></i>
+      <span><b>4</b><strong>Publish</strong><small>Canonical Spell enters Published Spells.</small></span>
     </section>
 
     <div class="ic-spell-factory-start-grid">
       <button type="button" class="ic-spell-start-card" data-action="new-blank-spell" {{#if busy}}disabled{{/if}}>
         <i class="fa-solid fa-file-circle-plus"></i>
-        <span><strong>Blank Spell</strong><small>Start from a native Spell5e skeleton.</small></span>
+        <span><strong>Blank Spell</strong><small>Create a minimal native Spell5e draft. It stays in Draft Workspace until you choose Edit Spell.</small></span>
       </button>
       <button type="button" class="ic-spell-start-card" data-action="browse-spell-blueprint" {{#if busy}}disabled{{/if}}>
         <i class="fa-solid fa-books"></i>
-        <span><strong>Use Spell as Blueprint</strong><small>Clone Fireball, Find Steed, Summon Beast, or any other Spell without touching the source.</small></span>
+        <span><strong>Use Spell as Blueprint</strong><small>Clone Fireball, Find Steed, Summon Beast, or any other Spell. The source remains untouched.</small></span>
       </button>
     </div>
 
     <section class="ic-spell-blueprint-drop {{#if busy}}busy{{/if}}" data-spell-blueprint-drop>
       <i class="fa-solid fa-file-arrow-down"></i>
-      <div><strong>Drop a Spell here</strong><small>Compendium, Actor Spellbook, or World Item.</small></div>
+      <div><strong>Drop a Spell here</strong><small>Compendium, Actor Spellbook, or World Item. A protected draft is created; the editor does not auto-open.</small></div>
     </section>
 
     {{#if hasSavedDrafts}}
     <section class="ic-spell-drafts">
-      <header><div><span class="ic-kicker">Work in Progress</span><h2>Saved Drafts</h2></div><span>{{drafts.length}}</span></header>
+      <header>
+        <div><span class="ic-kicker">Persistent Work in Progress</span><h2>Draft Workspace</h2><p>Drafts are temporary authoring documents. They are not part of the canonical Published Spells library until you publish them.</p></div>
+        <span>{{drafts.length}} draft(s)</span>
+      </header>
       <div class="ic-spell-draft-list">
         {{#each drafts}}
-        <article>
+        <article data-spell-draft-card>
           <img src="{{img}}" alt="">
-          <div><strong>{{name}}</strong><small>{{#if editing}}Editing Published Spell{{else}}Blueprint: {{sourceName}}{{/if}}</small></div>
-          <button type="button" data-action="resume-spell-draft" data-draft-id="{{id}}"><i class="fa-solid fa-arrow-right"></i> Resume</button>
+          <div class="ic-spell-draft-main">
+            <div class="ic-spell-draft-heading">
+              <div><span class="ic-draft-badge">DRAFT</span><strong>{{name}}</strong></div>
+              <small>{{levelLabel}} · {{schoolLabel}} · {{activityCount}} Activities · {{effectCount}} Effects</small>
+              <small>{{#if editing}}Protected edit of a Published Spell{{else}}Blueprint: {{sourceName}}{{/if}}</small>
+            </div>
+            <div class="ic-spell-draft-summary" data-draft-summary hidden>
+              <span><strong>Class Lists:</strong> {{classCount}}</span>
+              <span><strong>Activities:</strong> {{activityCount}}</span>
+              <span><strong>Effects:</strong> {{effectCount}}</span>
+              <span><strong>State:</strong> Unpublished working draft</span>
+            </div>
+          </div>
+          <div class="ic-spell-draft-actions">
+            <button type="button" data-action="edit-saved-spell-draft" data-draft-id="{{id}}" title="Open the native D&D5e Spell sheet"><i class="fa-solid fa-pen-to-square"></i> Edit Spell</button>
+            <button type="button" data-action="resume-spell-draft" data-draft-id="{{id}}"><i class="fa-solid fa-list-check"></i> Review</button>
+            <button type="button" data-action="summary-spell-draft" data-draft-id="{{id}}" aria-expanded="false"><i class="fa-solid fa-circle-info"></i> Summary</button>
+            <button type="button" class="danger" data-action="discard-saved-spell-draft" data-draft-id="{{id}}" title="Permanently delete this unpublished draft"><i class="fa-solid fa-trash"></i> Discard</button>
+          </div>
         </article>
         {{/each}}
       </div>
@@ -59,10 +92,13 @@
         <p>{{draft.levelLabel}} · {{draft.schoolLabel}} · {{draft.identifier}}</p>
         {{#if sourceUuid}}<small>Blueprint: {{sourceName}} · source remains untouched</small>{{else}}<small>Blank native Spell draft</small>{{/if}}
       </div>
-      <button type="button" class="ic-spell-native-edit" data-action="edit-native-spell" {{#if busy}}disabled{{/if}}>
-        <i class="fa-solid fa-arrow-up-right-from-square"></i>
-        <span><strong>Edit Native Spell</strong><small>All D&D5e fields, Activities, Effects, scaling, targeting, components, and summon profiles remain native.</small></span>
-      </button>
+      <div class="ic-spell-editor-actions">
+        <button type="button" class="ic-spell-native-edit" data-action="edit-native-spell" {{#if busy}}disabled{{/if}}>
+          <i class="fa-solid fa-arrow-up-right-from-square"></i>
+          <span><strong>Edit Spell</strong><small>Open the complete native D&D5e Spell sheet. Spell Factory stays out of the way until you close it.</small></span>
+        </button>
+        <button type="button" class="ic-spell-guide-button" data-action="open-spell-guide"><i class="fa-solid fa-circle-question"></i><span><strong>Configuration Guide</strong><small>English help for level, Activities, scaling, formulas, saves, healing, summoning, and more.</small></span></button>
+      </div>
     </section>
 
     <div class="ic-spell-factory-columns">
@@ -84,17 +120,17 @@
           {{#each draft.activities}}<span><i class="fa-solid fa-bolt"></i> {{name}} <small>{{typeLabel}}</small></span>{{/each}}
         </div>
         {{/if}}
-        <aside class="ic-spell-native-note"><i class="fa-solid fa-shield-halved"></i><p>Spell Factory does not replace D&D5e mechanics. A Summon Activity remains a native Summon Activity; Damage, Save, Attack, Heal, Effects, Concentration, and scaling are authored by the system's own editor.</p></aside>
+        <aside class="ic-spell-native-note"><i class="fa-solid fa-shield-halved"></i><p>The native D&D5e sheet is the mechanical authority. Spell Factory protects the draft, records class-list metadata, explains configuration, and publishes the reviewed native document.</p></aside>
       </section>
 
       <section class="ic-spell-class-panel">
-        <header><span class="ic-kicker">Spell Availability</span><h3>Class Spell Lists</h3><p>Every published Spell must belong to at least one class list. These assignments are stored on the canonical Spell for Character Builder / spell-list integration.</p></header>
+        <header><span class="ic-kicker">Spell Availability</span><h3>Class Spell Lists</h3><p>Every published Spell must belong to at least one class list. These assignments are stored on the canonical Spell for future Character Builder / spell-list integration.</p></header>
         <div class="ic-spell-class-grid">
           {{#each classOptions}}
           <label><input type="checkbox" data-spell-class value="{{id}}" {{#if selected}}checked{{/if}}> <span>{{label}}</span></label>
           {{/each}}
         </div>
-        <small>{{classCount}} class list(s) selected</small>
+        <small data-class-count>{{classCount}} class list(s) selected</small>
       </section>
     </div>
 

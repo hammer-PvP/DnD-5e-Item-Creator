@@ -3364,13 +3364,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const currentIds = valuesOf(this.editingItem?.system?.activities)
       .map(activity => activity?.id ?? activity?._id)
       .filter(Boolean);
-    if (currentIds.length) {
-      const deletions = {};
-      for (const id of currentIds) deletions[`system.activities.-=${id}`] = null;
-      await this.editingItem.update(deletions, { render: false });
-    }
-    if (activities && Object.keys(activities).length) {
-      await this.editingItem.update({ "system.activities": clone(activities) }, { render: false });
+    for (const id of currentIds) await this.editingItem.deleteActivity(id);
+
+    for (const [key, raw] of Object.entries(activities ?? {})) {
+      const data = clone(raw ?? {});
+      const id = String(data._id ?? data.id ?? key ?? "");
+      if (!id || !data.type) continue;
+      data._id = id;
+      delete data.id;
+      await this.editingItem.createActivity(data.type, data, { renderSheet: false });
     }
   }
 

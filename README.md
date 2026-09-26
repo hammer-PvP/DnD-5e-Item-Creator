@@ -1,10 +1,10 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.8.0 Spell Factory Foundation
+**Version:** 0.8.1 Spell Factory UX & Development Workflow
 **Compatibility:** Foundry VTT 14.367+ (verified 14.368) / D&D5e 6.0.1–6.0.999 (verified target: 6.0.5)
 
-> **D&D5e 6.x line:** v0.8.0 adds the native Spell Factory and canonical Published Spells library on top of the v0.7.96 Timing Model v1 and v0.7.95b publication/index stabilization. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
+> **D&D5e 6.x line:** v0.8.1 refines the native Spell Factory into a practical development workspace with protected drafts, focus-safe native editing, Activity-safe publication, and an in-module Spell Configuration Guide. It builds on the v0.8.0 Spell Factory foundation, v0.7.96 Timing Model v1, and v0.7.95b publication/index stabilization. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
 
 This compatibility pass normalizes persisted physical-item rarity data to `system.rarities`, writes D&D5e 6.x roll and movement Active Effect paths, updates Consumable target routing to the D&D5e 6.x Chat Message target model, and applies the same persistence normalization through Supplier and the shared Materialization Core. Consumable Granted Effects now delegate temporal and rest expiry to the native D&D5e/Foundry Active Effect lifecycle instead of running a parallel combat-bound duration clock; Item Creator continues to own effect provenance, recipient routing, and stacking policy. Triggered Effects now follow the same migration principle: their triggers no longer require Combat, their persistent Effects use native world-time-backed duration, and ending Combat only detaches turn bookkeeping instead of deleting the Effects. Exact Combat turn/round hooks remain as a precision layer while Combat exists.
 
@@ -21,6 +21,16 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, pub
 - **Materialization Core** shared by manual creation, pricing, and automatic stock materialization.
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
+
+## v0.8.1 — Spell Factory UX & Development Workflow
+
+Spell Factory now presents the full authoring lifecycle directly: **Blank / Blueprint → Protected Draft → Edit Spell → Review → Publish**. Blank and blueprint actions create persistent drafts without forcing the GM into an editor immediately. Draft Workspace lists all work in progress with direct **Edit Spell**, **Review**, **Summary**, and **Discard** actions. Drafts remain temporary internal documents; **Item Creator — Published Spells** remains the canonical homebrew library.
+
+**Edit Spell** opens the complete native D&D5e Spell sheet. Spell Factory minimizes and deliberately suspends its own refresh behavior while that sheet is open, so `updateItem` events from changing Activity names, damage, healing, Summoning profiles, scaling, or child dialogs do not cause the Factory to jump back in front. When the native sheet closes, the Factory restores itself and refreshes the draft summary once.
+
+A new **Spell Configuration Guide** provides an English, searchable reference inside the module. It explains where native settings live and what common roll-data tokens mean in practical terms. For example, `@mod` is automatically replaced by the ability modifier used by the Activity; `4d8 + @mod` with a +4 resolved modifier becomes `4d8 + 4`. The guide also covers character-level scaling (`@details.level`), proficiency (`@attributes.prof`), effective Spell level (`@item.level`), scaling stages (`@scaling` / `@scaling.increase`), native damage/healing/upcasting, Attack/Save configuration, duration/Concentration, Uses/Recovery, Summon profiles and bonuses, and Effects.
+
+Published Spell updates now synchronize Activities through D&D5e 6.x's native Activity API instead of the deprecated forced-deletion update syntax. Item Creator runtime hooks also ignore Compendium Items and internal Spell drafts; external modules which incorrectly assume every Item belongs to an Actor are outside Item Creator's runtime contract.
 
 ## v0.8.0 — Spell Factory Foundation
 

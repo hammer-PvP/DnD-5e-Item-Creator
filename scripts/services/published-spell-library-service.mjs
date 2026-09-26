@@ -322,7 +322,12 @@ export class PublishedSpellLibraryService {
     };
     prepared.folder = null;
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
-    const created = await ItemClass.create(prepared, { pack: pack.collection, renderSheet: false, keepEmbeddedIds: true });
+    const created = await ItemClass.create(prepared, {
+      pack: pack.collection,
+      renderSheet: false,
+      keepEmbeddedIds: true,
+      itemCreatorSpellDraft: true
+    });
     if (!created) throw new Error("Foundry did not return the Spell Factory draft document.");
     return created;
   }
@@ -349,6 +354,11 @@ export class PublishedSpellLibraryService {
         school: String(spell.system?.school ?? ""),
         sourceName: flag.sourceName ?? "Blank Spell",
         editing: Boolean(flag.editingPublication),
+        levelLabel: (Number(spell.system?.level) || 0) === 0 ? "Cantrip" : `Level ${Number(spell.system?.level) || 0}`,
+        schoolLabel: schoolLabel(schoolKey(spell)),
+        activityCount: valuesOf(spell.system?.activities).length,
+        effectCount: valuesOf(spell.effects).length,
+        classCount: classListsFromDocument(spell).length,
         updatedAt: Number(spell._stats?.modifiedTime) || Number(flag.updatedAt) || Number(flag.createdAt) || 0
       };
     }).sort((a, b) => b.updatedAt - a.updatedAt || a.name.localeCompare(b.name, game.i18n.lang));
@@ -358,7 +368,10 @@ export class PublishedSpellLibraryService {
     if (!this.isDraft(draft)) throw new Error("Class-list changes can only be applied to a Spell Factory draft.");
     const values = [...new Set(classLists.map(String).filter(Boolean))];
     const current = spellFactoryFlag(draft) ?? {};
-    await draft.update({ [`flags.${MODULE_ID}.spellFactory`]: { ...clone(current), classLists: values, updatedAt: now() } }, { render: false });
+    await draft.update(
+      { [`flags.${MODULE_ID}.spellFactory`]: { ...clone(current), classLists: values, updatedAt: now() } },
+      { render: false, itemCreatorSpellFactoryInternal: true }
+    );
     return values;
   }
 
@@ -404,7 +417,7 @@ export class PublishedSpellLibraryService {
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
     const published = await ItemClass.create(source, { pack: pack.collection, renderSheet: false, keepEmbeddedIds: true });
     if (!published) throw new Error("Foundry did not return the Published Spell document.");
-    await draft.delete();
+    await draft.delete({ itemCreatorSpellDraft: true });
     return published;
   }
 
@@ -438,12 +451,16 @@ export class PublishedSpellLibraryService {
 
     const replaceActivities = async activities => {
       const currentIds = valuesOf(target.system?.activities).map(activity => activity?.id ?? activity?._id).filter(Boolean);
-      if (currentIds.length) {
-        const deletions = {};
-        for (const id of currentIds) deletions[`system.activities.-=${id}`] = null;
-        await target.update(deletions, { render: false });
+      for (const id of currentIds) await target.deleteActivity(id);
+
+      for (const [key, raw] of Object.entries(activities ?? {})) {
+        const data = clone(raw ?? {});
+        const id = String(data._id ?? data.id ?? key ?? "");
+        if (!id || !data.type) continue;
+        data._id = id;
+        delete data.id;
+        await target.createActivity(data.type, data, { renderSheet: false });
       }
-      if (activities && Object.keys(activities).length) await target.update({ "system.activities": clone(activities) }, { render: false });
     };
     const replaceEffects = async effects => {
       const ids = valuesOf(target.effects).map(effect => effect.id).filter(Boolean);
@@ -472,13 +489,13 @@ export class PublishedSpellLibraryService {
       throw error;
     }
 
-    await draft.delete();
+    await draft.delete({ itemCreatorSpellDraft: true });
     return target;
   }
 
   static async discardDraft(draft) {
     if (!this.isDraft(draft)) throw new Error("Only Spell Factory drafts can be discarded.");
-    await draft.delete();
+    await draft.delete({ itemCreatorSpellDraft: true });
   }
 
   static async setArchived(spell, archived = true) {

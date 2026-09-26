@@ -1,0 +1,44 @@
+<div class="ic-spell-guide-shell">
+  <header class="ic-spell-guide-header">
+    <div>
+      <span class="ic-kicker">Native D&D5e authoring reference</span>
+      <h1>Spell Configuration Guide</h1>
+      <p>Use this guide while editing the protected draft in the native D&D5e Spell sheet. Spell Factory does not replace native Activities; it explains how to configure them.</p>
+    </div>
+    <label class="ic-spell-guide-search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="search" data-spell-guide-search value="{{search}}" placeholder="Search: upcast, @mod, healing, summon, concentration...">
+    </label>
+  </header>
+
+  <main class="ic-spell-guide-content">
+    {{#each sections}}
+    <section class="ic-spell-guide-section" data-guide-section id="ic-guide-{{id}}">
+      <header>
+        <i class="fa-solid {{icon}}"></i>
+        <div><h2>{{title}}</h2><p>{{intro}}</p></div>
+      </header>
+      <div class="ic-spell-guide-entries">
+        {{#each entries}}
+        <article class="ic-spell-guide-entry" data-guide-entry data-search="{{searchText}}">
+          <h3>{{title}}</h3>
+          <div class="ic-spell-guide-where"><strong>Where:</strong> {{where}}</div>
+          <p>{{body}}</p>
+          {{#if examples.length}}
+          <div class="ic-spell-guide-examples">
+            {{#each examples}}
+            <div class="ic-spell-guide-example">
+              <code>{{code}}</code>
+              <button type="button" data-action="copy-guide-formula" data-formula="{{code}}" title="Copy"><i class="fa-solid fa-copy"></i></button>
+              {{#if note}}<small>{{note}}</small>{{/if}}
+            </div>
+            {{/each}}
+          </div>
+          {{/if}}
+        </article>
+        {{/each}}
+      </div>
+    </section>
+    {{/each}}
+  </main>
+</div>

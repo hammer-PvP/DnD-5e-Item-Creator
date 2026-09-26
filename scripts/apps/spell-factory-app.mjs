@@ -1,6 +1,7 @@
 import { MODULE_ID, MODULE_STAGE, MODULE_VERSION } from "../constants.mjs";
 import { PublishedSpellLibraryService } from "../services/published-spell-library-service.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
+import { SpellConfigurationGuideApp } from "./spell-configuration-guide-app.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
 
@@ -101,25 +102,36 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.pendingPublishedId = publishedSpell?.id ?? null;
     this.busy = false;
     this.browserOpen = false;
-    this.status = draftSpell ? `Editing draft: ${draftSpell.name}` : publishedSpell ? `Preparing an editable draft for ${publishedSpell.name}…` : "Create a blank Spell or clone an existing Spell as a blueprint.";
-    this.#updateHook = Hooks.on("updateItem", item => {
-      if (item?.id === this.draftId && PublishedSpellLibraryService.isDraft(item)) this.render({ force: true });
-    });
-    this.#deleteHook = Hooks.on("deleteItem", item => {
-      if (item?.id !== this.draftId) return;
-      this.draftId = null;
-      this.render({ force: true });
+    this.nativeEditActive = false;
+    this.nativeEditDirty = false;
+    this.status = draftSpell
+      ? `Editing draft: ${draftSpell.name}`
+      : publishedSpell
+        ? `Preparing an editable draft for ${publishedSpell.name}…`
+        : "Create a blank Spell or clone an existing Spell as a blueprint.";
+
+    this.#updateHook = Hooks.on("updateItem", (item, _changes, hookOptions) => {
+      if (item?.id !== this.draftId || !PublishedSpellLibraryService.isDraft(item)) return;
+      if (hookOptions?.itemCreatorSpellFactoryInternal) return;
+      if (this.nativeEditActive) {
+        this.nativeEditDirty = true;
+        return;
+      }
+      if (!this.busy) this.render({ force: true });
     });
   }
 
   #updateHook;
-  #deleteHook;
+  #nativeCloseHookV2 = null;
+  #nativeCloseHookV1 = null;
+  #nativeSheet = null;
+  #guideApp = null;
 
   static DEFAULT_OPTIONS = {
     id: "dnd5e-item-creator-spell-factory",
     classes: ["item-creator", "ic-spell-factory", "standard-form"],
     tag: "section",
-    position: { width: 980, height: 780 },
+    position: { width: 1040, height: 800 },
     window: { title: "Item Creator — Spell Factory", resizable: true }
   };
 
@@ -129,9 +141,8 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async close(options = {}) {
     if (this.#updateHook !== undefined) Hooks.off("updateItem", this.#updateHook);
-    if (this.#deleteHook !== undefined) Hooks.off("deleteItem", this.#deleteHook);
     this.#updateHook = undefined;
-    this.#deleteHook = undefined;
+    this.#stopWatchingNativeSheet();
     return super.close(options);
   }
 
@@ -143,7 +154,7 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!PublishedSpellLibraryService.isPublished(published)) throw new Error("That Published Spell is no longer available.");
     const draft = await PublishedSpellLibraryService.createDraftFromSpell(published, { editPublished: true });
     this.draftId = draft.id;
-    this.status = `Editing a protected draft of ${published.name}. Update Published will replace the canonical publication only after review.`;
+    this.status = `Editing a protected draft of ${published.name}. Update Published changes the canonical publication only after review.`;
   }
 
   async #draft() {
@@ -169,6 +180,7 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
       stage: MODULE_STAGE,
       busy: this.busy,
       status: this.status,
+      nativeEditActive: this.nativeEditActive,
       hasDraft: Boolean(draft),
       draft: summary,
       sourceName: factory.sourceName ?? (draft ? "Blank Spell" : ""),
@@ -187,7 +199,11 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root?.querySelector('[data-action="browse-spell-blueprint"]')?.addEventListener("click", event => this.#browseBlueprint(event));
     root?.querySelector('[data-action="open-published-spells"]')?.addEventListener("click", event => this.#openPublished(event));
     root?.querySelectorAll('[data-action="resume-spell-draft"]').forEach(button => button.addEventListener("click", event => this.#resumeDraft(event)));
+    root?.querySelectorAll('[data-action="edit-saved-spell-draft"]').forEach(button => button.addEventListener("click", event => this.#editSavedDraft(event)));
+    root?.querySelectorAll('[data-action="summary-spell-draft"]').forEach(button => button.addEventListener("click", event => this.#toggleDraftSummary(event)));
+    root?.querySelectorAll('[data-action="discard-saved-spell-draft"]').forEach(button => button.addEventListener("click", event => this.#discardSavedDraft(event)));
     root?.querySelector('[data-action="edit-native-spell"]')?.addEventListener("click", event => this.#editNative(event));
+    root?.querySelectorAll('[data-action="open-spell-guide"]').forEach(button => button.addEventListener("click", event => this.#openGuide(event)));
     root?.querySelector('[data-action="publish-spell"]')?.addEventListener("click", event => this.#publish(event));
     root?.querySelector('[data-action="discard-spell-draft"]')?.addEventListener("click", event => this.#discard(event));
     root?.querySelectorAll("[data-spell-class]").forEach(input => input.addEventListener("change", event => this.#updateClassLists(event)));
@@ -204,8 +220,8 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
     try {
       const draft = await PublishedSpellLibraryService.createBlankDraft();
-      this.draftId = draft.id;
-      this.status = "Blank Spell draft created in the Item Creator internal draft workspace. Use the native Spell editor to author its mechanics.";
+      this.status = `${draft.name} created as a protected Spell Factory draft. Use Edit Spell when you are ready to work on it.`;
+      ui.notifications.info("Blank Spell created in Draft Workspace.");
     } catch (error) {
       console.error(`${MODULE_ID} | Unable to create blank Spell draft.`, error);
       ui.notifications.error(`Spell Factory could not create a blank draft: ${error?.message ?? "Unknown error"}`);
@@ -247,8 +263,7 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
     try {
       const draft = await PublishedSpellLibraryService.createDraftFromSpell(spell);
-      this.draftId = draft.id;
-      this.status = `${spell.name} was cloned into an independent Spell Factory draft. The source Spell remains untouched.`;
+      this.status = `${draft.name} was cloned into Draft Workspace. ${spell.name} remains untouched.`;
       ui.notifications.info(`${spell.name} cloned as a new Spell Factory draft.`);
     } finally {
       this.busy = false;
@@ -289,12 +304,117 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.render({ force: true });
   }
 
+  async #editSavedDraft(event) {
+    event.preventDefault();
+    if (this.busy || this.draftId) return;
+    const draft = await PublishedSpellLibraryService.getDraft(event.currentTarget.dataset.draftId);
+    if (!draft) return ui.notifications.warn("That Spell Factory draft is no longer available.");
+    this.draftId = draft.id;
+    this.status = `Editing draft: ${draft.name}.`;
+    await this.render({ force: true });
+    await this.#openNativeEditor(draft);
+  }
+
+  #toggleDraftSummary(event) {
+    event.preventDefault();
+    const article = event.currentTarget.closest("[data-spell-draft-card]");
+    const summary = article?.querySelector("[data-draft-summary]");
+    if (!summary) return;
+    summary.hidden = !summary.hidden;
+    event.currentTarget.setAttribute("aria-expanded", String(!summary.hidden));
+  }
+
+  async #discardSavedDraft(event) {
+    event.preventDefault();
+    if (this.busy || this.draftId) return;
+    const draft = await PublishedSpellLibraryService.getDraft(event.currentTarget.dataset.draftId);
+    if (!draft) return ui.notifications.warn("That Spell Factory draft is no longer available.");
+    if (!(await this.#confirmDiscard(draft))) return;
+    this.busy = true;
+    try {
+      await PublishedSpellLibraryService.discardDraft(draft);
+      this.status = `${draft.name} draft discarded. Its blueprint/publication was not modified.`;
+      ui.notifications.info(`${draft.name} draft discarded.`);
+    } catch (error) {
+      console.error(`${MODULE_ID} | Unable to discard Spell draft.`, error);
+      ui.notifications.error(`Discard failed: ${error?.message ?? "Unknown error"}`);
+    } finally {
+      this.busy = false;
+      this.render({ force: true });
+    }
+  }
+
   async #editNative(event) {
     event.preventDefault();
     const draft = await this.#draft();
     if (!draft) return;
+    await this.#openNativeEditor(draft);
+  }
+
+  async #openNativeEditor(draft) {
+    if (this.nativeEditActive) return;
     await PublishedSpellLibraryService.ensureDraftPack({ unlock: true });
-    draft.sheet?.render?.({ force: true });
+    const sheet = draft.sheet;
+    if (!sheet?.render) return ui.notifications.error("D&D5e did not provide a native Spell sheet for this draft.");
+
+    this.nativeEditActive = true;
+    this.nativeEditDirty = false;
+    this.status = `Editing ${draft.name} in the native D&D5e Spell editor. Spell Factory refresh is suspended until the sheet closes.`;
+    try { await this.minimize?.(); } catch (_error) { /* the native sheet still opens */ }
+    try {
+      await sheet.render({ force: true });
+      this.#watchNativeSheet(sheet);
+    } catch (error) {
+      this.nativeEditActive = false;
+      try { await this.maximize?.(); } catch (_error) { /* no-op */ }
+      console.error(`${MODULE_ID} | Unable to open the native Spell editor.`, error);
+      ui.notifications.error(`Could not open Edit Spell: ${error?.message ?? "Unknown error"}`);
+    }
+  }
+
+  #watchNativeSheet(sheet) {
+    this.#stopWatchingNativeSheet();
+    this.#nativeSheet = sheet;
+    const onClose = application => {
+      if (application !== this.#nativeSheet) return;
+      void this.#finishNativeEdit();
+    };
+    this.#nativeCloseHookV2 = Hooks.on("closeApplicationV2", onClose);
+    // Keep a V1 fallback for custom/legacy Spell sheets while D&D5e itself uses V2.
+    this.#nativeCloseHookV1 = Hooks.on("closeApplicationV1", onClose);
+  }
+
+  #stopWatchingNativeSheet() {
+    if (this.#nativeCloseHookV2 !== null) Hooks.off("closeApplicationV2", this.#nativeCloseHookV2);
+    if (this.#nativeCloseHookV1 !== null) Hooks.off("closeApplicationV1", this.#nativeCloseHookV1);
+    this.#nativeCloseHookV2 = null;
+    this.#nativeCloseHookV1 = null;
+    this.#nativeSheet = null;
+  }
+
+  async #finishNativeEdit() {
+    if (!this.nativeEditActive) return;
+    const changed = this.nativeEditDirty;
+    this.#stopWatchingNativeSheet();
+    this.nativeEditActive = false;
+    this.nativeEditDirty = false;
+    this.status = changed
+      ? "Edit Spell closed. Draft summary refreshed from the native D&D5e document."
+      : "Edit Spell closed. Draft remains ready for review or publication.";
+    if (!this.element?.isConnected) return;
+    try { await this.maximize?.(); } catch (_error) { /* no-op */ }
+    await this.render({ force: true });
+    this.bringToFront?.();
+  }
+
+  async #openGuide(event) {
+    event.preventDefault();
+    if (this.#guideApp?.element?.isConnected) {
+      this.#guideApp.bringToFront?.();
+      return;
+    }
+    this.#guideApp = new SpellConfigurationGuideApp();
+    this.#guideApp.render({ force: true });
   }
 
   async #updateClassLists(event) {
@@ -304,6 +424,8 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     try {
       await PublishedSpellLibraryService.setClassLists(draft, selected);
       this.status = selected.length ? `${selected.length} class spell list(s) selected.` : "Choose at least one class spell list before publishing.";
+      const count = this.element?.querySelector("[data-class-count]");
+      if (count) count.textContent = `${selected.length} class list(s) selected`;
     } catch (error) {
       console.error(`${MODULE_ID} | Unable to update Spell class lists.`, error);
       ui.notifications.error("Spell Factory could not save the class-list selection.");
@@ -312,13 +434,13 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
   async #publish(event) {
     event.preventDefault();
-    if (this.busy) return;
+    if (this.busy || this.nativeEditActive) return;
     const draft = await this.#draft();
     if (!draft) return;
     const lists = PublishedSpellLibraryService.classLists(draft);
     if (!lists.length) return ui.notifications.warn("Choose at least one class spell list before publishing.");
     if (!String(draft.name ?? "").trim()) return ui.notifications.warn("The Spell needs a name before publishing.");
-    if (!String(draft.system?.school ?? "").trim()) return ui.notifications.warn("Choose a Spell school in the native Spell editor before publishing.");
+    if (!String(draft.system?.school ?? "").trim()) return ui.notifications.warn("Choose a Spell school in Edit Spell before publishing.");
 
     const editing = Boolean(draft.flags?.[MODULE_ID]?.spellFactory?.editingPublication);
     const confirmed = await ProtectedTransactionDialogService.confirm({
@@ -341,7 +463,6 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
       this.draftId = null;
       this.status = `${published.name} ${editing ? "updated" : "published"} in Item Creator — Published Spells.`;
       ui.notifications.info(`${published.name} ${editing ? "updated" : "published"} in Item Creator — Published Spells.`);
-      this.render({ force: true });
     } catch (error) {
       console.error(`${MODULE_ID} | Spell publication failed.`, error);
       ui.notifications.error(`Spell publication failed: ${error?.message ?? "Unknown error"}`);
@@ -351,27 +472,38 @@ export class SpellFactoryApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }
   }
 
-  async #discard(event) {
-    event.preventDefault();
-    if (this.busy) return;
-    const draft = await this.#draft();
-    if (!draft) return;
-    const confirmed = await ProtectedTransactionDialogService.confirm({
+  async #confirmDiscard(draft) {
+    return ProtectedTransactionDialogService.confirm({
       key: `spell-factory-discard-${draft.id}`,
       matchClass: "ic-confirm-spell-discard",
       dialogOptions: {
         classes: ["ic-confirm-spell-discard"],
         window: { title: "Discard Spell Draft", modal: true },
-        content: `<div class="ic-confirm-item-content"><i class="fa-solid fa-triangle-exclamation"></i><div><h2>Discard ${foundry.utils.escapeHTML(draft.name)}?</h2><p>This deletes only the Spell Factory working draft. The blueprint or existing Published Spell is not modified.</p></div></div>`,
+        content: `<div class="ic-confirm-item-content"><i class="fa-solid fa-triangle-exclamation"></i><div><h2>Discard ${foundry.utils.escapeHTML(draft.name)}?</h2><p>This permanently deletes only the unpublished Spell Factory working draft. The blueprint and any existing Published Spell remain untouched.</p></div></div>`,
         yes: { label: "Discard Draft", icon: "fa-solid fa-trash" },
         no: { label: "Cancel", icon: "fa-solid fa-xmark" }
       }
     });
-    if (!confirmed) return;
-    await PublishedSpellLibraryService.discardDraft(draft);
-    this.draftId = null;
-    this.status = "Draft discarded. The source Spell was not modified.";
-    this.render({ force: true });
+  }
+
+  async #discard(event) {
+    event.preventDefault();
+    if (this.busy || this.nativeEditActive) return;
+    const draft = await this.#draft();
+    if (!draft) return;
+    if (!(await this.#confirmDiscard(draft))) return;
+    this.busy = true;
+    try {
+      await PublishedSpellLibraryService.discardDraft(draft);
+      this.draftId = null;
+      this.status = "Draft discarded. The source Spell was not modified.";
+    } catch (error) {
+      console.error(`${MODULE_ID} | Unable to discard Spell draft.`, error);
+      ui.notifications.error(`Discard failed: ${error?.message ?? "Unknown error"}`);
+    } finally {
+      this.busy = false;
+      this.render({ force: true });
+    }
   }
 
   async #openPublished(event) {

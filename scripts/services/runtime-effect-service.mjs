@@ -339,18 +339,19 @@ export class ItemCreatorRuntimeEffectService {
 
   static registerHooks() {
     Hooks.on("createItem", (item, options) => {
-      if (options?.itemCreatorRuntime) return;
+      if (options?.itemCreatorRuntime || options?.itemCreatorSpellDraft || item?.pack) return;
       if (item.parent?.documentName === "Actor") this.#scheduleActorSync(item.parent);
       else this.#scheduleItemSync(item);
     });
     Hooks.on("updateItem", (item, changes, options) => {
-      if (options?.itemCreatorRuntime) return;
+      if (options?.itemCreatorRuntime || options?.itemCreatorSpellDraft || item?.pack) return;
       if (item.parent?.documentName === "Actor") {
         this.#recordExternalResourceBases(item, changes);
         this.#scheduleActorSync(item.parent);
       } else this.#scheduleItemSync(item);
     });
-    Hooks.on("deleteItem", item => {
+    Hooks.on("deleteItem", (item, options) => {
+      if (options?.itemCreatorRuntime || options?.itemCreatorSpellDraft || item?.pack) return;
       const actor = item.parent?.documentName === "Actor" ? item.parent : null;
       // Cleanup/reconciliation is also deferred so it never mutates the Actor from
       // inside Foundry's embedded-document deletion stack.

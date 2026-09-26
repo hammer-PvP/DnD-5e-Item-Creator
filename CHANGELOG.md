@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.1 — Spell Factory UX & Development Workflow
+
+- Reworked **Spell Factory** into a persistent authoring workspace rather than an intermediate screen. Blank Spell and blueprint/drop actions now create protected drafts in Draft Workspace without automatically entering the editor. Draft cards expose **Edit Spell**, **Review**, **Summary**, and **Discard** directly.
+- Renamed **Edit Native Spell** to **Edit Spell** and made the native D&D5e Spell sheet the explicit mechanics authority. While the native Spell sheet (and its child Activity dialogs) is open, Spell Factory minimizes and suspends draft refreshes. Draft `updateItem` events only mark the workspace dirty; the Factory performs one refresh after the native sheet closes, preventing the Factory from repeatedly jumping in front of Activity editors.
+- Added **Spell Configuration Guide**, an in-module English reference with search and copyable formula examples. The guide covers Spell Factory workflow, Spell level/school, Activities, damage/healing, scaling/upcasting, Attack/Save, targeting/range/duration/Concentration, uses/recovery, formula roll-data paths, Summon profiles/bonuses, and Effects. Examples explain tokens operationally (for example `@mod`, `@details.level`, `@attributes.prof`, `@item.level`, `@scaling`, and `@scaling.increase`).
+- Replaced Spell publication's deprecated `system.activities.-=<id>: null` forced-deletion syntax with D&D5e 6.x native `Item5e.deleteActivity()` / `createActivity()` synchronization. Published updates continue to preserve Activity IDs supplied by the reviewed draft and retain rollback protection.
+- Hardened Item Creator runtime hooks so Compendium Items and Spell Factory draft operations are ignored by Actor/World runtime synchronization. Draft create/delete operations are tagged as internal Spell Factory lifecycle operations. This removes Item Creator-side processing from those hooks; third-party modules which assume every Item has an Actor parent may still report their own hook errors.
+- Preserved the protected publication model: Published Spells are never edited by the Factory directly; editing creates a draft, and only explicit **Update Published** commits the reviewed native Spell document.
+
 ## 0.8.0 — Spell Factory Foundation
 
 - Added **Spell Factory**, a dedicated authoring workflow for real native D&D5e `spell` Items. A GM can start from a blank Spell5e document or clone any existing Spell as a blueprint; the source document is never modified.
