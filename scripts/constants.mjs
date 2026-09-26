@@ -1,11 +1,12 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.7.96";
-export const MODULE_STAGE = "Timing Model v1";
+export const MODULE_VERSION = "0.8.0";
+export const MODULE_STAGE = "Spell Factory Foundation";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },
   { id: "equipment", label: "Equipment", icon: "fa-shield-halved", available: true },
   { id: "tool", label: "Tool", icon: "fa-hammer", available: true },
+  { id: "spellFactory", label: "Spell Factory", icon: "fa-wand-magic-sparkles", available: true },
   { id: "scrollFactory", label: "Scroll Factory", icon: "fa-scroll", available: true },
   { id: "consumable", label: "Consumables", icon: "fa-flask", available: true }
 ]);

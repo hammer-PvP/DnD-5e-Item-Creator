@@ -1,10 +1,10 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.7.95b Source Registry & Publishing Cleanup
+**Version:** 0.8.0 Spell Factory Foundation
 **Compatibility:** Foundry VTT 14.367+ (verified 14.368) / D&D5e 6.0.1–6.0.999 (verified target: 6.0.5)
 
-> **D&D5e 6.x line:** v0.7.95b is a focused Source Registry and publishing cleanup on top of the v0.7.95a Published Library organization pass and the stabilized v0.7.94a runtime. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
+> **D&D5e 6.x line:** v0.8.0 adds the native Spell Factory and canonical Published Spells library on top of the v0.7.96 Timing Model v1 and v0.7.95b publication/index stabilization. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
 
 This compatibility pass normalizes persisted physical-item rarity data to `system.rarities`, writes D&D5e 6.x roll and movement Active Effect paths, updates Consumable target routing to the D&D5e 6.x Chat Message target model, and applies the same persistence normalization through Supplier and the shared Materialization Core. Consumable Granted Effects now delegate temporal and rest expiry to the native D&D5e/Foundry Active Effect lifecycle instead of running a parallel combat-bound duration clock; Item Creator continues to own effect provenance, recipient routing, and stacking policy. Triggered Effects now follow the same migration principle: their triggers no longer require Combat, their persistent Effects use native world-time-backed duration, and ending Combat only detaches turn bookkeeping instead of deleting the Effects. Exact Combat turn/round hooks remain as a precision layer while Combat exists.
 
@@ -12,14 +12,29 @@ For live migration testing, **Item Creator Configuration → Runtime Logging** p
 
 On worlds with **libWrapper** active, Item Creator now registers its `AttackActivity.rollAttack` interception as a cooperative `WRAPPER`, allowing Character Builder and other libWrapper-aware modules to share the attack pipeline without the previous non-libWrapper conflict warning. If libWrapper is absent, Item Creator retains the compatibility fallback. Verbose diagnostics report which interception strategy was installed.
 
-Item Creator is a unified GM toolkit for creating, normalizing, progressing, materializing, and stocking D&D5e Items. One module now contains five connected creation/stock features:
+Item Creator is a unified GM toolkit for creating, normalizing, progressing, publishing, materializing, and stocking D&D5e Items and Spells. One module now contains five connected creation/stock features:
 
 - **Item Creator** for Weapons, Equipment, Tools, and Consumables;
+- **Spell Factory** for native D&D5e Spells and the canonical Published Spells library;
 - **Scroll Factory** for native D&D5e Spell Scrolls;
 - **Supplier** for configurable merchant stock generation;
 - **Materialization Core** shared by manual creation, pricing, and automatic stock materialization.
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
+
+## v0.8.0 — Spell Factory Foundation
+
+Spell Factory creates **real native D&D5e Spell5e documents**. A GM can start blank or select/drag an existing Spell as a blueprint. Blueprint authoring always works on an independent Item Creator draft: the original PHB/SRD/module/Actor/World Spell is never edited, and only an explicit Publish action creates a canonical homebrew Spell.
+
+Working drafts live in **Item Creator — Spell Drafts (Internal)**, a dedicated World Compendium automatically excluded from the native D&D5e Compendium Browser so unfinished drafts do not become source candidates. Reviewed output is copied to **Item Creator — Published Spells**, a separate canonical World Compendium. Published Spells are organized by the eight native schools and may be dragged directly from the library/Compendium to an Actor sheet; Spell Factory intentionally does not create an intermediate World Item copy.
+
+The native D&D5e Spell sheet is the mechanics authority. **Edit Native Spell** exposes the system's own casting time, range/target, duration, Concentration, components, Activities, Effects, damage/healing/save/attack configuration, scaling, and Summon profiles. Item Creator does not implement a parallel spell engine and does not special-case individual spells or companions. A Fireball blueprint can therefore be cloned, renamed, changed to cold damage or a different damage formula/casting time, and published as a new independent Spell while retaining valid native structure.
+
+Every Published Spell must select at least one **Class Spell List**. Spell Factory discovers class-list options from D&D5e's Spell List Registry when available and stores the chosen class identifiers on the canonical Spell. This establishes the contract needed for later Character Builder and native Spell List Registry integration. v0.8.0 does **not** yet modify Character Builder or create/register Spell List Journal pages, so the class metadata is canonical authoring data rather than a new system-wide spell-list registration in this release.
+
+Editing a Published Spell creates a protected working draft. **Update Published** only commits after confirmation, preserves the published document/publication identity, increments its revision, and synchronizes the native Spell data, Activities, and embedded Active Effects. Archive/Restore and protected permanent Delete mirror the Published Item library. There is no automatic synchronization of copies already embedded on Actors.
+
+The Compendiums sidebar **Item Creator** folder now uses the module's moss-green visual identity and contains both canonical libraries (plus the internal draft workspace while drafts exist). The Item Directory **Edit with Item Creator** context menu also uses Foundry V14's current `label` / `visible` entry fields instead of the deprecated `name` / `condition` aliases.
 
 ## v0.7.96 — Timing Model v1
 

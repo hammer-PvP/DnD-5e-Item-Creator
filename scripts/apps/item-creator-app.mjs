@@ -2819,6 +2819,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="published-copy"]')?.addEventListener("click", event => this.#createPublishedCopyAction(event));
     root.querySelector('[data-action="world-test"]')?.addEventListener("click", event => this.#createWorldTestAction(event));
     root.querySelector('[data-action="open-published-library"]')?.addEventListener("click", event => this.#openPublishedLibrary(event));
+    root.querySelector('[data-action="open-published-spells"]')?.addEventListener("click", event => this.#openPublishedSpells(event));
     root.querySelector('[data-action="browse-templates"]')?.addEventListener("click", event => this.#openTemplateBrowser(event));
     root.querySelector('[data-action="custom-equipment"]')?.addEventListener("click", event => this.#createCustomEquipment(event));
     root.querySelector('[data-action="custom-tool"]')?.addEventListener("click", event => this.#createCustomTool(event));
@@ -3337,6 +3338,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     game.itemCreator?.openPublished?.();
   }
 
+  async #openPublishedSpells(event) {
+    event.preventDefault();
+    if (this.editingItem || this.selectedType || this.itemName.trim()) {
+      ui.notifications.warn("Finish or close the current draft before opening Published Spells.");
+      return;
+    }
+    await this.close();
+    game.itemCreator?.openPublishedSpells?.();
+  }
+
   #mergeOriginalFlags(data) {
     if (!this.originalItemSource) return data;
     data.flags = foundry.utils.mergeObject(clone(this.originalItemSource.flags ?? {}), clone(data.flags ?? {}), {
@@ -3614,6 +3625,16 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     const button = event.currentTarget;
     if (button.disabled || button.dataset.available !== "true") return;
     const nextType = button.dataset.type;
+
+    if (nextType === "spellFactory") {
+      if (this.editingItem) {
+        ui.notifications.warn("Close the current Item editing draft before opening Spell Factory.");
+        return;
+      }
+      await this.close();
+      game.itemCreator?.openSpellFactory?.();
+      return;
+    }
 
     if (nextType === "scrollFactory") {
       if (this.editingItem) {

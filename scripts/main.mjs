@@ -5,7 +5,10 @@ import { ItemCreatorSettingsApp } from "./apps/settings-app.mjs";
 import { ItemCreatorModuleSettingsApp } from "./apps/module-settings-app.mjs";
 import { ScrollFactoryApp } from "./apps/scroll-factory-app.mjs";
 import { PublishedItemLibraryApp } from "./apps/published-item-library-app.mjs";
+import { SpellFactoryApp } from "./apps/spell-factory-app.mjs";
+import { PublishedSpellLibraryApp } from "./apps/published-spell-library-app.mjs";
 import { PublishedItemLibraryService } from "./services/published-item-library-service.mjs";
+import { PublishedSpellLibraryService } from "./services/published-spell-library-service.mjs";
 import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-service.mjs";
 import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
 import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
@@ -30,6 +33,8 @@ import {
 let appInstance = null;
 let scrollFactoryInstance = null;
 let publishedLibraryInstance = null;
+let spellFactoryInstance = null;
+let publishedSpellsInstance = null;
 let supplierInstance = null;
 let supplierConfigInstance = null;
 let sourceSettingsInstance = null;
@@ -88,6 +93,9 @@ Hooks.once("init", () => {
     edit: item => openItemCreator({ item }),
     openScrollFactory: () => openScrollFactory(),
     openPublished: () => openPublishedLibrary(),
+    openSpellFactory: options => openSpellFactory(options),
+    openPublishedSpells: () => openPublishedSpells(),
+    get spellFactory() { return spellFactoryInstance; },
     get scrollFactory() { return scrollFactoryInstance; },
     openSupplier: () => openSupplier(),
     configureSupplier: options => openSupplierConfiguration(options),
@@ -137,8 +145,9 @@ Hooks.once("ready", async () => {
   if (game.user?.isGM) {
     try {
       await PublishedItemLibraryService.ensurePack();
+      await PublishedSpellLibraryService.ensurePack();
     } catch (error) {
-      console.warn(`${MODULE_ID} | Unable to initialize Published Item Library.`, error);
+      console.warn(`${MODULE_ID} | Unable to initialize Item Creator published libraries.`, error);
     }
   }
   if (isSupplierEnabled()) await initializeDefaultSources();
@@ -197,9 +206,9 @@ function addEditContextOption(options) {
   if (options.some(option => option?.itemCreatorEdit)) return;
   options.push({
     itemCreatorEdit: true,
-    name: "Edit with Item Creator",
+    label: "Edit with Item Creator",
     icon: '<i class="fa-solid fa-hammer"></i>',
-    condition: target => isEditableWorldItem(contextItem(target)),
+    visible: target => isEditableWorldItem(contextItem(target)),
     callback: target => {
       const item = contextItem(target);
       if (isEditableWorldItem(item)) openItemCreator({ item });
@@ -243,6 +252,41 @@ function openPublishedLibrary() {
   });
   publishedLibraryInstance.render({ force: true });
   return publishedLibraryInstance;
+}
+
+
+function openSpellFactory({ draftSpell = null, publishedSpell = null } = {}) {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can use Spell Factory.");
+  if (spellFactoryInstance?.element?.isConnected) {
+    spellFactoryInstance.bringToFront?.();
+    if (draftSpell || publishedSpell) ui.notifications.warn("Close the current Spell Factory draft before opening another Spell.");
+    return spellFactoryInstance;
+  }
+  spellFactoryInstance = new SpellFactoryApp({ draftSpell, publishedSpell });
+  spellFactoryInstance.render({ force: true });
+  return spellFactoryInstance;
+}
+
+function openPublishedSpells() {
+  if (!game.user.isGM) return ui.notifications.warn("Only a GM can use the Item Creator Published Spells library.");
+  if (publishedSpellsInstance?.element?.isConnected) {
+    publishedSpellsInstance.bringToFront?.();
+    return publishedSpellsInstance;
+  }
+  publishedSpellsInstance = new PublishedSpellLibraryApp({
+    onEdit: async spell => {
+      if (spellFactoryInstance?.element?.isConnected) {
+        ui.notifications.warn("Close the current Spell Factory draft before editing another Published Spell.");
+        spellFactoryInstance.bringToFront?.();
+        return;
+      }
+      await publishedSpellsInstance?.close?.();
+      publishedSpellsInstance = null;
+      openSpellFactory({ publishedSpell: spell });
+    }
+  });
+  publishedSpellsInstance.render({ force: true });
+  return publishedSpellsInstance;
 }
 
 function openScrollFactory() {

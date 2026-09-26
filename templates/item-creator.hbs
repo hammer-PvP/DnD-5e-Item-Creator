@@ -58,7 +58,7 @@
         <div>
           <span class="ic-kicker">Assisted Item Creation</span>
           <h2>Choose Item Type</h2>
-          <p>Create Weapons, Equipment, Tools, and Consumables with the assisted workflow, or use Scroll Factory to create native Spell Scroll loot without an Actor sheet.</p>
+          <p>Create Weapons, Equipment, Tools, Consumables, and native Spells. Spell Factory clones or authors real Spell5e documents directly in the Item Creator compendium; Scroll Factory remains dedicated to Spell Scroll loot.</p>
         </div>
       </header>
 
@@ -77,10 +77,15 @@
         {{/each}}
       </div>
 
-      <section class="ic-published-entry">
+      <section class="ic-published-entry ic-published-entry-grid">
         <button type="button" data-action="open-published-library">
           <i class="fa-solid fa-box-archive"></i>
           <span><strong>Published Items</strong><small>Browse, edit, duplicate, archive, and test the canonical Item Creator library.</small></span>
+          <i class="fa-solid fa-chevron-right"></i>
+        </button>
+        <button type="button" data-action="open-published-spells">
+          <i class="fa-solid fa-book-atlas"></i>
+          <span><strong>Published Spells</strong><small>Browse the canonical homebrew Spell library, organized by school.</small></span>
           <i class="fa-solid fa-chevron-right"></i>
         </button>
       </section>
@@ -89,7 +94,7 @@
         <i class="fa-solid fa-flask"></i>
         <div>
           <strong>v{{version}} Beta flow</strong>
-          <p>This Beta unifies Weapon, Equipment, Tool, Consumables, Scroll Factory, and the shared Materialization Core. The optional Supplier has its own Item Directory entry because it creates complete vendor stocks rather than individual loot.</p>
+          <p>This Beta unifies Weapon, Equipment, Tool, Consumables, Spell Factory, Scroll Factory, and the shared Materialization Core. The optional Supplier has its own Item Directory entry because it creates complete vendor stocks rather than individual loot.</p>
         </div>
       </aside>
     </section>

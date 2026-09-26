@@ -3,6 +3,7 @@ import { MODULE_ID } from "../constants.mjs";
 export const PUBLISHED_LIBRARY_PACK_NAME = "item-creator-published-items";
 export const PUBLISHED_LIBRARY_LABEL = "Item Creator — Published Items";
 export const PUBLISHED_LIBRARY_SIDEBAR_FOLDER = "Item Creator";
+export const PUBLISHED_LIBRARY_SIDEBAR_COLOR = "#2f5335";
 
 const CATEGORY_DEFINITIONS = Object.freeze([
   { id: "weapon", label: "Weapons", icon: "fa-khanda", types: ["weapon"] },
@@ -225,10 +226,14 @@ export class PublishedItemLibraryService {
         name: PUBLISHED_LIBRARY_SIDEBAR_FOLDER,
         type: "Compendium",
         sorting: "a",
+        color: PUBLISHED_LIBRARY_SIDEBAR_COLOR,
         flags: { [MODULE_ID]: { publishedLibraryRoot: true } }
       }, { render: false });
-    } else if (!isSidebarLibraryFolder(folder)) {
-      await folder.update({ [`flags.${MODULE_ID}.publishedLibraryRoot`]: true }, { render: false });
+    } else {
+      const updates = {};
+      if (!isSidebarLibraryFolder(folder)) updates[`flags.${MODULE_ID}.publishedLibraryRoot`] = true;
+      if (folder.color !== PUBLISHED_LIBRARY_SIDEBAR_COLOR) updates.color = PUBLISHED_LIBRARY_SIDEBAR_COLOR;
+      if (Object.keys(updates).length) await folder.update(updates, { render: false });
     }
 
     if (folder && pack && pack.folder?.id !== folder.id) await pack.setFolder(folder);

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — Spell Factory Foundation
+
+- Added **Spell Factory**, a dedicated authoring workflow for real native D&D5e `spell` Items. A GM can start from a blank Spell5e document or clone any existing Spell as a blueprint; the source document is never modified.
+- Added a canonical **Item Creator — Published Spells** World Compendium. Published Spells are real Spell5e documents, grouped into real Compendium folders by the eight native schools (Abjuration, Conjuration, Divination, Enchantment, Evocation, Illusion, Necromancy, Transmutation) with an explicit unclassified fallback. No authored Spell is routed through the World Items Directory.
+- Added an isolated **Item Creator — Spell Drafts (Internal)** World Compendium for working drafts. It is automatically excluded from the native D&D5e Compendium Browser so incomplete drafts do not become blueprint/source candidates. Publishing copies the reviewed draft into Published Spells and removes the working draft; editing an existing publication creates a protected draft first.
+- Spell mechanics deliberately remain **Native D&D5e**. `Edit Native Spell` opens the system Spell sheet, so casting time, range/target, duration, Concentration, components, Activities, Effects, damage/save/attack/heal behavior, scaling, and native Summon profiles are authored by D&D5e rather than reimplemented by Item Creator. No Item Creator-specific summon engine or automatic 0-HP summon deletion was added.
+- Added Spell blueprint selection through the native D&D5e Compendium Browser and drag/drop from Compendiums, Actor spellbooks, or World Items. A blueprint such as Fireball can be cloned and then freely changed (damage formula/type, casting time, school, Activities, etc.) before publishing as a new independent homebrew Spell.
+- Added required **Class Spell Lists** metadata to Spell Factory. The available class choices are discovered from the D&D5e Spell List Registry with a standard-class fallback, and at least one class list must be selected before publish/update. This metadata is stored on the canonical Spell for future Character Builder/native spell-list integration; v0.8.0 does not yet register new native Spell List Journal pages or modify Character Builder.
+- Added **Published Spells** browser with search, school filtering, archive/restore, protected delete, edit-through-draft, and native drag from the canonical Compendium directly to Actor sheets. There is intentionally no Create World Copy action for authored Spells.
+- `Update Published` preserves the canonical Spell document/publication identity and revision while synchronizing the reviewed parent Spell data, native Activities, and embedded Active Effects. `Publish New` always creates a new canonical publication and never overwrites the blueprint/original Compendium.
+- Updated the **Item Creator** Compendium sidebar folder to the module's moss-green identity (`#2f5335`) and places both Published Items and Published Spells under it.
+- Updated the Item Directory context entry to Foundry V14 `ContextMenuEntry` fields (`label` and `visible`), removing Item Creator's contribution to the deprecated `name` / `condition` compatibility warnings.
+- Preserved Timing Model v1, Published Items, Consumables v2, Scroll Factory, Supplier, and Materialization Core behavior from v0.7.96. Supplier directory-folder color/organization changes remain a later Supplier iteration.
+
 ## 0.7.96 — Timing Model v1
 
 - Introduced a shared Timing Model vocabulary across Item Creator: **Persistent / Availability**, **World Time**, **Rest / Calendar**, **Combat Only**, and **Native D&D5e**. The labels describe the authority that owns a lifecycle rather than merely a display unit.
