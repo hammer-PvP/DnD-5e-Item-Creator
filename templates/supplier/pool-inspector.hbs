@@ -1,0 +1,49 @@
+<div class="supplier-pool-inspector-shell">
+  <header class="supplier-pool-inspector-header">
+    <div>
+      <h2>{{subtypeLabel}}</h2>
+      <p>{{localize "DND5E_SUPPLIER.PoolInspector.Rule"}}: <strong>{{ruleName}}</strong></p>
+    </div>
+    <label class="supplier-picker-search">
+      <i class="fa-solid fa-magnifying-glass"></i>
+      <input type="search" data-action="search" placeholder="{{localize 'DND5E_SUPPLIER.PoolInspector.Search'}}">
+    </label>
+    <div class="supplier-pool-inspector-tools">
+      <button type="button" class="supplier-secondary" data-action="select-all"><i class="fa-solid fa-check-double"></i>{{localize "DND5E_SUPPLIER.PoolInspector.SelectAll"}}</button>
+      <button type="button" class="supplier-secondary" data-action="clear-all"><i class="fa-solid fa-xmark"></i>{{localize "DND5E_SUPPLIER.PoolInspector.ClearAll"}}</button>
+    </div>
+    <div class="supplier-pool-inspector-summary">
+      <span><b data-selected-count>{{selectedCount}}</b> / {{totalCount}} {{localize "DND5E_SUPPLIER.PoolInspector.Included"}}</span>
+      <span><b data-visible-count>{{totalCount}}</b> {{localize "DND5E_SUPPLIER.Picker.Results"}}</span>
+    </div>
+    <small>{{localize "DND5E_SUPPLIER.PoolInspector.Hint"}}</small>
+  </header>
+
+  <div class="supplier-pool-inspector-list">
+    {{#each entries}}
+      <article class="supplier-pool-inspector-row {{#if checked}}selected{{/if}}" data-pool-item data-key="{{canonicalKey}}" data-search="{{searchText}}">
+        <label class="supplier-pool-item-checkbox" title="{{localize 'DND5E_SUPPLIER.PoolInspector.ToggleHint'}}">
+          <input type="checkbox" data-pool-toggle {{#if checked}}checked{{/if}}>
+          <span></span>
+        </label>
+        <button type="button" class="supplier-pool-item-body" data-action="open-document" data-uuid="{{uuid}}" title="{{localize 'DND5E_SUPPLIER.PoolInspector.OpenItem'}}">
+          <img src="{{img}}" alt="">
+          <span class="supplier-pool-item-main">
+            <span class="supplier-pool-item-name-row"><strong>{{name}}</strong><span class="supplier-document-nature-badge {{natureClass}}">{{natureLabel}}</span></span>
+            <small>{{type}}{{#if subtypeLabel}} / {{subtypeLabel}}{{/if}} • {{rarityLabel}} • {{stateLabel}}</small>
+          </span>
+          <span class="supplier-pool-item-source">
+            <strong>{{sourceDisplay}}</strong>
+            {{#if variantNote}}<small>{{variantNote}}</small>{{/if}}
+          </span>
+          <span class="supplier-pool-item-info"><i class="fa-solid fa-up-right-from-square"></i></span>
+        </button>
+      </article>
+    {{/each}}
+  </div>
+
+  <footer class="supplier-pool-inspector-footer">
+    <span><i class="fa-solid fa-circle-info"></i>{{localize "DND5E_SUPPLIER.PoolInspector.FooterHint"}}</span>
+    <button type="button" class="supplier-primary" data-action="save-curation"><i class="fa-solid fa-floppy-disk"></i>{{localize "DND5E_SUPPLIER.PoolInspector.Save"}}</button>
+  </footer>
+</div>

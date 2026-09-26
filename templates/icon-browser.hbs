@@ -1,0 +1,73 @@
+<section class="ic-browser-shell ic-icon-selection-shell">
+  <header class="ic-browser-header">
+    <i class="fa-solid fa-images"></i>
+    <div>
+      <span class="ic-kicker">Reusable Icon Selection</span>
+      <h1>{{itemTypeLabel}} Icons</h1>
+      <p>Choose an icon indexed from compatible Items in the active compendiums.</p>
+    </div>
+  </header>
+
+  <div class="ic-browser-toolbar ic-icon-browser-toolbar">
+    <label class="ic-grow">
+      <span>Search</span>
+      <input type="search" data-icon-browser-search value="{{search}}" placeholder="Search icons by source Item…" autocomplete="off">
+    </label>
+    <label>
+      <span>Compendium</span>
+      <select data-icon-browser-source>
+        {{#each sourceOptions}}
+        <option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>
+        {{/each}}
+      </select>
+    </label>
+  </div>
+
+  <div class="ic-browser-count">
+    <span>Visible icons</span>
+    <strong><span data-icon-visible-count>{{iconCount}}</span> / {{iconCount}}</strong>
+  </div>
+
+  <div class="ic-icon-selection-body">
+    <div class="ic-modal-icon-grid">
+      {{#each iconOptions}}
+      <button type="button"
+              class="ic-modal-icon-card {{#if selected}}selected{{/if}}"
+              data-action="choose-icon-card"
+              data-icon-browser-card
+              data-img="{{img}}"
+              data-collection="{{collection}}"
+              data-search="{{search}}"
+              title="{{name}} — {{source}}">
+        <img src="{{img}}" alt="">
+        {{#if selected}}<i class="fa-solid fa-check"></i>{{/if}}
+      </button>
+      {{else}}
+      <div class="ic-empty-state">
+        <i class="fa-solid fa-image"></i>
+        <strong>No compatible icons were found</strong>
+      </div>
+      {{/each}}
+    </div>
+
+    <aside class="ic-icon-selection-preview">
+      {{#if selected}}
+      <img src="{{selected.img}}" alt="{{selected.name}}">
+      <strong>{{selected.name}}</strong>
+      <small>{{selected.source}}</small>
+      {{else}}
+      <div class="ic-empty-preview">
+        <i class="fa-solid fa-image"></i>
+        <h3>Select an icon</h3>
+      </div>
+      {{/if}}
+    </aside>
+  </div>
+
+  <footer class="ic-browser-footer">
+    <button type="button" data-action="cancel-icon-browser"><i class="fa-solid fa-xmark"></i> Cancel</button>
+    <button type="button" class="ic-primary-confirm" data-action="confirm-icon-browser" {{#unless selected}}disabled{{/unless}}>
+      <i class="fa-solid fa-check"></i> Use Selected Icon
+    </button>
+  </footer>
+</section>

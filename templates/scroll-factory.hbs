@@ -1,0 +1,67 @@
+<div class="ic-scroll-factory-shell">
+  <header class="ic-scroll-factory-header">
+    <div class="ic-scroll-factory-brand">
+      <i class="fa-solid fa-scroll"></i>
+      <div>
+        <span class="ic-kicker">Native D&D5e Utility</span>
+        <h1>Scroll Factory</h1>
+        <p>v{{version}} · {{stage}}</p>
+      </div>
+    </div>
+    <p>Create official D&D5e Spell Scrolls directly in the World Items Directory. The system's native Scroll generator remains responsible for the resulting Item.</p>
+  </header>
+
+  <main class="ic-scroll-factory-main">
+    <section class="ic-scroll-drop-zone {{#if busy}}busy{{/if}}" data-scroll-drop-zone>
+      {{#if busy}}
+      <i class="fa-solid fa-spinner fa-spin"></i>
+      <h2>Creating Scroll…</h2>
+      <p>Complete the native D&D5e Scroll dialog.</p>
+      {{else}}
+      <i class="fa-solid fa-file-arrow-down"></i>
+      <h2>Drop a Spell Here</h2>
+      <p>Drag a Spell from a compendium, the Compendium Browser, World Items, or an Actor.</p>
+      <span>One confirmed drop creates one Spell Scroll.</span>
+      {{/if}}
+    </section>
+
+    <div class="ic-scroll-or"><span>or</span></div>
+
+    <button type="button" class="ic-scroll-browse-button" data-action="browse-scroll-spells" {{#if busy}}disabled{{/if}}>
+      <i class="fa-solid fa-books"></i>
+      <span>
+        <strong>Browse Spells</strong>
+        <small>Open the native D&D5e Compendium Browser restricted to Spell Items.</small>
+      </span>
+      <i class="fa-solid fa-chevron-right"></i>
+    </button>
+
+    <aside class="ic-scroll-native-note">
+      <i class="fa-solid fa-circle-info"></i>
+      <div>
+        <strong>Native Scroll creation</strong>
+        <p>The native dialog controls description detail, Save DC, and Spell Attack Bonus. The Spell is fixed to its base level, and the completed Scroll is saved as a World Item rather than placed in an Actor inventory.</p>
+      </div>
+    </aside>
+
+    {{#if lastCreated}}
+    <section class="ic-scroll-created-card">
+      <img src="{{lastCreated.img}}" alt="">
+      <div>
+        <span>Last Created</span>
+        <strong>{{lastCreated.name}}</strong>
+        <small>World Items Directory</small>
+      </div>
+      <button type="button" data-action="open-created-scroll">
+        <i class="fa-solid fa-up-right-from-square"></i>
+        Open Item
+      </button>
+    </section>
+    {{/if}}
+  </main>
+
+  <footer class="ic-scroll-factory-footer">
+    <i class="fa-solid {{#if busy}}fa-spinner fa-spin{{else}}fa-circle-check{{/if}}"></i>
+    <span>{{status}}</span>
+  </footer>
+</div>
