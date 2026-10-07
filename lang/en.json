@@ -346,10 +346,11 @@
       "GeneratorNoEligibleResult": "The generator model “{item}” has no eligible concrete result in this Supplier profile.",
       "GeneratorQualityUnavailable": "The generator model “{item}” cannot produce an unlocked enhancement for party level {level}.",
       "MaterializationFailed": "The model “{item}” could not be materialized safely.",
-      "BlueprintNoEligibleResult": "The blueprint “{item}” has no compatible concrete base Item in this Supplier profile.",
+      "BlueprintNoEligibleResult": "The blueprint “{item}” has no eligible materialized result for this Supplier profile and party progression.",
       "MechanicalDocumentSelected": "The mechanical document “{item}” cannot be placed directly in merchant stock.",
       "MaterializerRerolled": "The materializer “{item}” could not produce a safe result and the slot was rerolled as “{replacement}”.",
-      "MaterializationAccessRejected": "The materialized result “{item}” is not available at this vendor Access Level."
+      "MaterializationAccessRejected": "The materialized result “{item}” is not available at this vendor Access Level.",
+      "MaterializationProgressionRejected": "The materialized result “{item}” is outside the current Party Level progression."
     },
     "Rarity": {
       "none": "No Rarity",

@@ -171,6 +171,16 @@ const FIREARM_SUPPLY_TERMS = [
   "polvora", "chifre-de-polvora", "barril-de-polvora"
 ];
 
+// Modern/industrial technology that broad medieval merchant groups must not
+// absorb simply because the document is technically a weapon or consumable.
+// This is deliberately separate from firearm normalization: a grenade or
+// grenade launcher is not a medieval crossbow/ammunition replacement.
+const ADVANCED_TECHNOLOGY_TERMS = [
+  "grenade", "grenades", "grenade-launcher", "fragmentation-grenade", "smoke-grenade",
+  "dynamite", "explosive-charge", "explosive", "modern-firearm", "automatic-rifle",
+  "laser-pistol", "laser-rifle", "antimatter-rifle"
+];
+
 let catalogCache = null;
 let cacheSignature = "";
 
@@ -379,6 +389,15 @@ export function isFirearmSupply(entry) {
 export function isFirearmRelated(entry) {
   if (entry?.isFirearmRelated !== undefined) return entry.isFirearmRelated === true;
   return firearmClassification(entry).firearmRelated;
+}
+
+export function isAdvancedTechnologyEntry(entry) {
+  if (!entry) return false;
+  // Keep ordinary firearm documents available to the firearm-normalization
+  // alias pass (musket/pistol -> medieval crossbow families). Advanced
+  // explosives/launchers are different: they are excluded rather than
+  // translated into an unrelated medieval product.
+  return includesNormalizedTerm(entry, ADVANCED_TECHNOLOGY_TERMS);
 }
 
 export function isNaturalSupplierEntry(entry) {

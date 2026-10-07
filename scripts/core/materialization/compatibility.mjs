@@ -123,8 +123,11 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
   if (identity.includes("vorpal")) {
     return isSword(base) && damageTypes(base).has("slashing");
   }
-  if (identity.includes("flame-tongue") || identity.includes("life-stealing")) {
+  if (identity.includes("flame-tongue") || identity.includes("life-stealing") || identity.includes("moon-touched-sword") || identity.includes("sword-of-sharpness")) {
     return isSword(base);
+  }
+  if (identity.includes("dagger-of-venom")) {
+    return base.type === "weapon" && exactBase(base, ["dagger"]);
   }
   if (identity.includes("adamantine-armor")) {
     return isMediumOrHeavyArmor(base) && !exactBase(base, ["hide-armor", "hide"]);

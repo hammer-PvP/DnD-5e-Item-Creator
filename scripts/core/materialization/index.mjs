@@ -255,6 +255,83 @@ function pairAllowedByProgression(pair, { allowedRarities = null, maxBonus = nul
   return true;
 }
 
+/**
+ * Deterministic eligibility inspection used by callers before spending a
+ * merchant lottery slot on a native blueprint. It intentionally does not roll
+ * tables or construct a result. The goal is only to answer whether at least one
+ * compatible target/profile can legally exist for the current progression.
+ */
+export function inspectBlueprintTargetEligibility({
+  blueprintDocument,
+  baseDocument,
+  requestedBonus = null,
+  partyLevel = null,
+  allowedRarities = null,
+  maxBonus = null
+} = {}) {
+  const blueprintData = asData(blueprintDocument);
+  const baseData = asData(baseDocument);
+  const allActivities = enchantActivities(blueprintData);
+  const compatibleActivities = allActivities.filter(activity => canMaterializeOnto(blueprintData, baseData, activity));
+  const recipe = materializationRecipe(blueprintData);
+
+  let sawProfiles = false;
+  let sawLevelEligible = false;
+  let sawBonusEligible = false;
+  let sawRarityEligible = false;
+  const numericRequestedBonus = Number(requestedBonus);
+
+  for (const activity of compatibleActivities) {
+    const pairs = profilePairs(blueprintData, activity);
+    if (pairs.length) sawProfiles = true;
+    for (const pair of pairs) {
+      if (!pairAvailableAtLevel(pair, partyLevel)) continue;
+      sawLevelEligible = true;
+
+      const bonus = effectBonus(pair.effect);
+      if (Number.isFinite(Number(maxBonus)) && bonus > Number(maxBonus)) continue;
+      sawBonusEligible = true;
+
+      const rarity = effectRarity(pair.effect);
+      if (allowedRarities?.length && rarity !== "none"
+        && !new Set(allowedRarities.map(normalizeRarity)).has(rarity)) continue;
+      sawRarityEligible = true;
+
+      if (Number.isFinite(numericRequestedBonus) && numericRequestedBonus > 0 && bonus !== numericRequestedBonus) continue;
+      return {
+        ok: true,
+        strategy: "native",
+        reason: "eligibleNativeProfile",
+        activityId: String(activity?._id ?? ""),
+        effectId: String(pair?.effect?._id ?? ""),
+        rarity,
+        bonus
+      };
+    }
+  }
+
+  if (recipe && recipeTargetCompatibility(blueprintData, baseData, blueprintData) !== false) {
+    const recipeRarity = normalizeRarity(recipe.rarity);
+    if (allowedRarities?.length && recipeRarity !== "none"
+      && !new Set(allowedRarities.map(normalizeRarity)).has(recipeRarity)) {
+      return { ok: false, strategy: "recipe", reason: "rarityOutsideProgression", rarity: recipeRarity };
+    }
+    if (recipe.mode === "resolve-variant" && Number.isFinite(Number(maxBonus)) && Number(maxBonus) <= 0) {
+      return { ok: false, strategy: "recipe", reason: "enhancementOutsideProgression" };
+    }
+    return { ok: true, strategy: "recipe", reason: "eligibleRecipeFallback", rarity: recipeRarity };
+  }
+
+  if (!compatibleActivities.length && allActivities.length) return { ok: false, reason: "noCompatibleBase" };
+  if (!allActivities.length && !recipe) return { ok: false, reason: "unsupportedBlueprint" };
+  if (sawProfiles && !sawLevelEligible) return { ok: false, reason: "noProfileAtPartyLevel" };
+  if (sawLevelEligible && !sawBonusEligible) return { ok: false, reason: "enhancementOutsideProgression" };
+  if (sawBonusEligible && !sawRarityEligible) return { ok: false, reason: "rarityOutsideProgression" };
+  if (Number.isFinite(numericRequestedBonus) && numericRequestedBonus > 0) return { ok: false, reason: "noMatchingBonusProfile" };
+  if (compatibleActivities.length && !sawProfiles) return { ok: false, reason: "noAvailableProfiles" };
+  return { ok: false, reason: "noEligibleProfile" };
+}
+
 function collectUuidStrings(value, output = new Set()) {
   if (typeof value === "string") {
     const patterns = [

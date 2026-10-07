@@ -162,6 +162,44 @@ function migrateProfileV24(profile = {}) {
   return migrated;
 }
 
+function migrateProfileV25(profile = {}) {
+  const migrated = foundry.utils.deepClone(profile ?? {});
+  if (String(migrated.presetId ?? "") !== "blacksmith") return migrated;
+
+  for (const rule of migrated.stockRules ?? []) {
+    const name = String(rule?.name ?? "");
+    if (name === "Complete Mundane Weapons") {
+      rule.name = "Mundane Weapon Rotation";
+      rule.mode = "guaranteed";
+      rule.coverage = "pick";
+      rule.quantityMode = "perItem";
+      rule.baseQuantity = 3;
+      rule.scaling = "halfDown";
+      rule.unitsPerPick = 1;
+    } else if (name === "Complete Mundane Armor & Shields") {
+      rule.name = "Mundane Armor & Shield Rotation";
+      rule.mode = "guaranteed";
+      rule.coverage = "pick";
+      rule.quantityMode = "perItem";
+      rule.baseQuantity = 2;
+      rule.scaling = "halfDown";
+      rule.unitsPerPick = 1;
+    } else if (name === "Mundane Ammunition") {
+      rule.name = "Mundane Ammunition Rotation";
+      rule.mode = "random";
+      rule.coverage = "pick";
+      rule.quantityMode = "perItem";
+      rule.baseQuantity = 0;
+      rule.scaling = "none";
+      rule.varietyBase = 1;
+      rule.varietyScaling = "thirdDown";
+      rule.quantityPreset = "abundant";
+      rule.unitsPerPick = 1;
+    }
+  }
+  return migrated;
+}
+
 export function syncActiveProgression(configuration) {
   configuration.progressionProfiles = arrayValue(configuration.progressionProfiles);
   let active = configuration.progressionProfiles.find(profile => profile.id === configuration.activeProgressionProfileId);
@@ -211,7 +249,12 @@ function migrateConfiguration(stored) {
 
   const isProfileV2Configuration = Number(stored?.version ?? 0) >= 23;
   if (isProfileV2Configuration) {
-    configuration.profiles = arrayValue(stored?.profiles).map(profile => normalizeSupplierProfileV2(Number(stored?.version ?? 0) < 24 ? migrateProfileV24(profile) : profile));
+    configuration.profiles = arrayValue(stored?.profiles).map(profile => {
+      let migrated = profile;
+      if (Number(stored?.version ?? 0) < 24) migrated = migrateProfileV24(migrated);
+      if (Number(stored?.version ?? 0) < 25) migrated = migrateProfileV25(migrated);
+      return normalizeSupplierProfileV2(migrated);
+    });
   } else {
     // v0.7.3 intentionally starts Supplier Profiles clean. The profile model was
     // redesigned from the ground up and legacy Homebrew/Profile curations are

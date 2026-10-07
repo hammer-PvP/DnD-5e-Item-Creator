@@ -3,8 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.5.0-crafting-core-stock";
-export const CONFIGURATION_VERSION = 24;
+export const SUPPLIER_FEATURE_VERSION = "0.5.1-stock-refinement";
+export const CONFIGURATION_VERSION = 25;
 
 export const CRAFTING_CORE_MODULE_ID = "dnd5e-crafting-core";
 export const CRAFTING_CORE_PACKS = Object.freeze({

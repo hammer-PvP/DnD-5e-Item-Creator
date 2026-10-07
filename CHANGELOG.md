@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.2a — Supplier Rotation, Canonical Stock & Blueprint Preflight
+
+- Reworked the Homebrew **Blacksmith** mundane stock model so weapons and armor use bounded rotating selections instead of `coverage: all × party size`. Mundane ammunition moved to an organic rotation, so Arrow/Bolt/Needle/Sling Bullet families remain valid merchandise without being guaranteed together in every vendor.
+- Added commercial-identity de-duplication across Supplier source packs. Mundane equivalents from SRD/PHB/Crafting Core now share one stock identity; the preferred canonical source wins instead of producing duplicate lines with different prices. Ammunition is normalized by family and concrete enhancement tier, so mundane Arrow/Arrows collapse while +1/+2/+3 variants remain distinct.
+- Added a post-materialization commercial de-duplication pass. Equivalent final results produced through different source paths no longer create duplicate merchant lines or inflate quantities.
+- Added medieval technology filtering for the Homebrew Blacksmith and General Trade presets when firearm normalization is enabled. Grenade launchers, modern grenades/explosives, firearms, and related industrial technology no longer leak through broad weapon/consumable groups. Existing explicit Siege handling remains unchanged.
+- Added deterministic **Blueprint Preflight** before materializer lottery selection. A blueprint must have at least one concrete base and one profile/recipe result valid for the current Party Level, rarity band, and enhancement ceiling before it can consume a stock slot. Rejected candidates are recorded in Supplier diagnostics instead of producing misleading post-roll warnings.
+- Added a final progression gate after blueprint materialization so recipe/native fallback output cannot bypass the active Party Level rarity or enhancement limits.
+- Improved Materialization Core semantic compatibility for known sword/dagger families, including Moon-Touched Sword, Sword of Sharpness, and Dagger of Venom. Successful blueprint diagnostics now preserve Blueprint and concrete Base names/UUIDs for later audit.
+- Changed the generic blueprint failure text from “no compatible concrete base Item” to “no eligible materialized result for this Supplier profile and party progression,” reflecting that failures may be caused by level/profile/rarity/quality as well as base compatibility.
+- Bumped Supplier configuration schema to **25**. Existing untouched Homebrew Blacksmith preset rules from schema 24 are migrated in place to the new rotating stock policy; renamed/customized rules are not overwritten.
+- Crafting Core Recipe/Blueprint policy remains **50% chance → 1–2 distinct knowledge items → Party Level × Rarity → default price 50% of Product value**. Ammunition Blueprints are not excluded or guaranteed; they remain ordinary candidates in that rotation.
+- This remains a **candidate build**. The separate Published Item edit/save integrity blocker is not changed by v0.8.2a.
+
 ## 0.8.2 — Supplier Crafting Core Integration & Stock Budget
 
 - Added optional **Supplier ↔ Crafting Core** integration for the canonical World Compendiums **Crafting Core — Products**, **Crafting Core — Materials**, and **Crafting Core — Learn Sources**. Supplier discovers those packs automatically when `dnd5e-crafting-core` is active; the integration never edits Crafting Core authority documents.

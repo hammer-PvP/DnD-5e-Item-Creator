@@ -22,6 +22,18 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, pub
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
+## v0.8.2a — Supplier Rotation, Canonical Stock & Blueprint Preflight
+
+The Homebrew Blacksmith now generates a bounded rotating mundane catalog instead of selling every eligible weapon, armor, shield, and ammunition family multiplied by Party Size. Weapons and armor select a limited assortment; mundane ammunition rotates through eligible Arrow/Bolt/Needle/Sling Bullet families with organic stack quantities. The same ammunition families remain valid Crafting Core Blueprints, but Blueprint knowledge continues to use the normal **50% chance / 1–2 distinct / Party Level × Rarity** rotation rather than guaranteed slots.
+
+Supplier now de-duplicates equivalent mundane merchandise across enabled sources by commercial identity. SRD/PHB/Crafting Core copies of the same mundane product no longer occupy separate vendor lines or carry conflicting prices. A second de-duplication pass runs after materialization so equivalent final results do not reappear through different generation paths. Concrete magical ammunition tiers remain separate products.
+
+Blueprint materializers are preflighted before they enter the lottery. The Supplier verifies that at least one visible concrete base and at least one native profile or registered recipe are legal at the current Party Level, rarity band, and enhancement ceiling. Rejected candidates are retained in diagnostics with specific reason codes; successful materializations record Blueprint and Base identities. A final progression gate protects against late recipe/native fallback bypasses.
+
+When firearm normalization is enabled, the medieval Blacksmith and General Trade presets also reject modern/industrial technology such as grenade launchers, grenades/explosives, and firearm families instead of allowing them through broad weapon/consumable filters. Explicit Siege inventory remains isolated to Siege groups.
+
+This is still a candidate Supplier build. The separate Published Item edit/save integrity issue remains outside this patch.
+
 ## v0.8.2 — Supplier Crafting Core Integration & Stock Budget
 
 Supplier can now optionally consume the canonical Crafting Core Products, Materials, and published Learn Sources directly. The integration auto-discovers the standard World packs when Crafting Core is active and remains profile-controlled. Homebrew Blacksmith, Alchemist, Herbalist, and Tavern presets use the curated semantic metadata already present in Crafting Core instead of maintaining duplicate item-name lists.

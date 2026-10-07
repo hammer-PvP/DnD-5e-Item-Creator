@@ -97,9 +97,9 @@ function blacksmith({ name, sourceIds, accessLevel }) {
   ];
   const m = groupMap(groups);
   const rules = [
-    r("guaranteed", "Complete Mundane Weapons", { groupIds: [m["Mundane Weapons"]], coverage: "all", respectLevelRange: false, baseQuantity: 0, scaling: "players" }),
-    r("guaranteed", "Complete Mundane Armor & Shields", { groupIds: [m["Mundane Armor & Shields"]], coverage: "all", respectLevelRange: false, baseQuantity: 0, scaling: "players" }),
-    r("guaranteed", "Mundane Ammunition", { groupIds: [m["Mundane Ammunition"]], coverage: "all", respectLevelRange: false, baseQuantity: 0, scaling: "players" }),
+    r("guaranteed", "Mundane Weapon Rotation", { groupIds: [m["Mundane Weapons"]], coverage: "pick", respectLevelRange: false, baseQuantity: 3, scaling: "halfDown", unitsPerPick: 1 }),
+    r("guaranteed", "Mundane Armor & Shield Rotation", { groupIds: [m["Mundane Armor & Shields"]], coverage: "pick", respectLevelRange: false, baseQuantity: 2, scaling: "halfDown", unitsPerPick: 1 }),
+    r("random", "Mundane Ammunition Rotation", { groupIds: [m["Mundane Ammunition"]], coverage: "pick", respectLevelRange: false, varietyBase: 1, varietyScaling: "thirdDown", quantityPreset: "abundant" }),
     r("random", "Smithing Materials", { groupIds: [m["Smithing Minerals"], m["Metalworking Materials"]], varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "normal" }),
     r("specialExisting", "Named Magical Equipment", { groupIds: [m["Named Magical Weapons"], m["Named Magical Armor"]], respectLevelRange: true, baseQuantity: 1, scaling: "halfDown", maximumPicks: 6 }),
     r("materialized", "Materialized Weapons & Armor", { baseGroupIds: [m["Mundane Weapons"], m["Mundane Armor & Shields"]], templateGroupIds: [m["Weapon Materializers"], m["Armor Materializers"]], respectLevelRange: true, baseQuantity: 1, scaling: "halfDown", requireMagicalResult: true }),

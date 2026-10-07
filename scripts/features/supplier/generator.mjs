@@ -6,6 +6,7 @@ import {
   entriesForProfile,
   entryMatchesSubtype,
   findEntry,
+  isAdvancedTechnologyEntry,
   isAmmunitionEntry,
   isBlueprintItem,
   isFirearmEntry,
@@ -45,6 +46,7 @@ import {
   materializeRecipe,
   materializationRecipe,
   materializeSyntheticEnhancement,
+  inspectBlueprintTargetEligibility,
   recipeOutputIssues,
   recipeTargetCompatibility
 } from "../../core/materialization/index.mjs";
@@ -421,6 +423,14 @@ function finalMaterializedAvailabilityAccepted(pick, rarity) {
   return vendorAccessAllowsEntry(finalEntry, pick?.profile ?? null, pick?.rule ?? null);
 }
 
+function finalMaterializedProgressionAccepted(rarity, bonus, configuration, level) {
+  const allowed = new Set(raritiesForLevel(configuration, level).map(normalizeRarity));
+  const normalizedRarity = normalizeRarity(rarity);
+  if (allowed.size && normalizedRarity !== "none" && !allowed.has(normalizedRarity)) return false;
+  const numericBonus = Math.max(0, Number(bonus ?? 0) || 0);
+  return numericBonus <= maxEnhancementForLevel(configuration, level);
+}
+
 function progressionRarityWeight(entry, configuration, level) {
   const band = bandForLevel(configuration, level);
   const weights = band?.rarityWeights ?? null;
@@ -492,6 +502,82 @@ function stockFamilyKey(entry) {
   const name = String(entry.name ?? "");
   if (name.includes("(")) return `name:${normalizeText(name.split("(")[0])}`;
   return canonicalKey(entry);
+}
+
+function stockCommercialKey(entry) {
+  if (!entry) return "";
+  if (entry.craftingKnowledgeRecipeId || entry.craftingMaterialId || isMaterializerItem(entry)) return canonicalKey(entry);
+
+  const ammunitionFamily = isAmmunitionEntry(entry) ? ammunitionFamilyKey(entry) : "";
+  if (ammunitionFamily) {
+    const bonus = Math.max(0, Number(entry.enhancement ?? 0) || 0);
+    // Mundane ammunition from SRD/PHB/Crafting Core is one commercial product.
+    // Concrete +1/+2/+3 variants remain separate products in stock.
+    if (!entry.isMagical || bonus > 0) return `ammunition:${ammunitionFamily}|bonus:${bonus}`;
+  }
+
+  if (entry.documentNature !== "materializer" && entry.isMagical !== true) {
+    const identity = normalizeText(entry.baseItem || entry.identifier || entry.name || "");
+    const subtype = normalizeText(entry.primarySubtypeKey || entry.subtype || "");
+    if (identity) return `mundane:${normalizeText(entry.type)}:${subtype}:${identity}`;
+  }
+  return canonicalKey(entry);
+}
+
+function stockSourcePreference(entry) {
+  let score = 0;
+  const packIdentity = normalizeText(`${entry?.packId ?? ""} ${entry?.packLabel ?? ""}`);
+  const packageName = normalizeText(entry?.packageName ?? "");
+  if (packIdentity.includes("srd")) score += 500;
+  if (packageName === "dnd5e") score += 250;
+  if (entry?.craftingProduct === true || entry?.packId === CRAFTING_CORE_PACKS.products) score -= 500;
+  score -= Math.max(0, Number(entry?.priority ?? 0) || 0) / 1000;
+  return score;
+}
+
+function preferredStockEntry(current, candidate) {
+  if (!current) return candidate;
+  return stockSourcePreference(candidate) > stockSourcePreference(current) ? candidate : current;
+}
+
+function previewLineCommercialKey(line) {
+  if (!line) return "";
+  if (line.generationKind === "craftingCoreRecipe") return line.key;
+  const data = line.documentData ?? {};
+  const pseudo = {
+    type: line.type ?? data.type,
+    name: line.name ?? data.name,
+    identifier: foundry.utils.getProperty(data, "system.identifier") ?? "",
+    baseItem: foundry.utils.getProperty(data, "system.type.baseItem") ?? "",
+    primarySubtypeKey: line.subtype ?? foundry.utils.getProperty(data, "system.type.value") ?? "",
+    subtypeKeys: [line.subtype ?? foundry.utils.getProperty(data, "system.type.value") ?? ""].filter(Boolean),
+    enhancement: Number(line.enhancement ?? foundry.utils.getProperty(data, "system.magicalBonus") ?? 0) || 0,
+    rarity: normalizeRarity(line.rarity),
+    isMagical: normalizeRarity(line.rarity) !== "none" || Number(line.enhancement ?? 0) > 0,
+    documentNature: line.documentNature ?? "sellable"
+  };
+  const ammunitionFamily = isAmmunitionEntry(pseudo) ? ammunitionFamilyKey(pseudo) : "";
+  if (ammunitionFamily) return `preview-ammunition:${ammunitionFamily}|bonus:${pseudo.enhancement}`;
+
+  if (pseudo.isMagical !== true && line.generationKind === "copy") {
+    const identity = normalizeText(pseudo.baseItem || pseudo.identifier || pseudo.name || "");
+    if (identity) return `preview-mundane:${normalizeText(pseudo.type)}:${normalizeText(pseudo.primarySubtypeKey)}:${identity}`;
+  }
+  return `preview-result:${normalizeText(pseudo.name)}|type:${normalizeText(pseudo.type)}|subtype:${normalizeText(pseudo.primarySubtypeKey)}|rarity:${pseudo.rarity}|bonus:${pseudo.enhancement}`;
+}
+
+function previewLineSourcePreference(line) {
+  const source = normalizeText(`${line?.packLabel ?? ""} ${line?.sourceUuid ?? ""}`);
+  let score = 0;
+  if (source.includes("srd")) score += 500;
+  if (source.includes("crafting-core") || source.includes("crafting-core-products")) score -= 500;
+  if (line?.generationKind === "copy") score += 25;
+  return score;
+}
+
+function preferredPreviewLine(current, candidate) {
+  if (!current) return candidate;
+  return previewLineSourcePreference(candidate) > previewLineSourcePreference(current) ? candidate : current;
 }
 
 function weightedEntryChoice(entries, rule, level, profile = null, configuration = null) {
@@ -998,6 +1084,65 @@ function blueprintCandidateEntries(blueprintDocument, targetEntries, rule) {
   return shuffle(candidates);
 }
 
+function blueprintFailurePriority(reason) {
+  const order = {
+    noProfileAtPartyLevel: 6,
+    rarityOutsideProgression: 5,
+    enhancementOutsideProgression: 4,
+    noMatchingBonusProfile: 3,
+    noCompatibleBase: 2,
+    noAvailableProfiles: 1
+  };
+  return Number(order[reason] ?? 0);
+}
+
+async function preflightBlueprintTemplatePool(templatePool, basePool, rule, configuration, level) {
+  const accepted = [];
+  const rejected = [];
+  const baseDocumentCache = new Map();
+
+  for (const entry of templatePool) {
+    try {
+      const selectedSource = entry.materializerSourceUuid ? { ...entry, uuid: entry.materializerSourceUuid } : entry;
+      const blueprintDocument = await loadItemDocument(selectedSource);
+      const recipe = materializationRecipe(blueprintDocument);
+      if (recipe?.mode === "pass-through") {
+        accepted.push(entry);
+        continue;
+      }
+
+      const candidates = blueprintCandidateEntries(blueprintDocument, basePool, v2LegacyRule(rule, entry, null, { requireMagicalResult: true }));
+      let bestFailure = "noCompatibleBase";
+      let eligible = false;
+      for (const candidate of candidates) {
+        let baseDocument = baseDocumentCache.get(candidate.uuid);
+        if (!baseDocument) {
+          baseDocument = await loadItemDocument(candidate);
+          baseDocumentCache.set(candidate.uuid, baseDocument);
+        }
+        const inspection = inspectBlueprintTargetEligibility({
+          blueprintDocument,
+          baseDocument,
+          partyLevel: level,
+          allowedRarities: raritiesForLevel(configuration, level),
+          maxBonus: maxEnhancementForLevel(configuration, level)
+        });
+        if (inspection.ok) {
+          eligible = true;
+          break;
+        }
+        if (blueprintFailurePriority(inspection.reason) > blueprintFailurePriority(bestFailure)) bestFailure = inspection.reason;
+      }
+
+      if (eligible) accepted.push(entry);
+      else rejected.push({ item: entry.name, uuid: entry.uuid, reason: bestFailure, candidateBases: candidates.length });
+    } catch (error) {
+      rejected.push({ item: entry.name, uuid: entry.uuid, reason: "preflightError", error: error.message, candidateBases: 0 });
+    }
+  }
+  return { entries: accepted, rejected };
+}
+
 async function createPassThroughRecipePreview(pick, catalog, configuration, sourceDocument) {
   const result = await materializeRecipe({ sourceDocument });
   if (!result.ok) {
@@ -1045,6 +1190,7 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
   const candidates = blueprintCandidateEntries(blueprintDocument, targetEntries, pick.rule);
   let materialized = null;
   let baseEntry = null;
+  const failures = [];
   for (const candidate of candidates) {
     try {
       const baseDocument = await loadItemDocument(candidate);
@@ -1059,11 +1205,15 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
         allowedRarities: raritiesForLevel(configuration, level),
         maxBonus: maxEnhancementForLevel(configuration, level)
       });
-      if (!attempt.ok) continue;
+      if (!attempt.ok) {
+        failures.push({ base: candidate.name, baseUuid: candidate.uuid, reason: attempt.reason ?? "materializationFailed", failures: attempt.failures ?? [] });
+        continue;
+      }
       materialized = attempt;
       baseEntry = candidate;
       break;
     } catch (error) {
+        failures.push({ base: candidate.name, baseUuid: candidate.uuid, reason: "exception", error: error.message });
       console.warn(`${MODULE_ID} | Blueprint base rejected`, blueprintDocument.name, candidate.name, error);
     }
   }
@@ -1092,23 +1242,44 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
           allowedRarities: raritiesForLevel(configuration, level),
           maxBonus: maxEnhancementForLevel(configuration, level)
         });
-        if (!attempt.ok) continue;
+        if (!attempt.ok) {
+          failures.push({ base: candidate.name, baseUuid: candidate.uuid, reason: attempt.reason ?? "recipeFailed", issues: attempt.issues ?? [] });
+          continue;
+        }
         materialized = attempt;
         baseEntry = candidate;
         break;
       } catch (error) {
+        failures.push({ base: candidate.name, baseUuid: candidate.uuid, reason: "recipeException", error: error.message });
         console.warn(`${MODULE_ID} | Recipe fallback base rejected`, blueprintDocument.name, candidate.name, error);
       }
     }
   }
 
   if (!materialized || !baseEntry) {
-    throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.BlueprintNoEligibleResult", { item: pick.entry.name }));
+    const error = new Error(game.i18n.format("DND5E_SUPPLIER.Errors.BlueprintNoEligibleResult", { item: pick.entry.name }));
+    error.supplierBlueprintDiagnostics = { blueprint: pick.entry.name, blueprintUuid: pick.entry.uuid, failures };
+    throw error;
   }
 
   const documentData = materialized.documentData;
   const display = materialized.display ?? {};
   const rarity = normalizeRarity(display.rarity ?? primaryItemRarity(documentData) ?? pick.entry.rarity);
+  const resolvedBonus = Number(display.magicalBonus ?? foundry.utils.getProperty(documentData, "system.magicalBonus") ?? 0) || 0;
+  if (!finalMaterializedProgressionAccepted(rarity, resolvedBonus, configuration, level)) {
+    const error = new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationProgressionRejected", { item: display.name ?? documentData.name }));
+    error.supplierBlueprintDiagnostics = {
+      blueprint: pick.entry.name,
+      blueprintUuid: pick.entry.uuid,
+      base: baseEntry.name,
+      baseUuid: baseEntry.uuid,
+      reason: "finalProgressionRejected",
+      rarity,
+      bonus: resolvedBonus,
+      partyLevel: level
+    };
+    throw error;
+  }
   if (!finalMaterializedAvailabilityAccepted(pick, rarity)) {
     throw new Error(game.i18n.format("DND5E_SUPPLIER.Errors.MaterializationAccessRejected", { item: display.name ?? documentData.name }));
   }
@@ -1120,7 +1291,14 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
     recipeId: materialized.metadata?.recipeId ?? recipe?.id ?? ""
   };
   const price = finalizeMaterializedPrice(documentData, rarity, configuration, baseEntry, catalog, priceMetadata);
-  const selectionKey = normalizeText(JSON.stringify(materialized.metadata ?? {}));
+  const resolvedMaterialization = {
+    ...(materialized.metadata ?? {}),
+    blueprintName: pick.entry.name ?? blueprintDocument.name ?? "",
+    blueprintUuid: materialized.metadata?.blueprintUuid ?? pick.entry.uuid ?? blueprintDocument.uuid ?? "",
+    baseName: baseEntry.name ?? "",
+    baseUuid: materialized.metadata?.baseUuid ?? baseEntry.uuid ?? ""
+  };
+  const selectionKey = normalizeText(JSON.stringify(resolvedMaterialization));
   return {
     key: `${canonicalKey(pick.entry)}|base:${canonicalKey(baseEntry)}|selection:${selectionKey}`,
     name: display.name ?? documentData.name,
@@ -1134,13 +1312,13 @@ async function createBlueprintPreview(pick, catalog, configuration, targetEntrie
     generatorSourceUuid: "",
     blueprintSourceUuid: pick.entry.uuid,
     materializedBaseUuid: baseEntry.uuid,
-    materialization: materialized.metadata ?? {},
+    materialization: resolvedMaterialization,
     price,
     documentData,
     generationKind: "materializedBlueprint",
     documentNature: "materializer",
     materializerKind: "blueprint",
-    enhancement: Number(materialized.display?.magicalBonus ?? 0),
+    enhancement: resolvedBonus,
     ruleIds: [pick.rule.id]
   };
 }
@@ -1488,7 +1666,8 @@ async function buildPreviewLineWithFallback(pick, catalog, configuration, profil
           failed: pick.entry.name,
           replacement: replacement.name,
           rule: pick.rule?.name ?? "",
-          reason: originalError.message
+          reason: originalError.message,
+          details: originalError.supplierBlueprintDiagnostics ?? null
         });
         return replacement;
       } catch (_error) { /* Try another eligible result from the same rule. */ }
@@ -1509,17 +1688,24 @@ function v2Access(profile) {
 function v2NormalizeFirearmEntries(entries, profile) {
   const sellable = entries.filter(entry => !isNaturalSupplierEntry(entry));
   if (profile?.normalizeFirearms !== true) return sellable;
+  const medievalPreset = ["blacksmith", "general"].includes(String(profile?.presetId ?? ""));
+  const technologyFiltered = medievalPreset
+    ? sellable.filter(entry => !isAdvancedTechnologyEntry(entry))
+    : sellable;
   // Normalization is a candidate-pool operation only. The source documents are
   // never rewritten. Firearm originals leave the ordinary pool; an explicit
   // firearm-focused Item Group is later resolved to a de-duplicated medieval
   // replacement family by v2NormalizedGroupAliases().
-  return sellable.filter(entry => !isFirearmRelated(entry));
+  return technologyFiltered.filter(entry => !isFirearmRelated(entry));
 }
 
 function v2GroupEntries(group, entries) {
   const selected = entries.filter(entry => itemGroupMatchesEntry(group, entry));
   const byKey = new Map();
-  for (const entry of selected) if (!byKey.has(canonicalKey(entry))) byKey.set(canonicalKey(entry), entry);
+  for (const entry of selected) {
+    const key = stockCommercialKey(entry);
+    byKey.set(key, preferredStockEntry(byKey.get(key), entry));
+  }
   return [...byKey.values()];
 }
 
@@ -1537,7 +1723,7 @@ function v2IsMedievalAmmunitionReplacement(entry) {
 
 function v2NormalizedGroupAliases(group, rawEntries, normalizedEntries, profile) {
   if (profile?.normalizeFirearms !== true) return [];
-  const matchedFirearms = rawEntries.filter(entry => isFirearmRelated(entry) && itemGroupMatchesEntry(group, entry));
+  const matchedFirearms = rawEntries.filter(entry => !isAdvancedTechnologyEntry(entry) && isFirearmRelated(entry) && itemGroupMatchesEntry(group, entry));
   if (!matchedFirearms.length) return [];
 
   const wantsWeapons = matchedFirearms.some(isFirearmEntry);
@@ -1548,7 +1734,10 @@ function v2NormalizedGroupAliases(group, rawEntries, normalizedEntries, profile)
     || ((wantsAmmunition || wantsSupplies) && v2IsMedievalAmmunitionReplacement(entry))
   );
   const byKey = new Map();
-  for (const entry of aliases) if (!byKey.has(canonicalKey(entry))) byKey.set(canonicalKey(entry), entry);
+  for (const entry of aliases) {
+    const key = stockCommercialKey(entry);
+    byKey.set(key, preferredStockEntry(byKey.get(key), entry));
+  }
   return [...byKey.values()];
 }
 
@@ -1575,11 +1764,15 @@ function v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries = 
   const groupIds = ids ?? rule.groupIds ?? [];
   const byKey = new Map();
   const addWeighted = (entry, group) => {
-    const key = canonicalKey(entry);
+    const key = stockCommercialKey(entry);
     const weight = Math.max(0.01, Number(group?.selectionWeight ?? 1));
     const current = byKey.get(key);
     if (!current) byKey.set(key, { ...entry, supplierSelectionWeight: weight });
-    else if (weight > Number(current.supplierSelectionWeight ?? 1)) current.supplierSelectionWeight = weight;
+    else {
+      const preferred = preferredStockEntry(current, entry);
+      if (preferred !== current) byKey.set(key, { ...entry, supplierSelectionWeight: Math.max(weight, Number(current.supplierSelectionWeight ?? 1)) });
+      else if (weight > Number(current.supplierSelectionWeight ?? 1)) current.supplierSelectionWeight = weight;
+    }
   };
   for (const groupId of groupIds) {
     const group = groupsById.get(groupId);
@@ -1661,7 +1854,10 @@ function v2ChooseDistinct(pool, count, rule, level, profile, configuration) {
     const entry = weightedEntryChoice(available, virtualRule, level, profile, configuration) ?? randomChoice(available);
     if (!entry) break;
     chosen.push(entry);
-    available.splice(available.indexOf(entry), 1);
+    const selectedKey = stockCommercialKey(entry);
+    for (let index = available.length - 1; index >= 0; index -= 1) {
+      if (stockCommercialKey(available[index]) === selectedKey) available.splice(index, 1);
+    }
   }
   return chosen;
 }
@@ -1672,7 +1868,7 @@ function v2PartyTotalDistribution(pool, budget, rule, level, profile, configurat
   for (let index = 0; index < total && pool.length; index += 1) {
     const entry = weightedEntryChoice(pool, rule, level, profile, configuration) ?? randomChoice(pool);
     if (!entry) break;
-    const key = canonicalKey(entry);
+    const key = stockCommercialKey(entry);
     const current = counts.get(key) ?? { entry, units: 0 };
     current.units += 1;
     counts.set(key, current);
@@ -1794,6 +1990,9 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
     partySize: players,
     rules: [],
     materializationFailures: [],
+    materializations: [],
+    blueprintPreflight: [],
+    commercialDeduplications: [],
     rerolls: [],
     firearmNormalization: profile.normalizeFirearms === true,
     craftingCore: {
@@ -1869,9 +2068,15 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       if (!count) continue;
       const basePool = v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries, configuration, profile, level, ids: rule.baseGroupIds ?? [] })
         .filter(entry => !isMaterializerItem(entry) && !isMechanicalItem(entry));
-      const templatePool = v2RecipeTemplatePool({
+      let templatePool = v2RecipeTemplatePool({
         rule, groupsById, profileEntries, rawProfileEntries, configuration, profile, level
       });
+
+      if (templatePool.length && basePool.length) {
+        const preflight = await preflightBlueprintTemplatePool(templatePool, basePool, rule, configuration, level);
+        templatePool = preflight.entries;
+        if (preflight.rejected.length) diagnostics.blueprintPreflight.push(...preflight.rejected.map(row => ({ ...row, rule: rule.name })));
+      }
 
       if (rule.materializationRecipe === "enchanted-ammunition") {
         const ammoPool = basePool.filter(entry => isAmmunitionEntry(entry) && !isFirearmRelated(entry));
@@ -1892,6 +2097,19 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
         }
         specialUnits += selectedTemplates.length;
         diagnostics.rules.push({ id: rule.id, name: rule.name, type: "materialized", templatePool: templatePool.length, basePool: basePool.length, selected: selectedTemplates.length });
+        continue;
+      }
+
+      if ((rule.templateGroupIds ?? []).length) {
+        diagnostics.rules.push({
+          id: rule.id,
+          name: rule.name,
+          type: "materialized",
+          basePool: basePool.length,
+          templatePool: 0,
+          selected: 0,
+          status: "noEligibleBlueprintAfterPreflight"
+        });
         continue;
       }
 
@@ -2008,10 +2226,28 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       const targets = stockRule?.baseGroupIds?.length
         ? v2CombinedPool({ rule: stockRule, groupsById, profileEntries, rawProfileEntries, configuration, profile, level, ids: stockRule.baseGroupIds })
         : pick.ruleType === "materializedV2" ? [] : materializationTargets;
-      lines.push(await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, targets, level, warnings, diagnostics));
+      const line = await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, targets, level, warnings, diagnostics);
+      lines.push(line);
+      if (line?.materialization?.blueprintUuid || line?.blueprintSourceUuid) {
+        diagnostics.materializations.push({
+          result: line.name ?? "",
+          blueprint: line.materialization?.blueprintName ?? pick.entry?.name ?? "",
+          blueprintUuid: line.materialization?.blueprintUuid ?? line.blueprintSourceUuid ?? pick.entry?.uuid ?? "",
+          base: line.materialization?.baseName ?? "",
+          baseUuid: line.materialization?.baseUuid ?? line.materializedBaseUuid ?? "",
+          rarity: line.rarity ?? "",
+          enhancement: Number(line.enhancement ?? 0) || 0
+        });
+      }
     } catch (error) {
       console.error(`${MODULE_ID} | Failed to prepare ${pick.entry?.name}`, error);
-      diagnostics.materializationFailures.push({ item: pick.entry?.name ?? "", rule: pick.rule?.name ?? "", error: error.message });
+      diagnostics.materializationFailures.push({
+        item: pick.entry?.name ?? "",
+        uuid: pick.entry?.uuid ?? "",
+        rule: pick.rule?.name ?? "",
+        error: error.message,
+        details: error.supplierBlueprintDiagnostics ?? null
+      });
       warnings.push(error.message);
     }
   }
@@ -2024,7 +2260,28 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       current.ruleIds = [...new Set([...current.ruleIds, ...line.ruleIds])];
     } else stacked.set(line.key, line);
   }
-  const preview = [...stacked.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const commerciallyDeduped = new Map();
+  for (const line of stacked.values()) {
+    const key = previewLineCommercialKey(line);
+    const current = commerciallyDeduped.get(key);
+    if (!current) {
+      commerciallyDeduped.set(key, line);
+      continue;
+    }
+    const preferred = preferredPreviewLine(current, line);
+    const other = preferred === current ? line : current;
+    preferred.quantity = Math.max(Number(preferred.quantity ?? 1), Number(other.quantity ?? 1));
+    preferred.ruleIds = [...new Set([...(preferred.ruleIds ?? []), ...(other.ruleIds ?? [])])];
+    commerciallyDeduped.set(key, preferred);
+    diagnostics.commercialDeduplications.push({
+      removed: other.name,
+      kept: preferred.name,
+      removedSource: other.packLabel ?? other.sourceUuid ?? "",
+      keptSource: preferred.packLabel ?? preferred.sourceUuid ?? "",
+      key
+    });
+  }
+  const preview = [...commerciallyDeduped.values()].sort((a, b) => a.name.localeCompare(b.name));
   const generatedUnits = preview.reduce((sum, line) => sum + Math.max(1, Number(line.quantity ?? 1)), 0);
   diagnostics.actualGeneratedUnits = generatedUnits;
   diagnostics.byRarity = preview.reduce((counts, line) => {
