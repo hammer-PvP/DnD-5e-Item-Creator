@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.2 — Supplier Crafting Core Integration & Stock Budget
+
+- Added optional **Supplier ↔ Crafting Core** integration for the canonical World Compendiums **Crafting Core — Products**, **Crafting Core — Materials**, and **Crafting Core — Learn Sources**. Supplier discovers those packs automatically when `dnd5e-crafting-core` is active; the integration never edits Crafting Core authority documents.
+- Homebrew profiles with Crafting Core-backed merchandise now opt into the appropriate curated domains automatically. Blacksmith uses smithing/equipment content, Alchemist uses alchemy content, Herbalist uses botanical Materials, Hunter/Butcher use harvest Materials, Magic/General Trade can reach their semantic Material groups, and Taverns use culinary Products/Materials. Existing semantic Material/Product filters remain the source of curation rather than hard-coded item names.
+- Added configurable **Recipe / Blueprint vendor stock**. Homebrew defaults to a single 50% availability roll; on success the vendor receives **1–2 distinct** compatible Knowledge Sources. Equipment Blueprints, Alchemy Recipes, and Culinary Recipes are filtered by vendor domain and by the active **Party Level × Rarity** progression before selection.
+- Recipe/Blueprint sale price is calculated at generation time as **50% of the matching curated Product value** by default. The percentage is profile-configurable and does not modify the canonical Crafting Core Knowledge Source or Product.
+- Added **Party Total Budget** for Guaranteed Stock. Party Size is now usable as one total quantity budget distributed across the eligible pool. The Homebrew Alchemist's **Healing Potions by Level** uses this policy, so a party of 8 receives exactly 8 eligible healing potions in total rather than 8 of every eligible potion.
+- Added Supplier output organization under the World Item folder **Suprimentos**. The root and generated vendor folders use Supplier's purple identity (`#9b9ee8`).
+- Bumped Supplier configuration schema to **24**. Existing Profile System v2 Homebrew presets are migrated in place to the new Crafting Core integration defaults and Alchemist party-total potion policy; custom profiles keep legacy per-item Guaranteed behavior unless explicitly changed.
+- This remains a **candidate build**. The previously identified Published Item edit/save integrity blocker is outside this Supplier-focused patch and is not declared fixed by v0.8.2.
+
 ## 0.8.1 — Spell Factory UX & Development Workflow
 
 - Reworked **Spell Factory** into a persistent authoring workspace rather than an intermediate screen. Blank Spell and blueprint/drop actions now create protected drafts in Draft Workspace without automatically entering the editor. Draft cards expose **Edit Spell**, **Review**, **Summary**, and **Discard** directly.

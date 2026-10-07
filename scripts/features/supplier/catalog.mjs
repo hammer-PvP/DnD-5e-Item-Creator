@@ -1,4 +1,4 @@
-import { MODULE_ID } from "./constants.mjs";
+import { CRAFTING_CORE_MODULE_ID, CRAFTING_CORE_PACKS, MODULE_ID } from "./constants.mjs";
 import { getConfiguration } from "./settings.mjs";
 import {
   hasMaterializationRecipe,
@@ -52,6 +52,7 @@ const INDEX_FIELDS = [
   "flags.dnd5e-crafting-core.materialTags",
   "flags.dnd5e-crafting-core.materialRequires",
   "flags.dnd5e-crafting-core.materialBiomes",
+  "flags.dnd5e-crafting-core.materialVendorAvailability",
   "flags.dnd5e-crafting-core.materialManaged",
   "flags.dnd5e-crafting-core.materialCatalogVersion",
   "flags.dnd5e-crafting-core.curated",
@@ -63,8 +64,12 @@ const INDEX_FIELDS = [
   "flags.dnd5e-crafting-core.productCulture",
   "flags.dnd5e-crafting-core.productRarity",
   "flags.dnd5e-crafting-core.productMealType",
+  "flags.dnd5e-crafting-core.productTier",
+  "flags.dnd5e-crafting-core.productYield",
   "flags.dnd5e-crafting-core.productManaged",
-  "flags.dnd5e-crafting-core.knowledgeRecipeId"
+  "flags.dnd5e-crafting-core.knowledgeRecipeId",
+  "flags.dnd5e-crafting-core.knowledgeSourceType",
+  "flags.dnd5e-crafting-core.knowledgePublished"
 ];
 
 const SUBTYPE_LABEL_KEYS = {
@@ -505,6 +510,9 @@ export function entryFamilyIds(entry) {
 }
 
 export function canonicalKey(entry) {
+  if (entry?.craftingKnowledgeRecipeId) return `crafting-knowledge:${entry.craftingKnowledgeRecipeId}`;
+  if (entry?.craftingMaterialId) return `crafting-material:${entry.craftingMaterialId}`;
+  if (entry?.craftingProductId && entry?.craftingProduct) return `crafting-product:${entry.craftingProductId}`;
   const variant = entry?.variantFamily || variantFamilyInfo(entry)?.id;
   if (variant) return `variant:${variant}`;
   // Arrow/Arrows and legacy Equipment/modern Consumable representations are
@@ -527,11 +535,18 @@ export function familyMemberKey(entry, familyId) {
 
 function sourceSignature(configuration) {
   const configured = (configuration.sources ?? []).map(source => [source.id, source.enabled, source.priority]);
+  const craftingCoreProfiles = (configuration.profiles ?? []).map(profile => [
+    profile.id,
+    profile.craftingCore?.enabled === true,
+    profile.craftingCore?.useProducts !== false,
+    profile.craftingCore?.useMaterials !== false,
+    profile.craftingCore?.useRecipes !== false
+  ]);
   const runtime = [...game.packs]
     .filter(pack => pack.documentName === "Item")
     .map(pack => [pack.collection, pack.metadata?.packageName ?? "", pack.index?.size ?? -1])
     .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
-  return JSON.stringify({ system: game.system?.version ?? "", configured, runtime });
+  return JSON.stringify({ system: game.system?.version ?? "", configured, craftingCoreProfiles, craftingCoreActive: game.modules.get(CRAFTING_CORE_MODULE_ID)?.active === true, runtime });
 }
 
 export function clearCatalogCache() {
@@ -677,13 +692,42 @@ function isCursedRecord(record) {
   return /(?:^|\b)curse(?:d)?(?:\b|:)/i.test(description);
 }
 
+function craftingCoreRequestedPackIds(configuration) {
+  if (game.modules.get(CRAFTING_CORE_MODULE_ID)?.active !== true) return [];
+  const requested = new Set();
+  for (const profile of configuration.profiles ?? []) {
+    const integration = profile?.craftingCore;
+    if (integration?.enabled !== true) continue;
+    if (integration.useMaterials !== false) requested.add(CRAFTING_CORE_PACKS.materials);
+    if (integration.useProducts !== false || integration.useRecipes !== false) requested.add(CRAFTING_CORE_PACKS.products);
+    if (integration.useRecipes !== false) requested.add(CRAFTING_CORE_PACKS.knowledge);
+  }
+  return [...requested];
+}
+
+function craftingCorePackIdsForProfile(profile) {
+  const integration = profile?.craftingCore;
+  if (integration?.enabled !== true || game.modules.get(CRAFTING_CORE_MODULE_ID)?.active !== true) return [];
+  const ids = new Set();
+  if (integration.useMaterials !== false) ids.add(CRAFTING_CORE_PACKS.materials);
+  if (integration.useProducts !== false || integration.useRecipes !== false) ids.add(CRAFTING_CORE_PACKS.products);
+  if (integration.useRecipes !== false) ids.add(CRAFTING_CORE_PACKS.knowledge);
+  return [...ids];
+}
+
 export async function buildCatalog({ force = false, configurationOverride = null } = {}) {
   const configuration = configurationOverride ?? getConfiguration();
   const signature = sourceSignature(configuration);
   if (!force && catalogCache && cacheSignature === signature) return catalogCache;
 
-  const enabledSources = (configuration.sources ?? [])
+  const enabledSourcesById = new Map((configuration.sources ?? [])
     .filter(source => source.enabled)
+    .map(source => [source.id, { ...source }]));
+  let integrationPriority = enabledSourcesById.size + 1000;
+  for (const id of craftingCoreRequestedPackIds(configuration)) {
+    if (!enabledSourcesById.has(id)) enabledSourcesById.set(id, { id, enabled: true, priority: integrationPriority++ });
+  }
+  const enabledSources = [...enabledSourcesById.values()]
     .sort((a, b) => Number(a.priority ?? 0) - Number(b.priority ?? 0));
 
   const rawEntries = [];
@@ -824,6 +868,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
         craftingMaterialTags: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialTags")).map(String),
         craftingMaterialRequires: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialRequires")).map(String),
         craftingMaterialBiomes: toArray(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialBiomes")).map(String),
+        craftingMaterialVendorAvailability: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialVendorAvailability") ?? ""),
         craftingMaterialManaged: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialManaged") === true,
         craftingMaterialCatalogVersion: Number(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.materialCatalogVersion") ?? 0) || 0,
         craftingCurated: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.curated") === true,
@@ -835,16 +880,44 @@ export async function buildCatalog({ force = false, configurationOverride = null
         craftingProductCulture: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productCulture") ?? ""),
         craftingProductRarity: normalizeRarity(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productRarity") ?? rarity),
         craftingProductMealType: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productMealType") ?? ""),
+        craftingProductTier: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productTier") ?? ""),
+        craftingProductYield: Math.max(1, Number(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productYield") ?? 1) || 1),
         craftingProductManaged: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productManaged") === true,
         craftingKnowledgeRecipeId: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.knowledgeRecipeId") ?? ""),
+        craftingKnowledgeSourceType: String(foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.knowledgeSourceType") ?? ""),
+        craftingKnowledgePublished: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.knowledgePublished") === true,
         spellLevel: Number(foundry.utils.getProperty(record, "system.level") ?? 0),
         school: foundry.utils.getProperty(record, "system.school") ?? "",
         isMechanical: Boolean(mechanicalRule),
         mechanicalReason: mechanicalRule?.id ?? ""
       };
+      if (entry.craftingMaterial && entry.craftingMaterialRarity !== "none") entry.rarity = entry.craftingMaterialRarity;
+      if (entry.craftingProduct && entry.craftingProductRarity !== "none") entry.rarity = entry.craftingProductRarity;
+      if (entry.craftingKnowledgeRecipeId && entry.craftingProductRarity !== "none") entry.rarity = entry.craftingProductRarity;
       entry.key = canonicalKey(entry);
       entry.familyIds = entryFamilyIds(entry);
       rawEntries.push(entry);
+    }
+  }
+
+  // Knowledge Sources are sellable copies of Recipes/Blueprints, but not every
+  // curated family repeats PRODUCT_RARITY on the Knowledge document. Resolve
+  // the authoritative rarity from the matching curated Product when possible so
+  // recipe availability always follows the same Party Level x Rarity policy as
+  // the crafted result. The Knowledge Item's native rarity remains the fallback.
+  const craftingProductsById = new Map();
+  for (const entry of rawEntries) {
+    if (entry.packId !== CRAFTING_CORE_PACKS.products || entry.craftingProduct !== true || !entry.craftingProductId) continue;
+    if (!craftingProductsById.has(entry.craftingProductId)) craftingProductsById.set(entry.craftingProductId, entry);
+  }
+  for (const entry of rawEntries) {
+    if (!entry.craftingKnowledgeRecipeId || !entry.craftingProductId) continue;
+    const product = craftingProductsById.get(entry.craftingProductId);
+    if (!product) continue;
+    const productRarity = normalizeRarity(product.craftingProductRarity ?? product.rarity);
+    if (productRarity && productRarity !== "none") {
+      entry.craftingProductRarity = productRarity;
+      entry.rarity = productRarity;
     }
   }
 
@@ -887,6 +960,7 @@ export function isBannedEntry(entry, profile, configuration = getConfiguration()
 
 export function entriesForProfile(catalog, profile, configuration = getConfiguration(), { includeBanned = false, includeMechanical = false } = {}) {
   const sourceIds = new Set(profile?.sourceIds ?? []);
+  for (const id of craftingCorePackIdsForProfile(profile)) sourceIds.add(id);
   const sourceSnapshot = profile?.sourceSnapshot === true;
   const entries = [];
   for (const group of catalog.grouped.values()) {

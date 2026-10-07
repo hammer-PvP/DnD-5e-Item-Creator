@@ -3,8 +3,17 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.4.0-integrated";
-export const CONFIGURATION_VERSION = 23;
+export const SUPPLIER_FEATURE_VERSION = "0.5.0-crafting-core-stock";
+export const CONFIGURATION_VERSION = 24;
+
+export const CRAFTING_CORE_MODULE_ID = "dnd5e-crafting-core";
+export const CRAFTING_CORE_PACKS = Object.freeze({
+  products: "world.crafting-core-products",
+  materials: "world.crafting-core-materials",
+  knowledge: "world.crafting-core-learn-sources"
+});
+export const SUPPLIER_FOLDER_NAME = "Suprimentos";
+export const SUPPLIER_FOLDER_COLOR = "#9b9ee8";
 
 export const RARITIES = [
   { value: "none", label: "DND5E_SUPPLIER.Rarity.none" },

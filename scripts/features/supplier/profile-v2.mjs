@@ -20,6 +20,7 @@ export const SUPPLIER_PROFILE_SCHEMA_VERSION = 2;
 export const STOCK_RULE_MODES = ["guaranteed", "random", "specialExisting", "materialized"];
 export const GROUP_SELECTION_MODES = ["dynamic", "explicit"];
 export const STOCK_SCALING_MODES = ["none", "players", "halfDown", "thirdDown"];
+export const GUARANTEED_QUANTITY_MODES = ["perItem", "partyTotal"];
 export const ORGANIC_QUANTITY_PRESETS = ["sparse", "normal", "abundant", "custom"];
 
 export function randomId() {
@@ -121,6 +122,7 @@ export function createStockRule(mode = "random", overrides = {}) {
     minimumPicks: 0,
     maximumPicks: 0,
     coverage: "all",
+    quantityMode: "perItem",
     baseQuantity: 1,
     scaling: "none",
     unitsPerPick: 1,
@@ -151,6 +153,23 @@ export function createScrollStock(overrides = {}) {
   };
 }
 
+export function createCraftingCoreIntegration(overrides = {}) {
+  const source = clone(overrides);
+  const minimum = Math.max(0, Math.floor(number(source.recipeMinimum, 1)));
+  const maximum = Math.max(minimum, Math.floor(number(source.recipeMaximum, 2)));
+  return {
+    enabled: source.enabled === true,
+    useProducts: source.useProducts !== false,
+    useMaterials: source.useMaterials !== false,
+    useRecipes: source.useRecipes !== false,
+    recipeChance: Math.max(0, Math.min(100, number(source.recipeChance, 50))),
+    recipeMinimum: minimum,
+    recipeMaximum: maximum,
+    recipePricePercent: Math.max(0, Math.min(100, number(source.recipePricePercent, 50))),
+    recipeKinds: strings(source.recipeKinds)
+  };
+}
+
 export function createSupplierProfileV2({
   name = "New Supplier",
   theme = "general",
@@ -163,7 +182,8 @@ export function createSupplierProfileV2({
   description = "",
   itemGroups = [],
   stockRules = [],
-  scrollStock = null
+  scrollStock = null,
+  craftingCore = null
 } = {}) {
   return {
     profileSchemaVersion: SUPPLIER_PROFILE_SCHEMA_VERSION,
@@ -183,6 +203,7 @@ export function createSupplierProfileV2({
     itemGroups: itemGroups.map(group => createItemGroup(group)),
     stockRules: stockRules.map(rule => createStockRule(rule.mode, rule)),
     scrollStock: createScrollStock(scrollStock ?? {}),
+    craftingCore: createCraftingCoreIntegration(craftingCore ?? {}),
     bannedItems: [],
     mechanicalItemOverrides: []
   };
@@ -244,6 +265,7 @@ export function normalizeStockRule(rule = {}) {
   normalized.minimumPicks = Math.max(0, Math.floor(number(rule.minimumPicks, 0)));
   normalized.maximumPicks = Math.max(0, Math.floor(number(rule.maximumPicks, 0)));
   normalized.coverage = rule.coverage === "pick" ? "pick" : "all";
+  normalized.quantityMode = GUARANTEED_QUANTITY_MODES.includes(rule.quantityMode) ? rule.quantityMode : "perItem";
   normalized.baseQuantity = Math.max(0, number(rule.baseQuantity, 1));
   normalized.scaling = STOCK_SCALING_MODES.includes(rule.scaling) ? rule.scaling : "none";
   normalized.unitsPerPick = Math.max(1, Math.floor(number(rule.unitsPerPick, 1)));
@@ -285,6 +307,7 @@ export function normalizeSupplierProfileV2(profile = {}) {
   normalized.itemGroups = array(profile.itemGroups).map(normalizeItemGroup);
   normalized.stockRules = array(profile.stockRules).map(normalizeStockRule);
   normalized.scrollStock = createScrollStock(profile.scrollStock ?? {});
+  normalized.craftingCore = createCraftingCoreIntegration(profile.craftingCore ?? {});
   normalized.bannedItems = clone(array(profile.bannedItems));
   normalized.mechanicalItemOverrides = clone(array(profile.mechanicalItemOverrides));
   return normalized;

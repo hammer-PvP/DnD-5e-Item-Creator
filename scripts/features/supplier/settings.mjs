@@ -124,6 +124,44 @@ function normalizeProgressionProfiles(stored, configuration) {
   return profiles;
 }
 
+
+function migrateProfileV24(profile = {}) {
+  const migrated = foundry.utils.deepClone(profile ?? {});
+  if (migrated.craftingCore === undefined) {
+    const preset = String(migrated.presetId ?? "");
+    const defaults = {
+      blacksmith: { enabled: true, useProducts: true, useMaterials: true, useRecipes: true, recipeKinds: ["equipment-recipe"] },
+      alchemist: { enabled: true, useProducts: true, useMaterials: true, useRecipes: true, recipeKinds: ["alchemy-recipe"] },
+      herbalist: { enabled: true, useProducts: false, useMaterials: true, useRecipes: false, recipeKinds: [] },
+      hunter: { enabled: true, useProducts: false, useMaterials: true, useRecipes: false, recipeKinds: [] },
+      butcher: { enabled: true, useProducts: false, useMaterials: true, useRecipes: false, recipeKinds: [] },
+      magic: { enabled: true, useProducts: false, useMaterials: true, useRecipes: false, recipeKinds: [] },
+      general: { enabled: true, useProducts: false, useMaterials: true, useRecipes: false, recipeKinds: [] },
+      "tavern-common": { enabled: true, useProducts: true, useMaterials: true, useRecipes: true, recipeKinds: ["culinary-recipe"] },
+      "tavern-dwarven": { enabled: true, useProducts: true, useMaterials: true, useRecipes: true, recipeKinds: ["culinary-recipe"] },
+      "tavern-elven": { enabled: true, useProducts: true, useMaterials: true, useRecipes: true, recipeKinds: ["culinary-recipe"] }
+    }[preset];
+    if (defaults) migrated.craftingCore = {
+      ...defaults,
+      recipeChance: 50,
+      recipeMinimum: 1,
+      recipeMaximum: 2,
+      recipePricePercent: 50
+    };
+  }
+  if (String(migrated.presetId ?? "") === "alchemist") {
+    for (const rule of migrated.stockRules ?? []) {
+      if (String(rule?.name ?? "") !== "Healing Potions by Level") continue;
+      if (rule.quantityMode === undefined) rule.quantityMode = "partyTotal";
+      if (rule.quantityMode === "partyTotal") {
+        rule.baseQuantity = 0;
+        rule.scaling = "none";
+      }
+    }
+  }
+  return migrated;
+}
+
 export function syncActiveProgression(configuration) {
   configuration.progressionProfiles = arrayValue(configuration.progressionProfiles);
   let active = configuration.progressionProfiles.find(profile => profile.id === configuration.activeProgressionProfileId);
@@ -173,7 +211,7 @@ function migrateConfiguration(stored) {
 
   const isProfileV2Configuration = Number(stored?.version ?? 0) >= 23;
   if (isProfileV2Configuration) {
-    configuration.profiles = arrayValue(stored?.profiles).map(normalizeSupplierProfileV2);
+    configuration.profiles = arrayValue(stored?.profiles).map(profile => normalizeSupplierProfileV2(Number(stored?.version ?? 0) < 24 ? migrateProfileV24(profile) : profile));
   } else {
     // v0.7.3 intentionally starts Supplier Profiles clean. The profile model was
     // redesigned from the ground up and legacy Homebrew/Profile curations are

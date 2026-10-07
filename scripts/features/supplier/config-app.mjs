@@ -1,4 +1,6 @@
 import {
+  CRAFTING_CORE_MODULE_ID,
+  CRAFTING_CORE_PACKS,
   HAMMER_HOMEBREW_PROGRESSION_ID,
   MODULE_ID,
   RARITIES,
@@ -242,6 +244,11 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       isMaterialized: rule.mode === "materialized",
       coverageAll: rule.coverage !== "pick",
       coveragePick: rule.coverage === "pick",
+      quantityModePartyTotal: rule.quantityMode === "partyTotal",
+      guaranteedQuantityModeOptions: [
+        { value: "perItem", label: game.i18n.localize("DND5E_SUPPLIER.ProfileV2.QuantityPerItem"), selected: rule.quantityMode !== "partyTotal" },
+        { value: "partyTotal", label: game.i18n.localize("DND5E_SUPPLIER.ProfileV2.QuantityPartyTotal"), selected: rule.quantityMode === "partyTotal" }
+      ],
       showPickLimits: rule.mode !== "guaranteed" || rule.coverage === "pick",
       quantityCustom: rule.quantityPreset === "custom",
       modeLabel: ruleModeLabel(rule.mode),
@@ -311,6 +318,18 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       rarityLabel: titleCase(line.rarity || "none")
     }));
 
+    const craftingCoreModuleActive = game.modules.get(CRAFTING_CORE_MODULE_ID)?.active === true;
+    const craftingCorePackStatus = {
+      products: Boolean(game.packs.get(CRAFTING_CORE_PACKS.products)),
+      materials: Boolean(game.packs.get(CRAFTING_CORE_PACKS.materials)),
+      knowledge: Boolean(game.packs.get(CRAFTING_CORE_PACKS.knowledge))
+    };
+    const craftingCoreRecipeKindOptions = [
+      { value: "equipment-recipe", label: game.i18n.localize("DND5E_SUPPLIER.CraftingCore.EquipmentRecipes") },
+      { value: "alchemy-recipe", label: game.i18n.localize("DND5E_SUPPLIER.CraftingCore.AlchemyRecipes") },
+      { value: "culinary-recipe", label: game.i18n.localize("DND5E_SUPPLIER.CraftingCore.CulinaryRecipes") }
+    ].map(option => ({ ...option, checked: selectedProfile?.craftingCore?.recipeKinds?.includes(option.value) }));
+
     return {
       section: this.section,
       isSources: this.section === "sources",
@@ -340,6 +359,11 @@ export class SupplierConfigApplication extends HandlebarsApplicationMixin(Applic
       selectedProfilePresetLabel: profilePresetLabel(selectedProfile),
       selectedProfileHasPreset: Boolean(selectedProfile?.presetId),
       currentTheme,
+      craftingCoreModuleActive,
+      craftingCorePackStatus,
+      craftingCoreRecipeKindOptions,
+      craftingCoreEnabled: selectedProfile?.craftingCore?.enabled === true,
+      craftingCoreRecipesEnabled: selectedProfile?.craftingCore?.enabled === true && selectedProfile?.craftingCore?.useRecipes !== false,
       themeOptions: SUPPLIER_THEMES.map(theme => ({
         ...theme,
         localized: game.i18n.localize(theme.label),

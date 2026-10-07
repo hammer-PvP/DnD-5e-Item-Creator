@@ -22,6 +22,16 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, pub
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
+## v0.8.2 — Supplier Crafting Core Integration & Stock Budget
+
+Supplier can now optionally consume the canonical Crafting Core Products, Materials, and published Learn Sources directly. The integration auto-discovers the standard World packs when Crafting Core is active and remains profile-controlled. Homebrew Blacksmith, Alchemist, Herbalist, and Tavern presets use the curated semantic metadata already present in Crafting Core instead of maintaining duplicate item-name lists.
+
+Homebrew vendors that sell crafting knowledge use a **50% availability roll** by default. A successful roll adds **1–2 distinct Recipes / Blueprints**, filtered first by vendor domain and the active **Party Level × Rarity** progression. Recipe sale price defaults to **50% of the matching final Product value** and may be changed per Supplier Profile.
+
+Guaranteed Stock now supports **Party Total Budget**. This is the default for the Homebrew Alchemist's Healing Potions by Level: Party Size 8 means eight healing potions total, distributed across the eligible level/rarity pool, rather than eight copies of every eligible potion tier. Legacy and custom Guaranteed rules retain the existing per-item behavior unless the GM selects Party Total Budget.
+
+Generated Supplier inventories are organized under the World Item folder **Suprimentos**, with Supplier's purple folder color. v0.8.2 is a candidate Supplier iteration and does not claim to resolve the separate Published Item edit/save integrity issue under investigation.
+
 ## v0.8.1 — Spell Factory UX & Development Workflow
 
 Spell Factory now presents the full authoring lifecycle directly: **Blank / Blueprint → Protected Draft → Edit Spell → Review → Publish**. Blank and blueprint actions create persistent drafts without forcing the GM into an editor immediately. Draft Workspace lists all work in progress with direct **Edit Spell**, **Review**, **Summary**, and **Discard** actions. Drafts remain temporary internal documents; **Item Creator — Published Spells** remains the canonical homebrew library.

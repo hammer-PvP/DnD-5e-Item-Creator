@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.8.1";
-export const MODULE_STAGE = "Spell Factory UX & Development Workflow";
+export const MODULE_VERSION = "0.8.2";
+export const MODULE_STAGE = "Supplier Crafting Core Integration & Stock Budget";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },

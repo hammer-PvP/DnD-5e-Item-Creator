@@ -1,4 +1,4 @@
-import { MODULE_ID } from "./constants.mjs";
+import { CRAFTING_CORE_MODULE_ID, CRAFTING_CORE_PACKS, MODULE_ID, SUPPLIER_FOLDER_COLOR, SUPPLIER_FOLDER_NAME } from "./constants.mjs";
 import {
   ammunitionFamilyKey,
   buildCatalog,
@@ -747,6 +747,26 @@ function priceFromCopper(copper, { origin = "materialized" } = {}) {
   return { value: total, denomination: "cp", origin };
 }
 
+function craftingCoreRecipeProductEntry(pick, catalog) {
+  const productId = String(pick?.entry?.craftingProductId ?? "");
+  if (!productId) return null;
+  return (catalog?.rawEntries ?? []).find(entry =>
+    entry.packId === CRAFTING_CORE_PACKS.products
+    && entry.craftingProduct === true
+    && String(entry.craftingProductId ?? "") === productId
+  ) ?? null;
+}
+
+function craftingCoreRecipePrice(pick, catalog, configuration) {
+  const product = craftingCoreRecipeProductEntry(pick, catalog);
+  if (!product) {
+    throw new Error(`Crafting Core Recipe '${pick?.entry?.name ?? "Unknown"}' has no matching Product for productId '${pick?.entry?.craftingProductId ?? ""}'.`);
+  }
+  const productPrice = resolvePrice(product, catalog, configuration);
+  const percent = Math.max(0, Math.min(100, Number(pick?.recipePricePercent ?? 50) || 0));
+  return priceFromCopper(priceInCopper(productPrice) * (percent / 100), { origin: "craftingCoreRecipe" });
+}
+
 function isHammerHomebrewPricing(configuration) {
   return configuration?.resolvedProgressionHomebrew === true
     || String(configuration?.resolvedProgressionBuiltIn ?? "") === "homebrew"
@@ -1390,8 +1410,19 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     };
   }
 
+  const craftingCoreRecipe = pick.ruleType === "craftingCoreRecipeV2";
+  if (craftingCoreRecipe) {
+    price = craftingCoreRecipePrice(pick, catalog, configuration);
+    foundry.utils.setProperty(documentData, "system.price", {
+      value: Math.max(0, Number(price.value) || 0),
+      denomination: price.denomination || "gp"
+    });
+  }
+
   return {
-    key: `${canonicalKey(pick.entry)}|bonus:${pick.enhancement || 0}`,
+    key: craftingCoreRecipe
+      ? `crafting-core-recipe:${pick.entry.craftingKnowledgeRecipeId || canonicalKey(pick.entry)}`
+      : `${canonicalKey(pick.entry)}|bonus:${pick.enhancement || 0}`,
     name: display.name ?? documentData.name,
     img: display.img ?? documentData.img,
     type: display.type ?? documentData.type,
@@ -1403,7 +1434,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     materialization,
     price,
     documentData,
-    generationKind: pick.enhancement > 0 && !pick.entry.isMagical ? "enhanced" : "copy",
+    generationKind: craftingCoreRecipe ? "craftingCoreRecipe" : (pick.enhancement > 0 && !pick.entry.isMagical ? "enhanced" : "copy"),
     documentNature: pick.enhancement > 0 && !pick.entry.isMagical ? "materializer" : "sellable",
     materializerKind: pick.enhancement > 0 && !pick.entry.isMagical ? "enhancement" : "",
     enhancement: pick.enhancement || 0,
@@ -1635,6 +1666,50 @@ function v2ChooseDistinct(pool, count, rule, level, profile, configuration) {
   return chosen;
 }
 
+function v2PartyTotalDistribution(pool, budget, rule, level, profile, configuration) {
+  const total = Math.max(0, Math.floor(Number(budget) || 0));
+  const counts = new Map();
+  for (let index = 0; index < total && pool.length; index += 1) {
+    const entry = weightedEntryChoice(pool, rule, level, profile, configuration) ?? randomChoice(pool);
+    if (!entry) break;
+    const key = canonicalKey(entry);
+    const current = counts.get(key) ?? { entry, units: 0 };
+    current.units += 1;
+    counts.set(key, current);
+  }
+  return [...counts.values()];
+}
+
+function craftingCoreRecipePool({ profile, profileEntries, configuration, level }) {
+  const integration = profile?.craftingCore;
+  if (integration?.enabled !== true || integration.useRecipes === false) return [];
+  if (game.modules.get(CRAFTING_CORE_MODULE_ID)?.active !== true) return [];
+  const kinds = new Set((integration.recipeKinds ?? []).map(String).filter(Boolean));
+  if (!kinds.size) return [];
+  const virtualGroup = {
+    enabled: true, selectionMode: "dynamic", sourceIds: [], itemTypes: [], subtypes: [], rarities: [],
+    documentNatures: [], magicalState: "any", search: "", identityTerms: [], identityExclusions: [],
+    selectedUuids: [], excludedUuids: [], crafting: { knowledgeOnly: true, excludeKnowledge: false }
+  };
+  const virtualRule = {
+    id: `crafting-core-recipes-${profile.id}`,
+    name: "Crafting Core Recipes / Blueprints",
+    respectLevelRange: true,
+    requireMagicalResult: false,
+    minimumVendorAccess: 0,
+    maximumVendorAccess: 0
+  };
+  const byKey = new Map();
+  for (const entry of profileEntries) {
+    if (entry.packId !== CRAFTING_CORE_PACKS.knowledge) continue;
+    if (!entry.craftingKnowledgeRecipeId || entry.craftingKnowledgePublished !== true) continue;
+    if (!kinds.has(String(entry.craftingCuratedKind ?? ""))) continue;
+    if (!v2RuleAllowsEntry(entry, virtualGroup, virtualRule, configuration, profile, level, { skipGroupMatch: true })) continue;
+    byKey.set(canonicalKey(entry), entry);
+  }
+  return [...byKey.values()];
+}
+
 function v2Count(rule, players, { variety = false, access = 2 } = {}) {
   let count = scaleCount(
     variety ? rule.varietyBase : rule.baseQuantity,
@@ -1720,7 +1795,14 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
     rules: [],
     materializationFailures: [],
     rerolls: [],
-    firearmNormalization: profile.normalizeFirearms === true
+    firearmNormalization: profile.normalizeFirearms === true,
+    craftingCore: {
+      enabled: profile.craftingCore?.enabled === true,
+      moduleActive: game.modules.get(CRAFTING_CORE_MODULE_ID)?.active === true,
+      recipeChance: Number(profile.craftingCore?.recipeChance ?? 50),
+      recipePool: 0,
+      recipesSelected: 0
+    }
   };
   let catalogUnits = 0;
   let guaranteedUnits = 0;
@@ -1735,6 +1817,19 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
 
     if (rule.mode === "guaranteed") {
       const pool = v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries, configuration, profile, level });
+      if (rule.quantityMode === "partyTotal") {
+        const budget = Math.max(1, Math.floor(Number(players) || 1));
+        const distribution = v2PartyTotalDistribution(pool, budget, rule, level, profile, configuration);
+        const selected = distribution.map(row => row.entry);
+        const unitsByKey = new Map(distribution.map(row => [canonicalKey(row.entry), row.units]));
+        guaranteedUnits += v2PushDirectPicks(
+          picks, selected, rule, groupsById,
+          entry => unitsByKey.get(canonicalKey(entry)) ?? 1,
+          "guaranteedV2", { profile }, pool
+        );
+        diagnostics.rules.push({ id: rule.id, name: rule.name, type: "guaranteed", quantityMode: "partyTotal", pool: pool.length, selected: selected.length, budget });
+        continue;
+      }
       let selected = [];
       if (rule.coverage === "all") selected = pool;
       else selected = v2ChooseDistinct(pool, v2Count(rule, players, { access }), rule, level, profile, configuration);
@@ -1742,7 +1837,7 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
         ? Math.max(1, scaleCount(rule.baseQuantity, rule.scaling, players))
         : Math.max(1, Number(rule.unitsPerPick ?? 1));
       guaranteedUnits += v2PushDirectPicks(picks, selected, rule, groupsById, units, "guaranteedV2", { profile }, pool);
-      diagnostics.rules.push({ id: rule.id, name: rule.name, type: "guaranteed", pool: pool.length, selected: selected.length, units });
+      diagnostics.rules.push({ id: rule.id, name: rule.name, type: "guaranteed", quantityMode: "perItem", pool: pool.length, selected: selected.length, units });
       continue;
     }
 
@@ -1827,6 +1922,38 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       }
       specialUnits += qualityEntries.length;
       diagnostics.rules.push({ id: rule.id, name: rule.name, type: "materialized", basePool: basePool.length, selected: qualityEntries.length });
+    }
+  }
+
+  const craftingCoreIntegration = profile.craftingCore ?? {};
+  if (craftingCoreIntegration.enabled === true && craftingCoreIntegration.useRecipes !== false) {
+    const recipePool = craftingCoreRecipePool({ profile, profileEntries, configuration, level });
+    diagnostics.craftingCore.recipePool = recipePool.length;
+    const recipeRule = {
+      id: `crafting-core-recipes-${profile.id}`,
+      name: "Crafting Core Recipes / Blueprints",
+      category: "loot", subtypes: [], magicalState: "any", qualityMode: "source",
+      allowDuplicates: false, poolExclusions: [], materializerExclusions: [], excludeFamilies: [], includeFamilies: [],
+      chance: Math.max(0, Math.min(100, Number(craftingCoreIntegration.recipeChance ?? 50))),
+      minimumVendorAccess: 0, maximumVendorAccess: 0, maxPerFamily: 0
+    };
+    if (recipePool.length && rulePassesChance(recipeRule)) {
+      const minimum = Math.max(0, Math.floor(Number(craftingCoreIntegration.recipeMinimum ?? 1) || 0));
+      const maximum = Math.max(minimum, Math.floor(Number(craftingCoreIntegration.recipeMaximum ?? 2) || minimum));
+      const requested = randomBetween(minimum, maximum);
+      const selected = v2ChooseDistinct(recipePool, requested, recipeRule, level, profile, configuration);
+      for (const entry of selected) {
+        picks.push({
+          entry, enhancement: 0, units: 1, rule: recipeRule, ruleType: "craftingCoreRecipeV2", profile,
+          recipePricePercent: Number(craftingCoreIntegration.recipePricePercent ?? 50),
+          fallbackEntries: recipePool
+        });
+      }
+      specialUnits += selected.length;
+      diagnostics.craftingCore.recipesSelected = selected.length;
+      diagnostics.rules.push({ id: recipeRule.id, name: recipeRule.name, type: "craftingCoreRecipe", pool: recipePool.length, selected: selected.length, chance: recipeRule.chance, minimum, maximum });
+    } else {
+      diagnostics.rules.push({ id: recipeRule.id, name: recipeRule.name, type: "craftingCoreRecipe", pool: recipePool.length, selected: 0, chance: recipeRule.chance });
     }
   }
 
@@ -2098,6 +2225,27 @@ function formatFolderName(template, profile, level, players) {
     .replaceAll("{players}", String(players));
 }
 
+async function ensureSupplierRootFolder() {
+  const FolderClass = CONFIG.Folder?.documentClass ?? Folder;
+  let folder = game.folders?.find?.(entry => entry.type === "Item" && entry.getFlag?.(MODULE_ID, "supplierRoot") === true)
+    ?? game.folders?.find?.(entry => entry.type === "Item" && entry.name === SUPPLIER_FOLDER_NAME && !entry.folder)
+    ?? null;
+  if (!folder) {
+    folder = await FolderClass.create({
+      name: SUPPLIER_FOLDER_NAME,
+      type: "Item",
+      color: SUPPLIER_FOLDER_COLOR,
+      flags: { [MODULE_ID]: { supplierRoot: true } }
+    });
+  } else {
+    const updates = {};
+    if (folder.color !== SUPPLIER_FOLDER_COLOR) updates.color = SUPPLIER_FOLDER_COLOR;
+    if (folder.getFlag?.(MODULE_ID, "supplierRoot") !== true) updates[`flags.${MODULE_ID}.supplierRoot`] = true;
+    if (Object.keys(updates).length) await folder.update(updates, { render: false });
+  }
+  return folder;
+}
+
 export async function createWorldFolder({ profile, level, players, preview }) {
   if (!preview?.length) throw new Error(game.i18n.localize("DND5E_SUPPLIER.Errors.NoPreview"));
 
@@ -2107,10 +2255,13 @@ export async function createWorldFolder({ profile, level, players, preview }) {
   const ItemClass = CONFIG.Item.documentClass;
   const FolderClass = CONFIG.Folder?.documentClass ?? Folder;
   const folderName = formatFolderName(configuration.folderNameTemplate, profile, level, players);
+  const supplierRoot = await ensureSupplierRootFolder();
 
   const folder = await FolderClass.create({
     name: folderName,
     type: "Item",
+    folder: supplierRoot?.id ?? null,
+    color: SUPPLIER_FOLDER_COLOR,
     flags: {
       [MODULE_ID]: {
         supplier: {

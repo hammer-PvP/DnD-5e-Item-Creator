@@ -100,6 +100,42 @@
                   </div>
                 </section>
 
+                <section class="supplier-card supplier-crafting-core-card">
+                  <div class="supplier-card-title-row">
+                    <div><h2><i class="fa-solid fa-hammer"></i>{{localize "DND5E_SUPPLIER.CraftingCore.Title"}}</h2><p>{{localize "DND5E_SUPPLIER.CraftingCore.Hint"}}</p></div>
+                    {{#if craftingCoreModuleActive}}<span class="supplier-homebrew-profile-badge"><i class="fa-solid fa-plug-circle-check"></i>{{localize "DND5E_SUPPLIER.CraftingCore.Detected"}}</span>{{else}}<span class="supplier-homebrew-profile-badge"><i class="fa-solid fa-plug-circle-xmark"></i>{{localize "DND5E_SUPPLIER.CraftingCore.NotDetected"}}</span>{{/if}}
+                  </div>
+                  <label class="supplier-choice-card">
+                    <input type="checkbox" data-path="profiles.{{selectedProfileIndex}}.craftingCore.enabled" data-rerender {{#if craftingCoreEnabled}}checked{{/if}}>
+                    <span><strong>{{localize "DND5E_SUPPLIER.CraftingCore.Enable"}}</strong><small>{{localize "DND5E_SUPPLIER.CraftingCore.EnableHint"}}</small></span>
+                  </label>
+                  {{#if craftingCoreEnabled}}
+                    <div class="supplier-checkbox-grid compact-top">
+                      <label><input type="checkbox" data-path="profiles.{{selectedProfileIndex}}.craftingCore.useProducts" data-rerender {{#if selectedProfile.craftingCore.useProducts}}checked{{/if}}><span>{{localize "DND5E_SUPPLIER.CraftingCore.UseProducts"}}</span></label>
+                      <label><input type="checkbox" data-path="profiles.{{selectedProfileIndex}}.craftingCore.useMaterials" data-rerender {{#if selectedProfile.craftingCore.useMaterials}}checked{{/if}}><span>{{localize "DND5E_SUPPLIER.CraftingCore.UseMaterials"}}</span></label>
+                      <label><input type="checkbox" data-path="profiles.{{selectedProfileIndex}}.craftingCore.useRecipes" data-rerender {{#if selectedProfile.craftingCore.useRecipes}}checked{{/if}}><span>{{localize "DND5E_SUPPLIER.CraftingCore.UseRecipes"}}</span></label>
+                    </div>
+                    <div class="supplier-quality-note {{#unless craftingCoreModuleActive}}warning{{/unless}}">
+                      <i class="fa-solid fa-database"></i><span>{{localize "DND5E_SUPPLIER.CraftingCore.Packs"}} — Products: {{#if craftingCorePackStatus.products}}✓{{else}}—{{/if}} · Materials: {{#if craftingCorePackStatus.materials}}✓{{else}}—{{/if}} · Learn Sources: {{#if craftingCorePackStatus.knowledge}}✓{{else}}—{{/if}}</span>
+                    </div>
+                    {{#if craftingCoreRecipesEnabled}}
+                      <div class="supplier-dependent-block">
+                        <h3>{{localize "DND5E_SUPPLIER.CraftingCore.RecipeAvailability"}}</h3>
+                        <div class="supplier-grid four">
+                          <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.Config.AppearanceChance"}}</span><input type="number" min="0" max="100" data-path="profiles.{{selectedProfileIndex}}.craftingCore.recipeChance" value="{{selectedProfile.craftingCore.recipeChance}}"></label>
+                          <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.CraftingCore.MinimumRecipes"}}</span><input type="number" min="0" max="10" data-path="profiles.{{selectedProfileIndex}}.craftingCore.recipeMinimum" value="{{selectedProfile.craftingCore.recipeMinimum}}"></label>
+                          <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.CraftingCore.MaximumRecipes"}}</span><input type="number" min="0" max="10" data-path="profiles.{{selectedProfileIndex}}.craftingCore.recipeMaximum" value="{{selectedProfile.craftingCore.recipeMaximum}}"></label>
+                          <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.CraftingCore.PricePercent"}}</span><input type="number" min="0" max="100" data-path="profiles.{{selectedProfileIndex}}.craftingCore.recipePricePercent" value="{{selectedProfile.craftingCore.recipePricePercent}}"></label>
+                        </div>
+                        <p class="hint">{{localize "DND5E_SUPPLIER.CraftingCore.RecipeLevelHint"}}</p>
+                        <div class="supplier-checkbox-grid compact-top">
+                          {{#each craftingCoreRecipeKindOptions}}<label><input type="checkbox" data-array-path="profiles.{{../selectedProfileIndex}}.craftingCore.recipeKinds" value="{{value}}" {{#if checked}}checked{{/if}}><span>{{label}}</span></label>{{/each}}
+                        </div>
+                      </div>
+                    {{/if}}
+                  {{/if}}
+                </section>
+
                 <section class="supplier-card supplier-profile-progression-card">
                   <div class="supplier-card-title-row"><div><h2>{{localize "DND5E_SUPPLIER.Config.ProfileProgression"}}</h2><p>{{localize "DND5E_SUPPLIER.ProfileV2.ProgressionUntouchedHint"}}</p></div></div>
                   <div class="supplier-grid two">
@@ -167,10 +203,15 @@
                               <div class="supplier-dependent-block supplier-v2-guaranteed-config">
                                 <h3>{{localize "DND5E_SUPPLIER.ProfileV2.GuaranteedBehavior"}}</h3>
                                 <div class="supplier-grid three">
-                                  <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.Coverage"}}</span><select data-path="{{path}}.coverage" data-rerender><option value="all" {{#if coverageAll}}selected{{/if}}>{{localize "DND5E_SUPPLIER.ProfileV2.AllEligible"}}</option><option value="pick" {{#if coveragePick}}selected{{/if}}>{{localize "DND5E_SUPPLIER.ProfileV2.PickNEligible"}}</option></select></label>
-                                  <label class="supplier-field"><span>{{#if coverageAll}}{{localize "DND5E_SUPPLIER.ProfileV2.UnitsPerEligibleItem"}}{{else}}{{localize "DND5E_SUPPLIER.ProfileV2.NumberOfPicks"}}{{/if}}</span><input type="number" min="0" step="1" data-path="{{path}}.baseQuantity" value="{{baseQuantity}}"></label>
-                                  <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.PartyScaling"}}</span><select data-path="{{path}}.scaling">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                                  {{#if coveragePick}}<label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.UnitsPerPick"}}</span><input type="number" min="1" step="1" data-path="{{path}}.unitsPerPick" value="{{unitsPerPick}}"></label>{{/if}}
+                                  <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.GuaranteedQuantityPolicy"}}</span><select data-path="{{path}}.quantityMode" data-rerender>{{#each guaranteedQuantityModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                                  {{#unless quantityModePartyTotal}}
+                                    <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.Coverage"}}</span><select data-path="{{path}}.coverage" data-rerender><option value="all" {{#if coverageAll}}selected{{/if}}>{{localize "DND5E_SUPPLIER.ProfileV2.AllEligible"}}</option><option value="pick" {{#if coveragePick}}selected{{/if}}>{{localize "DND5E_SUPPLIER.ProfileV2.PickNEligible"}}</option></select></label>
+                                    <label class="supplier-field"><span>{{#if coverageAll}}{{localize "DND5E_SUPPLIER.ProfileV2.UnitsPerEligibleItem"}}{{else}}{{localize "DND5E_SUPPLIER.ProfileV2.NumberOfPicks"}}{{/if}}</span><input type="number" min="0" step="1" data-path="{{path}}.baseQuantity" value="{{baseQuantity}}"></label>
+                                    <label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.PartyScaling"}}</span><select data-path="{{path}}.scaling">{{#each scalingOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                                    {{#if coveragePick}}<label class="supplier-field"><span>{{localize "DND5E_SUPPLIER.ProfileV2.UnitsPerPick"}}</span><input type="number" min="1" step="1" data-path="{{path}}.unitsPerPick" value="{{unitsPerPick}}"></label>{{/if}}
+                                  {{else}}
+                                    <div class="supplier-quality-note"><i class="fa-solid fa-users"></i><span>{{localize "DND5E_SUPPLIER.ProfileV2.QuantityPartyTotalHint"}}</span></div>
+                                  {{/unless}}
                                 </div>
                                 <label class="supplier-choice-card compact"><input type="checkbox" data-path="{{path}}.respectLevelRange" {{#if respectLevelRange}}checked{{/if}}><span><strong>{{localize "DND5E_SUPPLIER.ProfileV2.LimitGuaranteedByLevel"}}</strong><small>{{localize "DND5E_SUPPLIER.ProfileV2.LimitGuaranteedByLevelHint"}}</small></span></label>
                               </div>

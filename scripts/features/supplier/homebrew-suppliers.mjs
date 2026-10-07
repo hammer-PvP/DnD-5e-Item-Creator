@@ -52,7 +52,7 @@ const STABLE_PREMIUM_MOUNTS = ["warhorse", "mastiff"];
 const STABLE_EXOTIC_MOUNTS = ["elephant"];
 const STABLE_SUPPLY_TERMS = ["saddle", "saddlebags", "saddlebag", "bit and bridle", "bridle", "harness", "feed", "fodder", "barding", "cart", "carriage", "chariot", "sled", "wagon", "animal feed", "stable"];
 
-function commonProfile({ name, sourceIds, accessLevel, presetId, theme, icon, description, groups, rules, scrollStock = null }) {
+function commonProfile({ name, sourceIds, accessLevel, presetId, theme, icon, description, groups, rules, scrollStock = null, craftingCore = null }) {
   return createSupplierProfileV2({
     name,
     sourceIds,
@@ -64,8 +64,23 @@ function commonProfile({ name, sourceIds, accessLevel, presetId, theme, icon, de
     normalizeFirearms: true,
     itemGroups: groups,
     stockRules: rules,
-    scrollStock
+    scrollStock,
+    craftingCore
   });
+}
+
+function craftingCoreIntegration({ products = true, materials = true, recipes = false, recipeKinds = [] } = {}) {
+  return {
+    enabled: true,
+    useProducts: products,
+    useMaterials: materials,
+    useRecipes: recipes,
+    recipeChance: 50,
+    recipeMinimum: 1,
+    recipeMaximum: 2,
+    recipePricePercent: 50,
+    recipeKinds
+  };
 }
 
 function blacksmith({ name, sourceIds, accessLevel }) {
@@ -90,7 +105,7 @@ function blacksmith({ name, sourceIds, accessLevel }) {
     r("materialized", "Materialized Weapons & Armor", { baseGroupIds: [m["Mundane Weapons"], m["Mundane Armor & Shields"]], templateGroupIds: [m["Weapon Materializers"], m["Armor Materializers"]], respectLevelRange: true, baseQuantity: 1, scaling: "halfDown", requireMagicalResult: true }),
     r("materialized", "Enchanted Ammunition", { baseGroupIds: [m["Mundane Ammunition"]], materializationRecipe: "enchanted-ammunition", respectLevelRange: true, baseQuantity: 0, scaling: "thirdDown", requireMagicalResult: true, chance: 50 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "blacksmith", theme: "blacksmith", icon: "fa-solid fa-hammer", description: "Medieval weapons, armor, smithing materials, and compatible magical stock.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "blacksmith", theme: "blacksmith", icon: "fa-solid fa-hammer", description: "Medieval weapons, armor, smithing materials, and compatible magical stock.", groups, rules, craftingCore: craftingCoreIntegration({ products: true, materials: true, recipes: true, recipeKinds: ["equipment-recipe"] }) });
 }
 
 function alchemist({ name, sourceIds, accessLevel }) {
@@ -109,13 +124,13 @@ function alchemist({ name, sourceIds, accessLevel }) {
   ];
   const m = groupMap(groups);
   const rules = [
-    r("guaranteed", "Healing Potions by Level", { groupIds: [m["Healing Potions"]], coverage: "all", respectLevelRange: true, baseQuantity: 1, scaling: "halfDown" }),
+    r("guaranteed", "Healing Potions by Level", { groupIds: [m["Healing Potions"]], coverage: "all", quantityMode: "partyTotal", respectLevelRange: true, baseQuantity: 0, scaling: "none" }),
     r("guaranteed", "Alchemical Tools & Containers", { groupIds: [m["Alchemist & Healer Tools"], m["Vials, Bottles & Containers"], m["Mundane Remedies"]], coverage: "all", respectLevelRange: false, baseQuantity: 0, scaling: "players" }),
     r("random", "Alchemical Preparations", { groupIds: [m["Alchemical Consumables"]], varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "sparse", maximumPicks: 8 }),
     r("random", "Alchemy Reagents", { groupIds: [m["Crafting Alchemy"], m["Alchemical Minerals"], m["Creature Reagents"], m["Creature Fluid Reagents"], m["Botanical Reagents"]], varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "sparse", maximumPicks: 8 }),
     r("random", "Essences", { groupIds: [m["Crafting Essences"]], varietyBase: 0, varietyScaling: "thirdDown", quantityPreset: "sparse", minimumVendorAccess: 2, maximumPicks: 3 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "alchemist", theme: "alchemist", icon: "fa-solid fa-flask", description: "Potions, tools, preparations, reagents, and carefully limited essences.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "alchemist", theme: "alchemist", icon: "fa-solid fa-flask", description: "Potions, tools, preparations, reagents, and carefully limited essences.", groups, rules, craftingCore: craftingCoreIntegration({ products: true, materials: true, recipes: true, recipeKinds: ["alchemy-recipe"] }) });
 }
 
 function herbalist({ name, sourceIds, accessLevel }) {
@@ -134,7 +149,7 @@ function herbalist({ name, sourceIds, accessLevel }) {
     r("random", "Botanical Stock", { groupIds: [m["Herbs & Flora"], m.Roots, m.Fungi, m["Field Forage"]], varietyBase: 3, varietyScaling: "halfDown", quantityPreset: "normal", maximumPicks: 10 }),
     r("random", "Mundane Herbal Remedies", { groupIds: [m["Mundane Herbal Remedies"]], varietyBase: 1, varietyScaling: "thirdDown", quantityPreset: "normal", maximumPicks: 3 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "herbalist", theme: "herbalist", icon: "fa-solid fa-leaf", description: "Herbs, roots, fungi, forage, remedies, and botanical field supplies.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "herbalist", theme: "herbalist", icon: "fa-solid fa-leaf", description: "Herbs, roots, fungi, forage, remedies, and botanical field supplies.", groups, rules, craftingCore: craftingCoreIntegration({ products: false, materials: true, recipes: false }) });
 }
 
 function hunter({ name, sourceIds, accessLevel }) {
@@ -147,7 +162,7 @@ function hunter({ name, sourceIds, accessLevel }) {
   const rules = [
     r("random", "Hunter Stock", { groupIds: [m.Game, m["Animal Harvest"], m["Field Forage"]], varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "normal", maximumPicks: 6 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "hunter", theme: "hunter", icon: "fa-solid fa-paw", description: "A contained, organic stock of recent game, harvests, and occasional field forage.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "hunter", theme: "hunter", icon: "fa-solid fa-paw", description: "A contained, organic stock of recent game, harvests, and occasional field forage.", groups, rules, craftingCore: craftingCoreIntegration({ products: false, materials: true, recipes: false }) });
 }
 
 function butcher({ name, sourceIds, accessLevel }) {
@@ -157,13 +172,19 @@ function butcher({ name, sourceIds, accessLevel }) {
   ];
   const m = groupMap(groups);
   const rules = [r("random", "Butcher Counter", { groupIds: Object.values(m), varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "abundant", maximumPicks: 8 })];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "butcher", theme: "butcher", icon: "fa-solid fa-drumstick-bite", description: "Meat and food-grade animal products with larger organic stacks.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "butcher", theme: "butcher", icon: "fa-solid fa-drumstick-bite", description: "Meat and food-grade animal products with larger organic stacks.", groups, rules, craftingCore: craftingCoreIntegration({ products: false, materials: true, recipes: false }) });
 }
 
 function tavern({ name, sourceIds, accessLevel, presetId, cultures, description, icon }) {
-  const groups = [g("Culinary Products", { itemTypes: ["consumable", "loot"], crafting: { productOnly: true, productCategories: ["culinary"], productCultures: cultures } })];
-  const rules = [r("random", "Meals & Drinks", { groupIds: [groups[0].id], varietyBase: 3, varietyScaling: "halfDown", quantityPreset: "abundant", maximumPicks: 10 })];
-  return commonProfile({ name, sourceIds, accessLevel, presetId, theme: "tavern", icon, description, groups, rules });
+  const groups = [
+    g("Culinary Products", { itemTypes: ["consumable", "loot"], crafting: { productOnly: true, productCategories: ["culinary"], productCultures: cultures } }),
+    g("Culinary Ingredients", { itemTypes: ["loot"], crafting: { materialOnly: true, materialCategories: ["cultivated", "food"] } })
+  ];
+  const rules = [
+    r("random", "Meals & Drinks", { groupIds: [groups[0].id], varietyBase: 3, varietyScaling: "halfDown", quantityPreset: "abundant", maximumPicks: 10 }),
+    r("random", "Kitchen & Pantry Ingredients", { groupIds: [groups[1].id], varietyBase: 1, varietyScaling: "thirdDown", quantityPreset: "normal", maximumPicks: 5 })
+  ];
+  return commonProfile({ name, sourceIds, accessLevel, presetId, theme: "tavern", icon, description, groups, rules, craftingCore: craftingCoreIntegration({ products: true, materials: true, recipes: true, recipeKinds: ["culinary-recipe"] }) });
 }
 
 function magic({ name, sourceIds, accessLevel }) {
@@ -187,7 +208,7 @@ function magic({ name, sourceIds, accessLevel }) {
     r("materialized", "Materialized Magic", { baseGroupIds: [m["Materialization Bases"]], templateGroupIds: [m.Materializers], baseQuantity: 1, scaling: "halfDown", respectLevelRange: true, requireMagicalResult: true }),
     r("random", "Arcane Components", { groupIds: [m.Essences, m["Arcane Materials"]], varietyBase: 1, varietyScaling: "thirdDown", quantityPreset: "sparse", minimumVendorAccess: 2, maximumPicks: 6 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "magic", theme: "magic", icon: "fa-solid fa-wand-magic-sparkles", description: "Arcane supplies, named magic, materialized items, scrolls, and scarce supernatural components.", groups, rules, scrollStock: createScrollStock({ enabled: true, baseQuantity: 1, scaling: "halfDown" }) });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "magic", theme: "magic", icon: "fa-solid fa-wand-magic-sparkles", description: "Arcane supplies, named magic, materialized items, scrolls, and scarce supernatural components.", groups, rules, scrollStock: createScrollStock({ enabled: true, baseQuantity: 1, scaling: "halfDown" }), craftingCore: craftingCoreIntegration({ products: false, materials: true, recipes: false }) });
 }
 
 function general({ name, sourceIds, accessLevel }) {
@@ -205,7 +226,7 @@ function general({ name, sourceIds, accessLevel }) {
     r("guaranteed", "Mundane General Goods", { groupIds: mundane, coverage: "all", respectLevelRange: false, baseQuantity: 0, scaling: "players" }),
     r("random", "Crafting Commodities", { groupIds: [m["Crafting Commodities"]], varietyBase: 2, varietyScaling: "halfDown", quantityPreset: "abundant", maximumPicks: 10 })
   ];
-  return commonProfile({ name, sourceIds, accessLevel, presetId: "general", theme: "general", icon: "fa-solid fa-basket-shopping", description: "Broad mundane adventuring supplies and common crafting commodities.", groups, rules });
+  return commonProfile({ name, sourceIds, accessLevel, presetId: "general", theme: "general", icon: "fa-solid fa-basket-shopping", description: "Broad mundane adventuring supplies and common crafting commodities.", groups, rules, craftingCore: craftingCoreIntegration({ products: false, materials: true, recipes: false }) });
 }
 
 function stable({ name, sourceIds, accessLevel }) {
@@ -245,9 +266,9 @@ export function createHomebrewSupplierProfile({ templateId, accessLevel = "2", n
   if (templateId === "herbalist") return herbalist(args);
   if (templateId === "hunter") return hunter(args);
   if (templateId === "butcher") return butcher(args);
-  if (templateId === "tavern-common") return tavern({ ...args, presetId: templateId, cultures: ["common", "mundane"], icon: "fa-solid fa-utensils", description: "Mundane/Common culinary products. Recipe Knowledge Sources are not included." });
-  if (templateId === "tavern-dwarven") return tavern({ ...args, presetId: templateId, cultures: ["dwarven"], icon: "fa-solid fa-beer-mug-empty", description: "Dwarven culinary products. Recipe Knowledge Sources are not included." });
-  if (templateId === "tavern-elven") return tavern({ ...args, presetId: templateId, cultures: ["elven"], icon: "fa-solid fa-wine-glass", description: "Elven culinary products. Recipe Knowledge Sources are not included." });
+  if (templateId === "tavern-common") return tavern({ ...args, presetId: templateId, cultures: ["common", "mundane"], icon: "fa-solid fa-utensils", description: "Mundane/Common culinary products with optional Crafting Core recipe knowledge and ingredients." });
+  if (templateId === "tavern-dwarven") return tavern({ ...args, presetId: templateId, cultures: ["dwarven"], icon: "fa-solid fa-beer-mug-empty", description: "Dwarven culinary products with optional Crafting Core recipe knowledge and ingredients." });
+  if (templateId === "tavern-elven") return tavern({ ...args, presetId: templateId, cultures: ["elven"], icon: "fa-solid fa-wine-glass", description: "Elven culinary products with optional Crafting Core recipe knowledge and ingredients." });
   if (templateId === "magic") return magic(args);
   if (templateId === "general") return general(args);
   if (templateId === "stable") return stable(args);
