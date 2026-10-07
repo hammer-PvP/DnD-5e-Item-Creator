@@ -35,7 +35,10 @@
       "materializedBaseFloor": "Materialized base-price floor",
       "materializationRecipe": "Materialization recipe price",
       "materializedBasePlusRarity": "Base price plus magical rarity price",
-      "hammerAdamantine": "Base price plus HAMMER adamantine surcharge"
+      "hammerAdamantine": "Base price plus HAMMER adamantine surcharge",
+      "craftingCoreRecipeSource": "Crafting Core Learn Source price",
+      "craftingCoreRecipeFallbackProduct": "Zero-price fallback from linked Product",
+      "craftingCoreRecipeFallbackRarity": "Zero-price configured rarity fallback"
     },
     "Confirm": {
       "Title": "Confirm Supplier Stock",
@@ -706,10 +709,23 @@
       "MinimumRecipes": "Minimum on success",
       "MaximumRecipes": "Maximum on success",
       "PricePercent": "Price (% of Product)",
-      "RecipeLevelHint": "Recipe candidates are filtered by the active Party Level / Rarity progression before the availability roll. The Homebrew preset defaults to a 50% chance for 1–2 distinct Recipes, priced at 50% of their final Product value.",
+      "RecipeLevelHint": "Recipes obey Party Level rarity progression. Equipment Blueprints also obey the selected progression profile’s maximum +0/+1/+2/+3 tier; Vendor Access never bypasses that ceiling.",
       "EquipmentRecipes": "Equipment Blueprints",
       "AlchemyRecipes": "Alchemy Recipes",
-      "CulinaryRecipes": "Culinary Recipes"
+      "CulinaryRecipes": "Culinary Recipes",
+      "ZeroPriceFallbackPercent": "Zero-price fallback %",
+      "ZeroPriceFallbackPercentHint": "Used only when the published Learn Source price is exactly 0.",
+      "SourcePriceAuthorityHint": "A non-zero price published on the Crafting Core Learn Source is used unchanged. Supplier fallback pricing runs only when that source price is 0.",
+      "RecipeCategoryWeights": "Recipe Category Weights",
+      "RecipeCategoryWeightsHint": "Selection first chooses a category by these weights, then a distinct recipe inside it. Equal weights prevent ammunition from dominating just because it has more documents. Set a category to 0 to disable it.",
+      "WeightWeapon": "Weapons",
+      "WeightArmor": "Armor",
+      "WeightShield": "Shields",
+      "WeightAmmunition": "Ammunition",
+      "WeightAlchemy": "Alchemy",
+      "WeightInscription": "Inscriptions",
+      "WeightCulinary": "Culinary",
+      "WeightOther": "Other"
     }
   }
 }

@@ -833,6 +833,36 @@ function priceFromCopper(copper, { origin = "materialized" } = {}) {
   return { value: total, denomination: "cp", origin };
 }
 
+function craftingProductTierNumber(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const match = raw.match(/-?\d+/);
+  const numeric = Number(match?.[0] ?? 0);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(3, Math.floor(Math.abs(numeric)))) : 0;
+}
+
+function craftingRecipeCategory(entry) {
+  const kind = String(entry?.craftingCuratedKind ?? "");
+  const category = normalizeText(entry?.craftingProductCategory ?? "");
+  const subcategory = normalizeText(entry?.craftingProductSubcategory ?? "");
+  if (kind === "equipment-recipe") {
+    if (["weapon", "armor", "shield", "ammunition"].includes(subcategory)) return subcategory;
+    return "other";
+  }
+  if (kind === "alchemy-recipe") {
+    if (category === "inscription" || subcategory.startsWith("inscription")) return "inscription";
+    return "alchemy";
+  }
+  if (kind === "culinary-recipe") return "culinary";
+  return "other";
+}
+
+function craftingRecipeCategoryWeight(integration, category) {
+  const weights = integration?.recipeCategoryWeights ?? {};
+  const value = Number(weights?.[category] ?? weights?.other ?? 1);
+  return Number.isFinite(value) ? Math.max(0, value) : 1;
+}
+
 function craftingCoreRecipeProductEntry(pick, catalog) {
   const productId = String(pick?.entry?.craftingProductId ?? "");
   if (!productId) return null;
@@ -843,14 +873,41 @@ function craftingCoreRecipeProductEntry(pick, catalog) {
   ) ?? null;
 }
 
-function craftingCoreRecipePrice(pick, catalog, configuration) {
-  const product = craftingCoreRecipeProductEntry(pick, catalog);
-  if (!product) {
-    throw new Error(`Crafting Core Recipe '${pick?.entry?.name ?? "Unknown"}' has no matching Product for productId '${pick?.entry?.craftingProductId ?? ""}'.`);
+async function craftingCoreRecipePrice(pick, catalog, configuration, documentData = null) {
+  // The published Learn Source is the commercial authority for its own price.
+  // Supplier must not reverse-engineer the result Product when Crafting Core
+  // has already assigned a non-zero Knowledge price.
+  const sourceValue = Number(foundry.utils.getProperty(documentData, "system.price.value") ?? pick?.entry?.priceValue ?? 0);
+  const sourceDenomination = String(foundry.utils.getProperty(documentData, "system.price.denomination") ?? pick?.entry?.priceDenomination ?? "gp");
+  if (Number.isFinite(sourceValue) && sourceValue > 0) {
+    return { value: sourceValue, denomination: sourceDenomination, origin: "craftingCoreRecipeSource" };
   }
-  const productPrice = resolvePrice(product, catalog, configuration);
+
+  // Only zero-priced Learn Sources invoke Supplier fallback pricing. Prefer the
+  // exact linked Product; if that linkage is unavailable, use the active
+  // progression's explicit rarity fallback rather than silently inventing a
+  // different result Item.
   const percent = Math.max(0, Math.min(100, Number(pick?.recipePricePercent ?? 50) || 0));
-  return priceFromCopper(priceInCopper(productPrice) * (percent / 100), { origin: "craftingCoreRecipe" });
+  const product = craftingCoreRecipeProductEntry(pick, catalog);
+  if (product) {
+    let productPrice = null;
+    try {
+      const productDocument = await loadItemDocument(product);
+      const productData = productDocument?.toObject?.() ?? productDocument;
+      const value = Number(foundry.utils.getProperty(productData, "system.price.value") ?? 0);
+      if (Number.isFinite(value) && value > 0) {
+        productPrice = {
+          value,
+          denomination: foundry.utils.getProperty(productData, "system.price.denomination") ?? product.priceDenomination ?? "gp",
+          origin: "official"
+        };
+      }
+    } catch (_error) { /* Fall through to indexed/fallback price. */ }
+    productPrice ??= resolvePrice(product, catalog, configuration);
+    return priceFromCopper(priceInCopper(productPrice) * (percent / 100), { origin: "craftingCoreRecipeFallbackProduct" });
+  }
+
+  return { ...fallbackPrice(configuration, pick?.entry?.craftingProductRarity ?? pick?.entry?.rarity ?? "none"), origin: "craftingCoreRecipeFallbackRarity" };
 }
 
 function isHammerHomebrewPricing(configuration) {
@@ -1590,7 +1647,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
 
   const craftingCoreRecipe = pick.ruleType === "craftingCoreRecipeV2";
   if (craftingCoreRecipe) {
-    price = craftingCoreRecipePrice(pick, catalog, configuration);
+    price = await craftingCoreRecipePrice(pick, catalog, configuration, documentData);
     foundry.utils.setProperty(documentData, "system.price", {
       value: Math.max(0, Number(price.value) || 0),
       denomination: price.denomination || "gp"
@@ -1778,6 +1835,10 @@ function v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries = 
     const group = groupsById.get(groupId);
     if (!group?.enabled) continue;
     for (const entry of v2GroupEntries(group, profileEntries)) {
+      // Learn Sources are knowledge merchandise, never ordinary weapons, ammo,
+      // consumables, or guaranteed stock. They may only be consumed through a
+      // deliberate knowledgeOnly group or the Crafting Core Recipe pipeline.
+      if (entry.craftingKnowledgeRecipeId && group?.crafting?.knowledgeOnly !== true) continue;
       if (!v2RuleAllowsEntry(entry, group, rule, configuration, profile, level)) continue;
       addWeighted(entry, group);
     }
@@ -1862,6 +1923,40 @@ function v2ChooseDistinct(pool, count, rule, level, profile, configuration) {
   return chosen;
 }
 
+function v2ChooseDistinctCraftingRecipes(pool, count, rule, level, profile, configuration, integration) {
+  const available = [...pool];
+  const chosen = [];
+  while (chosen.length < count && available.length) {
+    const buckets = new Map();
+    for (const entry of available) {
+      const category = craftingRecipeCategory(entry);
+      const rows = buckets.get(category) ?? [];
+      rows.push(entry);
+      buckets.set(category, rows);
+    }
+    const categoryOptions = [...buckets.entries()]
+      .map(([category, entries]) => ({ category, entries, weight: craftingRecipeCategoryWeight(integration, category) }))
+      .filter(option => option.entries.length && option.weight > 0);
+    if (!categoryOptions.length) break;
+    const total = categoryOptions.reduce((sum, option) => sum + option.weight, 0);
+    let roll = Math.random() * total;
+    let selectedCategory = categoryOptions.at(-1);
+    for (const option of categoryOptions) {
+      roll -= option.weight;
+      if (roll <= 0) { selectedCategory = option; break; }
+    }
+    const entry = weightedEntryChoice(selectedCategory.entries, { maxPerFamily: 0 }, level, profile, configuration)
+      ?? randomChoice(selectedCategory.entries);
+    if (!entry) break;
+    chosen.push(entry);
+    const selectedKey = canonicalKey(entry);
+    for (let index = available.length - 1; index >= 0; index -= 1) {
+      if (canonicalKey(available[index]) === selectedKey) available.splice(index, 1);
+    }
+  }
+  return chosen;
+}
+
 function v2PartyTotalDistribution(pool, budget, rule, level, profile, configuration) {
   const total = Math.max(0, Math.floor(Number(budget) || 0));
   const counts = new Map();
@@ -1901,6 +1996,13 @@ function craftingCoreRecipePool({ profile, profileEntries, configuration, level 
     if (!entry.craftingKnowledgeRecipeId || entry.craftingKnowledgePublished !== true) continue;
     if (!kinds.has(String(entry.craftingCuratedKind ?? ""))) continue;
     if (!v2RuleAllowsEntry(entry, virtualGroup, virtualRule, configuration, profile, level, { skipGroupMatch: true })) continue;
+    // Equipment recipe tier is a hard Party Level gate independent of Vendor
+    // Access. Access may improve availability inside the unlocked bracket, but
+    // it can never make a +2/+3 Blueprint legal early.
+    if (String(entry.craftingCuratedKind ?? "") === "equipment-recipe") {
+      const tier = craftingProductTierNumber(entry.craftingProductTier);
+      if (tier > maxEnhancementForLevel(configuration, level)) continue;
+    }
     byKey.set(canonicalKey(entry), entry);
   }
   return [...byKey.values()];
@@ -2159,7 +2261,7 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       const minimum = Math.max(0, Math.floor(Number(craftingCoreIntegration.recipeMinimum ?? 1) || 0));
       const maximum = Math.max(minimum, Math.floor(Number(craftingCoreIntegration.recipeMaximum ?? 2) || minimum));
       const requested = randomBetween(minimum, maximum);
-      const selected = v2ChooseDistinct(recipePool, requested, recipeRule, level, profile, configuration);
+      const selected = v2ChooseDistinctCraftingRecipes(recipePool, requested, recipeRule, level, profile, configuration, craftingCoreIntegration);
       for (const entry of selected) {
         picks.push({
           entry, enhancement: 0, units: 1, rule: recipeRule, ruleType: "craftingCoreRecipeV2", profile,

@@ -177,7 +177,7 @@ const FIREARM_SUPPLY_TERMS = [
 // grenade launcher is not a medieval crossbow/ammunition replacement.
 const ADVANCED_TECHNOLOGY_TERMS = [
   "grenade", "grenades", "grenade-launcher", "fragmentation-grenade", "smoke-grenade",
-  "dynamite", "explosive-charge", "explosive", "modern-firearm", "automatic-rifle",
+  "bomb", "bombs", "dynamite", "explosive-charge", "explosive", "modern-firearm", "automatic-rifle",
   "laser-pistol", "laser-rifle", "antimatter-rifle"
 ];
 
@@ -938,6 +938,14 @@ export async function buildCatalog({ force = false, configurationOverride = null
       entry.craftingProductRarity = productRarity;
       entry.rarity = productRarity;
     }
+    // The linked Product is authoritative for progression metadata. Some
+    // Learn Sources intentionally omit productRarity while others may carry
+    // stale/partial flags after a curated-catalog refresh. Keep the Knowledge
+    // document identity and price, but resolve its result category/tier from
+    // the current canonical Product.
+    entry.craftingProductTier = String(product.craftingProductTier ?? entry.craftingProductTier ?? "");
+    entry.craftingProductCategory = String(product.craftingProductCategory ?? entry.craftingProductCategory ?? "");
+    entry.craftingProductSubcategory = String(product.craftingProductSubcategory ?? entry.craftingProductSubcategory ?? "");
   }
 
   rawEntries.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));

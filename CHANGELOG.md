@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.2b — Recipe Authority, Tier Gates & Knowledge Isolation
+
+- Changed Crafting Core Recipe/Blueprint pricing to **source-price authority**. When a published Learn Source has `system.price.value > 0`, Supplier copies that exact price and denomination unchanged. Supplier no longer re-derives a second price from the linked Product in that case.
+- Reinterpreted the profile's Recipe percentage as a **zero-price fallback only**. When the Learn Source price is exactly `0`, Supplier resolves the exact linked Product and applies the configured percentage (Homebrew default 50%). If the Product cannot be resolved, the selected progression's configured rarity fallback is used rather than guessing a different result Item.
+- Added a hard **Equipment Recipe Product Tier** gate. `productTier` (+0/+1/+2/+3) from the canonical Crafting Core Product is resolved onto its Learn Source and compared with the active Party Level enhancement ceiling before the Recipe enters the lottery. Vendor Access cannot bypass this ceiling.
+- Preserved the existing Recipe availability behavior: Homebrew remains **50% chance → 1–2 distinct knowledge items**. The patch changes eligibility/price authority, not the validated frequency model.
+- Added structural **Learn Source isolation**. Published Crafting Core Learn Sources cannot enter ordinary weapon, armor, ammunition, consumable, guaranteed, or random Item Groups unless the group is explicitly configured as `knowledgeOnly`. This prevents cases such as `Blueprint — Arrows ×6`; Crafting Core knowledge normally enters only through the Recipe/Blueprint pipeline and always uses quantity 1.
+- Added configurable **Recipe Category Weights** to every Supplier Profile. Selection chooses a weighted category first and then a distinct Recipe inside it, preventing a large ammunition catalog from dominating the knowledge lottery merely because it has more documents. Homebrew defaults all categories to equal weight; the same controls are available on a Blank Profile.
+- Crafting Core Product metadata enrichment now carries authoritative Product rarity, category, subcategory, and tier back onto the matching Learn Source before Supplier eligibility checks.
+- Expanded medieval technology filtering to include Bomb/Bombs alongside grenades, grenade launchers, dynamite, and modern explosives when firearm normalization is active for medieval presets.
+- Bumped Supplier configuration schema to **26**. Existing profiles preserve their Recipe chance/min/max and percentage; the percentage now applies only to zero-priced Learn Sources. Missing Recipe category weights receive neutral `1.0` defaults without overwriting custom profile rules.
+- Blank Profiles can manually reproduce the same Crafting Core knowledge policy as Homebrew: integration toggle, Recipe kinds, 50% chance, 1–2 range, category weights, zero-price fallback percentage, and selected progression profile. No Homebrew-only Recipe logic is required by the generator.
+- This remains a **candidate build**. The separate Published Item edit/save integrity blocker is unchanged.
+
 ## 0.8.2a — Supplier Rotation, Canonical Stock & Blueprint Preflight
 
 - Reworked the Homebrew **Blacksmith** mundane stock model so weapons and armor use bounded rotating selections instead of `coverage: all × party size`. Mundane ammunition moved to an organic rotation, so Arrow/Bolt/Needle/Sling Bullet families remain valid merchandise without being guaranteed together in every vendor.

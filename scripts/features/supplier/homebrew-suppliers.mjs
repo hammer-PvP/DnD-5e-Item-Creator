@@ -78,7 +78,11 @@ function craftingCoreIntegration({ products = true, materials = true, recipes = 
     recipeChance: 50,
     recipeMinimum: 1,
     recipeMaximum: 2,
+    // Only used when a published Learn Source has price 0.
     recipePricePercent: 50,
+    // Equal category weights prevent a category with many documents (notably
+    // ammunition) from dominating the 1–2 knowledge slots.
+    recipeCategoryWeights: { weapon: 1, armor: 1, shield: 1, ammunition: 1, alchemy: 1, inscription: 1, culinary: 1, other: 1 },
     recipeKinds
   };
 }

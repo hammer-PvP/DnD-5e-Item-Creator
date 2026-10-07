@@ -200,6 +200,21 @@ function migrateProfileV25(profile = {}) {
   return migrated;
 }
 
+function migrateProfileV26(profile = {}) {
+  const migrated = foundry.utils.deepClone(profile ?? {});
+  const integration = migrated.craftingCore;
+  if (!integration) return migrated;
+  // v0.8.2b makes Learn Source price authoritative and turns the historical
+  // percentage field into the zero-price fallback percentage. Existing 50%
+  // configurations remain valid without rewriting user choices.
+  integration.recipePricePercent = Math.max(0, Math.min(100, Number(integration.recipePricePercent ?? 50) || 0));
+  integration.recipeCategoryWeights ??= {
+    weapon: 1, armor: 1, shield: 1, ammunition: 1,
+    alchemy: 1, inscription: 1, culinary: 1, other: 1
+  };
+  return migrated;
+}
+
 export function syncActiveProgression(configuration) {
   configuration.progressionProfiles = arrayValue(configuration.progressionProfiles);
   let active = configuration.progressionProfiles.find(profile => profile.id === configuration.activeProgressionProfileId);
@@ -253,6 +268,7 @@ function migrateConfiguration(stored) {
       let migrated = profile;
       if (Number(stored?.version ?? 0) < 24) migrated = migrateProfileV24(migrated);
       if (Number(stored?.version ?? 0) < 25) migrated = migrateProfileV25(migrated);
+      if (Number(stored?.version ?? 0) < 26) migrated = migrateProfileV26(migrated);
       return normalizeSupplierProfileV2(migrated);
     });
   } else {

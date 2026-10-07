@@ -22,6 +22,18 @@ Item Creator is a unified GM toolkit for creating, normalizing, progressing, pub
 
 The native Foundry and D&D5e Create Item workflow remains available and is not intercepted.
 
+## v0.8.2b — Recipe Authority, Tier Gates & Knowledge Isolation
+
+Crafting Core Learn Sources now own their displayed sale price. If the published Recipe/Blueprint already has a non-zero D&D5e price, Supplier uses that value unchanged. The profile's percentage is only a **zero-price fallback**: when the Learn Source price is 0, Supplier resolves the exact linked Product and applies the configured percentage (Homebrew default 50%).
+
+Equipment knowledge now has two independent Party Level gates before entering the Recipe lottery: the linked Product rarity must be legal for the selected progression, and its curated `productTier` (+0/+1/+2/+3) must not exceed that progression's enhancement ceiling. Vendor Access changes availability inside the legal bracket but never unlocks a higher tier.
+
+Learn Sources are isolated from ordinary stock. A Blueprint can no longer leak into ammunition/consumable groups and receive party-scaled quantities; knowledge normally enters through the Crafting Core Recipe pipeline and therefore keeps quantity 1. The validated Homebrew frequency remains **50% chance / 1–2 distinct**.
+
+Recipe selection is category-balanced. Profiles expose weights for Weapons, Armor, Shields, Ammunition, Alchemy, Inscriptions, Culinary, and Other. The Supplier first chooses a category by those weights and then a distinct Recipe inside it, so ammunition does not dominate simply because Crafting Core contains many Arrow/Bolt/Needle variants. Equal `1.0` weights are the Homebrew default and are fully configurable on a Blank Profile.
+
+The same Recipe behavior is reproducible manually from a Blank Profile: enable Crafting Core, select Recipe kinds, configure chance/min/max/category weights/zero-price fallback, then choose the desired progression profile. The preset does not rely on hidden Homebrew-only Recipe rules.
+
 ## v0.8.2a — Supplier Rotation, Canonical Stock & Blueprint Preflight
 
 The Homebrew Blacksmith now generates a bounded rotating mundane catalog instead of selling every eligible weapon, armor, shield, and ammunition family multiplied by Party Size. Weapons and armor select a limited assortment; mundane ammunition rotates through eligible Arrow/Bolt/Needle/Sling Bullet families with organic stack quantities. The same ammunition families remain valid Crafting Core Blueprints, but Blueprint knowledge continues to use the normal **50% chance / 1–2 distinct / Party Level × Rarity** rotation rather than guaranteed slots.

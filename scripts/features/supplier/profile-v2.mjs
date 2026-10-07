@@ -165,7 +165,20 @@ export function createCraftingCoreIntegration(overrides = {}) {
     recipeChance: Math.max(0, Math.min(100, number(source.recipeChance, 50))),
     recipeMinimum: minimum,
     recipeMaximum: maximum,
+    // Source Learn Source price is always authoritative when > 0. This
+    // percentage is consulted only when the published Recipe/Blueprint price
+    // is exactly zero and the Supplier must fall back to its linked Product.
     recipePricePercent: Math.max(0, Math.min(100, number(source.recipePricePercent, 50))),
+    recipeCategoryWeights: {
+      weapon: Math.max(0, number(source.recipeCategoryWeights?.weapon, 1)),
+      armor: Math.max(0, number(source.recipeCategoryWeights?.armor, 1)),
+      shield: Math.max(0, number(source.recipeCategoryWeights?.shield, 1)),
+      ammunition: Math.max(0, number(source.recipeCategoryWeights?.ammunition, 1)),
+      alchemy: Math.max(0, number(source.recipeCategoryWeights?.alchemy, 1)),
+      inscription: Math.max(0, number(source.recipeCategoryWeights?.inscription, 1)),
+      culinary: Math.max(0, number(source.recipeCategoryWeights?.culinary, 1)),
+      other: Math.max(0, number(source.recipeCategoryWeights?.other, 1))
+    },
     recipeKinds: strings(source.recipeKinds)
   };
 }
