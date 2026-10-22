@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.3 — Supplier Knowledge Rotation P0 (Candidate)
+
+- **Fixed the firearm-normalization alias leak**: the legacy medieval-ammunition replacement path bypassed standard Item Group matching and could reintroduce Crafting Core Learn Sources such as `Blueprint — Arrows` as ordinary ammunition stock. Curated Knowledge is now excluded from normalized input candidates, the candidate aliases, the bypassed Item Group path, and generic materialization targets.
+- Added a defensive **single-lottery routing rule** for Crafting Core Learn Sources when the Profile's Recipe integration is enabled. Any knowledge items introduced by other Stock Rules are removed before the configured knowledge roll. Explicit `knowledgeOnly` groups remain available in profiles without the automatic Recipe integration.
+- Introduced a pure, reusable **category-diverse knowledge selector**. The existing Profile category weights remain authoritative; category choices do not scale with document count, and the second Recipe prefers an eligible category not already chosen. Arrow/Bolt/Needle/Sling Bullet Blueprints remain valid candidates, but do not take both knowledge slots when other categories are available.
+- Kept the validated **50% appearance chance, 1–2 distinct Recipes, source-price authority and tier/rarity progression** unchanged. No Homebrew-only special rule was added; Blank Profiles use the same generator.
+- Extended Supplier diagnostics: raw curated count, filtered count by reason (profile/access/progression and enhancement tier), final eligible counts per category, category selection trace, selected Knowledge names/UUIDs, any suppressed alternate stock routes, and warnings about Blueprint-looking results from unrelated sources.
+- Extended `auditSupplierStock()` with a count of successful knowledge rolls, vendors receiving ammunition knowledge, and total Recipe selections by category.
+- **No profile schema migration:** configuration schema 26 is preserved. No changes to Firearms World Settings, Magic Assortment, Access I–IV, Spell Factory, Materialization Core or Published Item edit/save behavior. The separate Published Item integrity blocker remains open.
+
+
 ## 0.8.2b — Recipe Authority, Tier Gates & Knowledge Isolation
 
 - Changed Crafting Core Recipe/Blueprint pricing to **source-price authority**. When a published Learn Source has `system.price.value > 0`, Supplier copies that exact price and denomination unchanged. Supplier no longer re-derives a second price from the linked Product in that case.

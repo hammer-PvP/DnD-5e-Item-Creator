@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.8.2a";
-export const MODULE_STAGE = "Supplier Rotation, Canonical Stock & Blueprint Preflight";
+export const MODULE_VERSION = "0.8.3";
+export const MODULE_STAGE = "Supplier Knowledge Rotation P0";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },

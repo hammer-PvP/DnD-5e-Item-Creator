@@ -1,3 +1,4 @@
+import { curatedKnowledgeCategory, knowledgeCategoryCounts, rotateCuratedKnowledge } from "./recipe-rotation.mjs";
 import { CRAFTING_CORE_MODULE_ID, CRAFTING_CORE_PACKS, MODULE_ID, SUPPLIER_FOLDER_COLOR, SUPPLIER_FOLDER_NAME } from "./constants.mjs";
 import {
   ammunitionFamilyKey,
@@ -841,22 +842,6 @@ function craftingProductTierNumber(value) {
   return Number.isFinite(numeric) ? Math.max(0, Math.min(3, Math.floor(Math.abs(numeric)))) : 0;
 }
 
-function craftingRecipeCategory(entry) {
-  const kind = String(entry?.craftingCuratedKind ?? "");
-  const category = normalizeText(entry?.craftingProductCategory ?? "");
-  const subcategory = normalizeText(entry?.craftingProductSubcategory ?? "");
-  if (kind === "equipment-recipe") {
-    if (["weapon", "armor", "shield", "ammunition"].includes(subcategory)) return subcategory;
-    return "other";
-  }
-  if (kind === "alchemy-recipe") {
-    if (category === "inscription" || subcategory.startsWith("inscription")) return "inscription";
-    return "alchemy";
-  }
-  if (kind === "culinary-recipe") return "culinary";
-  return "other";
-}
-
 function craftingRecipeCategoryWeight(integration, category) {
   const weights = integration?.recipeCategoryWeights ?? {};
   const value = Number(weights?.[category] ?? weights?.other ?? 1);
@@ -1670,6 +1655,7 @@ async function buildPreviewLine(pick, catalog, configuration, { profileEntries =
     price,
     documentData,
     generationKind: craftingCoreRecipe ? "craftingCoreRecipe" : (pick.enhancement > 0 && !pick.entry.isMagical ? "enhanced" : "copy"),
+    knowledgeCategory: craftingCoreRecipe ? curatedKnowledgeCategory(pick.entry) : "",
     documentNature: pick.enhancement > 0 && !pick.entry.isMagical ? "materializer" : "sellable",
     materializerKind: pick.enhancement > 0 && !pick.entry.isMagical ? "enhancement" : "",
     enhancement: pick.enhancement || 0,
@@ -1766,21 +1752,28 @@ function v2GroupEntries(group, entries) {
   return [...byKey.values()];
 }
 
+function v2IsCuratedKnowledge(entry) {
+  return Boolean(entry?.craftingKnowledgeRecipeId || entry?.packId === CRAFTING_CORE_PACKS.knowledge);
+}
+
 function v2IsCrossbowReplacement(entry) {
-  if (entry?.type !== "weapon" || isFirearmRelated(entry) || entry?.isMagical) return false;
+  if (v2IsCuratedKnowledge(entry) || isMaterializerItem(entry)
+    || entry?.type !== "weapon" || isFirearmRelated(entry) || entry?.isMagical) return false;
   const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
   return identity.includes("crossbow");
 }
 
 function v2IsMedievalAmmunitionReplacement(entry) {
-  if (!isAmmunitionEntry(entry) || isFirearmRelated(entry) || entry?.isMagical) return false;
+  if (v2IsCuratedKnowledge(entry) || isMaterializerItem(entry)
+    || !isAmmunitionEntry(entry) || isFirearmRelated(entry) || entry?.isMagical) return false;
   const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.baseItem ?? ""}`);
   return ["arrow", "bolt", "needle"].some(term => identity.includes(term));
 }
 
 function v2NormalizedGroupAliases(group, rawEntries, normalizedEntries, profile) {
   if (profile?.normalizeFirearms !== true) return [];
-  const matchedFirearms = rawEntries.filter(entry => !isAdvancedTechnologyEntry(entry) && isFirearmRelated(entry) && itemGroupMatchesEntry(group, entry));
+  const matchedFirearms = rawEntries.filter(entry => !v2IsCuratedKnowledge(entry)
+    && !isAdvancedTechnologyEntry(entry) && isFirearmRelated(entry) && itemGroupMatchesEntry(group, entry));
   if (!matchedFirearms.length) return [];
 
   const wantsWeapons = matchedFirearms.some(isFirearmEntry);
@@ -1838,7 +1831,8 @@ function v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries = 
       // Learn Sources are knowledge merchandise, never ordinary weapons, ammo,
       // consumables, or guaranteed stock. They may only be consumed through a
       // deliberate knowledgeOnly group or the Crafting Core Recipe pipeline.
-      if (entry.craftingKnowledgeRecipeId && group?.crafting?.knowledgeOnly !== true) continue;
+      if ((entry.craftingKnowledgeRecipeId || entry.packId === CRAFTING_CORE_PACKS.knowledge)
+        && group?.crafting?.knowledgeOnly !== true) continue;
       if (!v2RuleAllowsEntry(entry, group, rule, configuration, profile, level)) continue;
       addWeighted(entry, group);
     }
@@ -1847,6 +1841,11 @@ function v2CombinedPool({ rule, groupsById, profileEntries, rawProfileEntries = 
     // replacement family. This preserves Homebrew intent without creating one
     // crossbow lottery ticket per firearm document in the source pack.
     for (const entry of v2NormalizedGroupAliases(group, rawProfileEntries, profileEntries, profile)) {
+      // Aliases skip normal Item Group matching, so knowledge isolation must
+      // also be enforced *here*. Without this guard "Blueprint — Arrows"
+      // could masquerade as a mundane ammo alias when firearm normalization
+      // was enabled, bypassing the 50% / 1–2 knowledge policy.
+      if (v2IsCuratedKnowledge(entry)) continue;
       if (!v2RuleAllowsEntry(entry, group, rule, configuration, profile, level, { skipGroupMatch: true })) continue;
       addWeighted(entry, group);
     }
@@ -1924,37 +1923,13 @@ function v2ChooseDistinct(pool, count, rule, level, profile, configuration) {
 }
 
 function v2ChooseDistinctCraftingRecipes(pool, count, rule, level, profile, configuration, integration) {
-  const available = [...pool];
-  const chosen = [];
-  while (chosen.length < count && available.length) {
-    const buckets = new Map();
-    for (const entry of available) {
-      const category = craftingRecipeCategory(entry);
-      const rows = buckets.get(category) ?? [];
-      rows.push(entry);
-      buckets.set(category, rows);
-    }
-    const categoryOptions = [...buckets.entries()]
-      .map(([category, entries]) => ({ category, entries, weight: craftingRecipeCategoryWeight(integration, category) }))
-      .filter(option => option.entries.length && option.weight > 0);
-    if (!categoryOptions.length) break;
-    const total = categoryOptions.reduce((sum, option) => sum + option.weight, 0);
-    let roll = Math.random() * total;
-    let selectedCategory = categoryOptions.at(-1);
-    for (const option of categoryOptions) {
-      roll -= option.weight;
-      if (roll <= 0) { selectedCategory = option; break; }
-    }
-    const entry = weightedEntryChoice(selectedCategory.entries, { maxPerFamily: 0 }, level, profile, configuration)
-      ?? randomChoice(selectedCategory.entries);
-    if (!entry) break;
-    chosen.push(entry);
-    const selectedKey = canonicalKey(entry);
-    for (let index = available.length - 1; index >= 0; index -= 1) {
-      if (canonicalKey(available[index]) === selectedKey) available.splice(index, 1);
-    }
-  }
-  return chosen;
+  return rotateCuratedKnowledge(pool, count, {
+    categoryOf: curatedKnowledgeCategory,
+    categoryWeight: category => craftingRecipeCategoryWeight(integration, category),
+    chooseWithinCategory: entries => weightedEntryChoice(entries, { maxPerFamily: 0 }, level, profile, configuration)
+      ?? randomChoice(entries),
+    identityOf: canonicalKey
+  });
 }
 
 function v2PartyTotalDistribution(pool, budget, rule, level, profile, configuration) {
@@ -1971,7 +1946,7 @@ function v2PartyTotalDistribution(pool, budget, rule, level, profile, configurat
   return [...counts.values()];
 }
 
-function craftingCoreRecipePool({ profile, profileEntries, configuration, level }) {
+function craftingCoreRecipePool({ profile, profileEntries, configuration, level, poolAudit = null }) {
   const integration = profile?.craftingCore;
   if (integration?.enabled !== true || integration.useRecipes === false) return [];
   if (game.modules.get(CRAFTING_CORE_MODULE_ID)?.active !== true) return [];
@@ -1995,13 +1970,23 @@ function craftingCoreRecipePool({ profile, profileEntries, configuration, level 
     if (entry.packId !== CRAFTING_CORE_PACKS.knowledge) continue;
     if (!entry.craftingKnowledgeRecipeId || entry.craftingKnowledgePublished !== true) continue;
     if (!kinds.has(String(entry.craftingCuratedKind ?? ""))) continue;
-    if (!v2RuleAllowsEntry(entry, virtualGroup, virtualRule, configuration, profile, level, { skipGroupMatch: true })) continue;
+    const category = curatedKnowledgeCategory(entry);
+    if (poolAudit) {
+      poolAudit.sourceByCategory[category] = (poolAudit.sourceByCategory[category] ?? 0) + 1;
+    }
+    if (!v2RuleAllowsEntry(entry, virtualGroup, virtualRule, configuration, profile, level, { skipGroupMatch: true })) {
+      if (poolAudit) poolAudit.rejectedByProfile[category] = (poolAudit.rejectedByProfile[category] ?? 0) + 1;
+      continue;
+    }
     // Equipment recipe tier is a hard Party Level gate independent of Vendor
     // Access. Access may improve availability inside the unlocked bracket, but
     // it can never make a +2/+3 Blueprint legal early.
     if (String(entry.craftingCuratedKind ?? "") === "equipment-recipe") {
       const tier = craftingProductTierNumber(entry.craftingProductTier);
-      if (tier > maxEnhancementForLevel(configuration, level)) continue;
+      if (tier > maxEnhancementForLevel(configuration, level)) {
+        if (poolAudit) poolAudit.rejectedByTier[category] = (poolAudit.rejectedByTier[category] ?? 0) + 1;
+        continue;
+      }
     }
     byKey.set(canonicalKey(entry), entry);
   }
@@ -2246,9 +2231,28 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
   }
 
   const craftingCoreIntegration = profile.craftingCore ?? {};
+  // World compendium Learn Sources participate in ONE knowledge lottery when
+  // Crafting Core integration is enabled. This also closes legacy/explicit
+  // stock-rule routes that could create an additional knowledge slot.
   if (craftingCoreIntegration.enabled === true && craftingCoreIntegration.useRecipes !== false) {
-    const recipePool = craftingCoreRecipePool({ profile, profileEntries, configuration, level });
+    const removedKnowledgePicks = [];
+    for (let index = picks.length - 1; index >= 0; index -= 1) {
+      const entry = picks[index]?.entry;
+      if (entry?.packId !== CRAFTING_CORE_PACKS.knowledge && !entry?.craftingKnowledgeRecipeId) continue;
+      removedKnowledgePicks.push({ name: entry?.name ?? "", rule: picks[index]?.rule?.name ?? "", route: picks[index]?.ruleType ?? "" });
+      picks.splice(index, 1);
+    }
+    diagnostics.craftingCore.suppressedOtherKnowledgeRoutes = removedKnowledgePicks;
+
+    const poolAudit = { sourceByCategory: {}, rejectedByProfile: {}, rejectedByTier: {} };
+    const recipePool = craftingCoreRecipePool({ profile, profileEntries, configuration, level, poolAudit });
     diagnostics.craftingCore.recipePool = recipePool.length;
+    diagnostics.craftingCore.poolAudit = poolAudit;
+    diagnostics.craftingCore.eligibleByCategory = knowledgeCategoryCounts(recipePool);
+    diagnostics.craftingCore.recipeIdentitiesSample = recipePool.slice(0, 20).map(entry => ({
+      name: entry.name, category: curatedKnowledgeCategory(entry), tier: entry.craftingProductTier,
+      rarity: entry.rarity, productId: entry.craftingProductId, uuid: entry.uuid
+    }));
     const recipeRule = {
       id: `crafting-core-recipes-${profile.id}`,
       name: "Crafting Core Recipes / Blueprints",
@@ -2258,10 +2262,14 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       minimumVendorAccess: 0, maximumVendorAccess: 0, maxPerFamily: 0
     };
     if (recipePool.length && rulePassesChance(recipeRule)) {
+      diagnostics.craftingCore.availabilityPassed = true;
       const minimum = Math.max(0, Math.floor(Number(craftingCoreIntegration.recipeMinimum ?? 1) || 0));
       const maximum = Math.max(minimum, Math.floor(Number(craftingCoreIntegration.recipeMaximum ?? 2) || minimum));
       const requested = randomBetween(minimum, maximum);
-      const selected = v2ChooseDistinctCraftingRecipes(recipePool, requested, recipeRule, level, profile, configuration, craftingCoreIntegration);
+      const rotation = v2ChooseDistinctCraftingRecipes(recipePool, requested, recipeRule, level, profile, configuration, craftingCoreIntegration);
+      const selected = rotation.selected;
+      diagnostics.craftingCore.selectedByCategory = rotation.categoryPicks;
+      diagnostics.craftingCore.rotationTrace = rotation.iterations;
       for (const entry of selected) {
         picks.push({
           entry, enhancement: 0, units: 1, rule: recipeRule, ruleType: "craftingCoreRecipeV2", profile,
@@ -2273,6 +2281,7 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       diagnostics.craftingCore.recipesSelected = selected.length;
       diagnostics.rules.push({ id: recipeRule.id, name: recipeRule.name, type: "craftingCoreRecipe", pool: recipePool.length, selected: selected.length, chance: recipeRule.chance, minimum, maximum });
     } else {
+      diagnostics.craftingCore.availabilityPassed = false;
       diagnostics.rules.push({ id: recipeRule.id, name: recipeRule.name, type: "craftingCoreRecipe", pool: recipePool.length, selected: 0, chance: recipeRule.chance });
     }
   }
@@ -2313,7 +2322,8 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
     diagnostics.rules.push({ id: scrollRule.id, name: scrollRule.name, type: "scroll", pool: inspection.count, selected: selected.length });
   }
 
-  const materializationTargets = profileEntries.filter(entry => !isMaterializerItem(entry) && !isMechanicalItem(entry));
+  const materializationTargets = profileEntries.filter(entry => !v2IsCuratedKnowledge(entry)
+    && !isMaterializerItem(entry) && !isMechanicalItem(entry));
   const lines = [];
   for (const pick of picks) {
     try {
@@ -2353,6 +2363,18 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
       warnings.push(error.message);
     }
   }
+
+  // P0 regression telemetry: a curated knowledge sale must be attributable to
+  // the single Crafting Core selection rule. Keep the cause of any external
+  // Blueprint-looking result visible rather than deleting magic materializers.
+  diagnostics.craftingCore.knowledgePreview = lines
+    .filter(line => line?.generationKind === "craftingCoreRecipe"
+      || line?.sourceUuid?.includes(CRAFTING_CORE_PACKS.knowledge))
+    .map(line => ({ name: line.name, category: line.knowledgeCategory ?? "", route: line.ruleType,
+      rule: line.ruleName, source: line.sourceUuid, quantity: line.quantity }));
+  diagnostics.craftingCore.suspectedOtherBlueprintResults = lines
+    .filter(line => line?.generationKind !== "craftingCoreRecipe" && /^blueprint\s*[—–-]/i.test(String(line?.name ?? "")))
+    .map(line => ({ name: line.name, route: line.ruleType, rule: line.ruleName, source: line.sourceUuid }));
 
   const stacked = new Map();
   for (const line of lines) {
@@ -2460,6 +2482,15 @@ export async function auditSupplierStock({ profile, level = 1, players = 4, runs
     summary.rerolls += Number(result.diagnostics?.rerolls?.length ?? 0);
     for (const [rarity, count] of Object.entries(result.diagnostics?.byRarity ?? {})) {
       summary.byRarity[rarity] = Number(summary.byRarity[rarity] ?? 0) + Number(count ?? 0);
+    }
+    const selectedKnowledge = result.diagnostics?.craftingCore?.selectedByCategory ?? {};
+    summary.knowledgeRunsWithRecipes ??= 0;
+    summary.knowledgeRunsWithAmmunition ??= 0;
+    summary.knowledgeSelectedByCategory ??= {};
+    if (Object.values(selectedKnowledge).some(count => Number(count) > 0)) summary.knowledgeRunsWithRecipes += 1;
+    if (Number(selectedKnowledge.ammunition ?? 0) > 0) summary.knowledgeRunsWithAmmunition += 1;
+    for (const [category, count] of Object.entries(selectedKnowledge)) {
+      summary.knowledgeSelectedByCategory[category] = Number(summary.knowledgeSelectedByCategory[category] ?? 0) + Number(count);
     }
     for (const [kind, count] of Object.entries(result.diagnostics?.byGenerationKind ?? {})) {
       summary.byGenerationKind[kind] = Number(summary.byGenerationKind[kind] ?? 0) + Number(count ?? 0);
