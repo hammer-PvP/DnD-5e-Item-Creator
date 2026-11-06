@@ -861,6 +861,10 @@ function cleanTemplateDescription(item) {
     node.remove();
     removed += 1;
   }
+  for (const node of Array.from(host.querySelectorAll('section.secret, .secret'))) {
+    const label = String(node.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (/^Foundry Note/i.test(label) || /configured with the additional properties of/i.test(label)) node.remove();
+  }
   return host.innerHTML.trim();
 }
 

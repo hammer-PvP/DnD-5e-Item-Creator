@@ -1575,6 +1575,195 @@ function composeGrantedSpellcastingText(data, draft) {
   data.system.description.chat = appendGeneratedSection(currentChat, chatSection);
 }
 
+
+function stripGeneratedSections(html, keys = []) {
+  return valuesOf(keys).reduce((value, key) => stripGeneratedSection(value, key), String(html ?? "")).trim();
+}
+
+function recoveryPeriodLabel(period) {
+  return {
+    dawn: "Dawn",
+    dusk: "Dusk",
+    sr: "Short Rest",
+    lr: "Long Rest",
+    shortRest: "Short Rest",
+    longRest: "Long Rest",
+    day: "Day"
+  }[String(period ?? "")] ?? titleCase(String(period || "recharge"));
+}
+
+function recoverySummaryFromArray(recovery = [], max = "") {
+  const entry = valuesOf(recovery)[0] ?? null;
+  if (!entry) return "No recharge.";
+  const period = recoveryPeriodLabel(entry.period);
+  if (entry.type === "recoverAll") return `It regains all expended uses on ${period}.`;
+  const amount = humanizeFormula(entry.formula || max || "1");
+  return `It regains ${amount} expended ${Number(max) === 1 ? "use" : "uses"} on ${period}.`;
+}
+
+function depletionPolicySentence(policy, subject = "item") {
+  const normalized = normalizeDepletionPolicy(policy);
+  if (normalized.mode === "destroy") return `If the last charge is expended, the ${subject} is destroyed.`;
+  if (normalized.mode !== "test") return "Nothing happens automatically when the last charge is expended.";
+  if (normalized.test === "d20") return `If the last charge is expended, roll a d20. On ${normalized.target}, the ${subject} is destroyed.`;
+  if (normalized.test === "ability") return `If the last charge is expended, make a ${abilityLabel(normalized.ability)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
+  if (normalized.test === "skill") return `If the last charge is expended, make a ${skillLabel(normalized.skill)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
+  const tool = String(normalized.tool || "the configured tool").trim();
+  return `If the last charge is expended, make a ${escapeHtml(tool)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
+}
+
+function sharedChargeSummary(config = {}) {
+  const maximum = Math.max(1, Math.floor(Number(config.max) || 1));
+  const amount = humanizeFormula(config.recoveryFormula || String(maximum));
+  const period = recoveryPeriodLabel(config.recoveryPeriod);
+  return {
+    badge: `${maximum} charge${maximum === 1 ? "" : "s"}`,
+    text: config.recoveryPeriod && config.recoveryPeriod !== "none"
+      ? `This item has ${maximum} charges. It regains ${amount} expended charges on ${period}, up to its maximum of ${maximum}.`
+      : `This item has ${maximum} charges and does not recharge automatically.`
+  };
+}
+
+function grantedSpellIntro(spells = []) {
+  const availability = new Set(spells.map(spell => String(spell?.availability || "equipped")));
+  if (availability.size === 1) {
+    const only = [...availability][0];
+    if (only === "owned") return "While you possess this item, you can cast the following spells through it.";
+    if (only === "equippedAttuned") return "While this item is equipped and you are attuned to it, you can cast the following spells through it.";
+    return "While this item is equipped, you can cast the following spells through it.";
+  }
+  return "This item grants access to the following spells and spell activities.";
+}
+
+function spellChargeUsageSummary(spell, draft) {
+  const mode = inferredChargeMode(spell);
+  const cost = Math.max(1, Math.floor(Number(spell?.chargeCost) || 1));
+  if (mode === "shared" && draft?.chargeConfig?.enabled) return `${cost} shared charge${cost === 1 ? "" : "s"}`;
+  if (mode === "separate") {
+    const max = Math.max(1, Math.floor(Number(spell?.maxUses) || 1));
+    const period = recoveryPeriodLabel(spell?.separateRecoveryPeriod ?? (spell?.recovery === "shortRest" ? "sr" : "lr"));
+    const formula = String(spell?.separateRecoveryFormula ?? "all").trim().toLowerCase();
+    const recharge = formula === "all" ? `recharges fully on ${period}` : `regains ${humanizeFormula(formula)} uses on ${period}`;
+    return `${cost} use${cost === 1 ? "" : "s"} per cast · ${max} max · ${recharge}`;
+  }
+  if (spell?.useLimit === "limited") return `${useCountPhrase(spell.maxUses)} per ${spell.recovery === "shortRest" ? "Short Rest" : "Long Rest"}`;
+  return spell?.consumeSlot && Number(spell?.level) > 0 ? "Consumes a compatible spell slot" : "At will";
+}
+
+function spellMechanicsSummary(spell) {
+  const pieces = [];
+  const level = Number(spell?.level) || 0;
+  if (level === 0) pieces.push("Cantrip");
+  else if (spell?.castLevelMode === "fixed") pieces.push(`Cast at ${ordinalLevel(Number(spell?.fixedCastLevel) || level)}`);
+  else if (spell?.castLevelMode === "slot") pieces.push("Cast using slot level");
+  else pieces.push(`Cast at ${ordinalLevel(level)}`);
+  if (spell?.availability === "owned") pieces.push("While owned");
+  else if (spell?.availability === "equippedAttuned") pieces.push("While equipped and attuned");
+  else pieces.push("While equipped");
+  if (!spell?.exposeAsActivity && spell?.showInSpellbook) pieces.push("Shown in spellbook");
+  return pieces.join(" · ");
+}
+
+function filterDescriptiveProperties(entries = [], draft) {
+  const genericLabels = new Set(["Magical Weapon", "Magical Equipment", "Magical Tool"]);
+  const spellNames = new Set((draft?.enhancementValues?.grantedSpellcasting?.spells ?? []).map(spell => String(spell?.name || "").trim()).filter(Boolean));
+  return entries.filter(entry => {
+    const label = String(entry?.label || "").trim();
+    const value = String(entry?.value || "").trim();
+    if (!label || !value) return false;
+    if (genericLabels.has(label)) return false;
+    if (spellNames.has(label) && /spell activity/i.test(value)) return false;
+    return true;
+  });
+}
+
+function groupedEntriesByAvailability(entries = []) {
+  const groupOrder = ["item", "consumableUse", "owned", "equipped", "equippedAttuned"];
+  return groupOrder.map(availability => ({
+    availability,
+    label: availabilityTitle(availability),
+    entries: entries.filter(entry => (entry.availability || "item") === availability)
+  })).filter(group => group.entries.length);
+}
+
+function unifiedPropertyGroupsHtml(entries = [], draft) {
+  const filtered = filterDescriptiveProperties(entries, draft);
+  const groups = groupedEntriesByAvailability(filtered);
+  if (!groups.length) return "";
+  return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-properties"><h3>Magical Properties</h3>${groups.map(group => `<div class="item-creator-unified-subsection"><h4>${escapeHtml(group.label)}</h4><ul>${group.entries.map(entry => `<li><strong>${escapeHtml(entry.label)}.</strong> ${escapeHtml(entry.value)}</li>`).join("")}</ul></div>`).join("")}</section>`;
+}
+
+function unifiedGrantedSpellcastingHtml(draft) {
+  if (!draft?.enhancements?.grantedSpellcasting) return "";
+  const spells = draft?.enhancementValues?.grantedSpellcasting?.spells ?? [];
+  if (!spells.length) return "";
+  const cards = spells.map(spell => {
+    const usage = spellChargeUsageSummary(spell, draft);
+    const details = spellMechanicsSummary(spell);
+    const slot = !spell.exposeAsActivity && spell.consumeSlot && Number(spell.level) > 0
+      ? `Requires ${ordinalLevel(Math.max(1, Number(spell.fixedCastLevel) || Number(spell.level) || 1))} or higher spell slot.`
+      : "Does not expend a spell slot.";
+    const eligibility = spell.eligibility === "spellLevelAccess"
+      ? eligibilitySentence(spell)
+      : spell.eligibility === "compatibleSlot" ? eligibilitySentence(spell) : "";
+    const spellcasting = spellcastingSentence(spell);
+    const lines = [slot, eligibility, spellcasting].filter(Boolean).map(line => `<p>${escapeHtml(line)}</p>`).join("");
+    return `<article class="item-creator-unified-feature"><header><h4>${spellReference(spell)}</h4><span class="item-creator-inline-badge">${escapeHtml(usage)}</span></header><div class="item-creator-feature-meta">${escapeHtml(details)}</div>${lines}</article>`;
+  }).join("");
+  return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-spellcasting"><h3>Granted Spellcasting</h3><p>${escapeHtml(grantedSpellIntro(spells))}</p>${cards}</section>`;
+}
+
+function unifiedChargeSectionHtml(draft) {
+  if (draft?.chargeConfig?.enabled !== true) return "";
+  const summary = sharedChargeSummary(draft.chargeConfig);
+  const depletion = depletionPolicySentence(draft.chargeConfig.depletion, "item");
+  return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-charges"><h3>Charges & Recharge</h3><div class="item-creator-unified-callout"><strong>${escapeHtml(summary.badge)}</strong><p>${escapeHtml(summary.text)}</p></div><div class="item-creator-unified-warning"><strong>Charge Depletion.</strong> ${escapeHtml(depletion)}</div></section>`;
+}
+
+function unifiedLevelProgressionHtml(draft) {
+  const groups = levelProgressionEntries(draft);
+  if (!groups.length) return "";
+  const body = groups.map(group => `<article class="item-creator-progression-group"><h4>${escapeHtml(group.label)}</h4><ul>${group.lines.map(line => `<li><strong>Level ${line.level}.</strong> ${escapeHtml(line.value)}</li>`).join("")}</ul></article>`).join("");
+  return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-progression"><h3>Level Progression</h3>${body}</section>`;
+}
+
+function composeUnifiedGeneratedDescription(data, draft) {
+  data.system ??= {};
+  data.system.description ??= {};
+  const existingValue = stripGeneratedSections(data.system.description.value, [
+    "item-properties", "granted-spellcasting", "level-progression", "item-creator-unified-properties",
+    "item-creator-unified-spellcasting", "item-creator-unified-charges", "item-creator-unified-progression"
+  ]);
+  const sections = [
+    unifiedChargeSectionHtml(draft),
+    unifiedGrantedSpellcastingHtml(draft),
+    unifiedPropertyGroupsHtml(itemPropertyEntries(draft), draft),
+    unifiedLevelProgressionHtml(draft)
+  ].filter(Boolean).join("");
+  data.system.description.value = sections ? appendGeneratedSection(existingValue, sections) : existingValue;
+}
+
+function composeUnifiedChatDescription(data, draft) {
+  data.system ??= {};
+  data.system.description ??= {};
+  const lines = compactChatSummaryLines(draft);
+  if (draft?.chargeConfig?.enabled) lines.unshift(sharedChargeSummary(draft.chargeConfig).text);
+  for (const spell of draft?.enhancementValues?.grantedSpellcasting?.spells ?? []) {
+    lines.push(`${spell.name || "Granted Spell"}: ${spellChargeUsageSummary(spell, draft)}.`);
+  }
+  const unique = [];
+  const seen = new Set();
+  for (const line of lines) {
+    const text = String(line ?? "").trim();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    unique.push(text);
+  }
+  data.system.description.chat = unique.length
+    ? `<div class="item-creator-chat-summary">${unique.map(line => `<p><strong>${escapeHtml(line)}</strong></p>`).join("")}</div>`
+    : '<div class="item-creator-chat-summary"></div>';
+}
+
 export class ItemCreatorItemBuilder {
   static async build(draft) {
     const built = draft?.itemType === "equipment" ? await this.#buildEquipment(draft)
@@ -1822,13 +2011,11 @@ export class ItemCreatorItemBuilder {
       })
     };
 
-    composeItemPropertiesText(data, draft);
-    composeLevelProgressionText(data, draft);
-    composeGrantedSpellcastingText(data, draft);
+    composeUnifiedGeneratedDescription(data, draft);
 
     // Validate using one fresh D&D5e Item document. The constructor performs preparation.
     // Calling prepareData again, or reusing a previously prepared source, causes `_index` redefinition errors.
-    composeCompactChatDescription(data, draft);
+    composeUnifiedChatDescription(data, draft);
     const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
@@ -1978,11 +2165,9 @@ export class ItemCreatorItemBuilder {
       })
     };
 
-    composeItemPropertiesText(data, draft);
-    composeLevelProgressionText(data, draft);
-    composeGrantedSpellcastingText(data, draft);
+    composeUnifiedGeneratedDescription(data, draft);
 
-    composeCompactChatDescription(data, draft);
+    composeUnifiedChatDescription(data, draft);
     const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());
@@ -2131,11 +2316,9 @@ export class ItemCreatorItemBuilder {
       })
     };
 
-    composeItemPropertiesText(data, draft);
-    composeLevelProgressionText(data, draft);
-    composeGrantedSpellcastingText(data, draft);
+    composeUnifiedGeneratedDescription(data, draft);
 
-    composeCompactChatDescription(data, draft);
+    composeUnifiedChatDescription(data, draft);
     const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());

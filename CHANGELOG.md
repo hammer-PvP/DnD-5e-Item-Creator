@@ -1,20 +1,24 @@
 # Changelog
 
-## 0.8.5 — Shared Charges & Materializer Source Authority (Candidate)
+## 0.8.5.1 — Description Generator Polish
 
 ### Added
-- Native shared Item Uses pool with configurable maximum and recovery.
-- Granted Spell and composed Activity resource modes: none/shared/separate.
-- Per-resource configurable depletion behaviors: none, destroy, conditional roll (d20, ability, skill, tool).
-- Runtime exhaustion hook with deduplicated positive-to-zero detection, Chat feedback, and owned Actor Item deletion on configured outcome.
+- Unified generated description layout for weapons, equipment, and tools.
+- Dedicated **Charges & Recharge** section with pool summary and depletion rule text.
+- Dedicated **Granted Spellcasting** section with per-spell charge cost / use summary.
+- Dedicated **Magical Properties** and **Level Progression** sections in a consistent visual format.
 
-### Corrected
-- Priority-source authority for equivalent items, preventing merged representation across different source versions.
-- Generic base compatibility via eligible `@UUID` references for enchantment templates.
-- Preservation and ID remapping of dependent Rider Activity effects when materializing templates.
+### Improved
+- Generated item descriptions now favor a single coherent rules presentation instead of separate fragmented blocks.
+- Shared-charge spells no longer present themselves as generic **At will** text in the description.
+- Chat summary now includes charge-pool and granted-spell usage summaries.
+- Template-description cleanup now removes inherited technical **Foundry Note** sections when present.
 
 ### Preserved
-- Supplier v0.8.4 firearms filtering, Recipes and pricing, and existing consumable handling.
+- Shared Charges behavior from v0.8.5.
+- Materializer source-authority fixes from v0.8.5.
+- Supplier and firearms-filter behavior from v0.8.4/v0.8.5.
 
 ### Out of scope
-- Source Manager UI overhaul; Published Item edit/save integrity bug.
+- Source Manager screen reduction / category filtering.
+- Published Item edit/save investigation.
