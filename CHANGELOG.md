@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.4 — Global Firearm & Modern Ammunition World Policy (Candidate)
+
+- Added GM-only World Setting **Allow Firearms & Modern Ammunition** (default OFF) inside Item Creator Configuration. One switch covers all Supplier Profiles, including existing Homebrew and Blank Profiles, without modifying their saved configuration.
+- Globally excludes firearm weapons, modern ammunition/supplies, energy cells and advanced technological weapons/explosives before the Supplier item pool is built, including normalized aliases, template groups and materialization base pools.
+- Crafting Core Learn Sources inherit the related Product technology classification, so Recipe names and missing subtype metadata cannot bypass the world rule.
+- Preserved legitimate medieval **Sling Bullets / Bullets of Sling**, Arrows, Bolts, and Needles, even when a generic bullet-name heuristic might otherwise reject them.
+- Added global-policy state to Supplier diagnostics; existing profile-level **Normalize Firearms** remains distinct and becomes relevant only when firearms are allowed globally.
+- No progression, 50% / 1–2 knowledge, price authority, Access, or Magic Assortment balancing changes in this release.
+
+
 ## 0.8.3 — Supplier Knowledge Rotation P0 (Candidate)
 
 - **Fixed the firearm-normalization alias leak**: the legacy medieval-ammunition replacement path bypassed standard Item Group matching and could reintroduce Crafting Core Learn Sources such as `Blueprint — Arrows` as ordinary ammunition stock. Curated Knowledge is now excluded from normalized input candidates, the candidate aliases, the bypassed Item Group path, and generic materialization targets.

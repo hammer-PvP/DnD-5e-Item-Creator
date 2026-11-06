@@ -14,6 +14,7 @@ import {
   isFirearmAmmunition,
   isFirearmSupply,
   isFirearmRelated,
+  isGloballyRestrictedTechnology,
   isGeneratorItem,
   isMaterializerItem,
   isMechanicalItem,
@@ -30,7 +31,7 @@ import {
   vendorAccessAllowsEntry,
   vendorAccessWeight
 } from "./availability.mjs";
-import { getConfiguration } from "./settings.mjs";
+import { getConfiguration, supplierAllowsFirearms } from "./settings.mjs";
 import {
   SUPPLIER_PROFILE_SCHEMA_VERSION,
   itemGroupMatchesEntry,
@@ -2060,7 +2061,8 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
   const catalog = await buildCatalog({ configurationOverride: worldConfiguration });
   if (!catalog.entries.length) throw new Error(game.i18n.localize("DND5E_SUPPLIER.Errors.NoCatalog"));
 
-  const rawProfileEntries = entriesForProfile(catalog, profile, worldConfiguration);
+  const rawProfileEntries = entriesForProfile(catalog, profile, worldConfiguration)
+    .filter(entry => !isGloballyRestrictedTechnology(entry));
   let profileEntries = v2NormalizeFirearmEntries(rawProfileEntries, profile);
   if (!profileEntries.length) throw new Error(game.i18n.localize("DND5E_SUPPLIER.Errors.NoProfileCatalog"));
 
@@ -2082,6 +2084,7 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
     commercialDeduplications: [],
     rerolls: [],
     firearmNormalization: profile.normalizeFirearms === true,
+    globalAllowFirearms: supplierAllowsFirearms(),
     craftingCore: {
       enabled: profile.craftingCore?.enabled === true,
       moduleActive: game.modules.get(CRAFTING_CORE_MODULE_ID)?.active === true,
@@ -2339,6 +2342,11 @@ async function generateStockV2({ profile, level, players, logDiagnostics = true,
         ? v2CombinedPool({ rule: stockRule, groupsById, profileEntries, rawProfileEntries, configuration, profile, level, ids: stockRule.baseGroupIds })
         : pick.ruleType === "materializedV2" ? [] : materializationTargets;
       const line = await buildPreviewLineWithFallback(pick, catalog, configuration, profileEntries, targets, level, warnings, diagnostics);
+      if (isGloballyRestrictedTechnology(pick.entry)) {
+        diagnostics.restrictedTechnologyAfterSelection ??= [];
+        diagnostics.restrictedTechnologyAfterSelection.push({ source: pick.entry?.uuid, rule: pick.rule?.name });
+        continue;
+      }
       lines.push(line);
       if (line?.materialization?.blueprintUuid || line?.blueprintSourceUuid) {
         diagnostics.materializations.push({

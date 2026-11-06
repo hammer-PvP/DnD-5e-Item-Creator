@@ -1,5 +1,5 @@
 import { CRAFTING_CORE_MODULE_ID, CRAFTING_CORE_PACKS, MODULE_ID } from "./constants.mjs";
-import { getConfiguration } from "./settings.mjs";
+import { getConfiguration, supplierAllowsFirearms } from "./settings.mjs";
 import {
   hasMaterializationRecipe,
   inspectBlueprintSupport,
@@ -163,12 +163,13 @@ const FIREARM_AMMUNITION_TERMS = [
   "firearm-ammunition", "firearm-bullet", "firearm-bullets", "pistol-ammunition", "pistol-bullet", "pistol-bullets",
   "musket-ammunition", "musket-ball", "musket-balls", "cartridge", "cartridges", "shotgun-shell", "shotgun-shells",
   "municao-de-arma-de-fogo", "bala-de-pistola", "balas-de-pistola", "bala-de-mosquete", "balas-de-mosquete",
-  "cartucho", "cartuchos"
+  "cartucho", "cartuchos", "energy-cell", "energy-cells", "power-cell", "power-cells", "battery-cell", "battery-cells",
+  "celula-de-energia", "celulas-de-energia"
 ];
 
 const FIREARM_SUPPLY_TERMS = [
   "gunpowder", "gun-powder", "powder-horn", "powder-keg", "smokepowder", "smoke-powder",
-  "polvora", "chifre-de-polvora", "barril-de-polvora"
+  "polvora", "chifre-de-polvora", "barril-de-polvora", "energy-cell", "energy-cells", "power-cell", "power-cells"
 ];
 
 // Modern/industrial technology that broad medieval merchant groups must not
@@ -178,7 +179,7 @@ const FIREARM_SUPPLY_TERMS = [
 const ADVANCED_TECHNOLOGY_TERMS = [
   "grenade", "grenades", "grenade-launcher", "fragmentation-grenade", "smoke-grenade",
   "bomb", "bombs", "dynamite", "explosive-charge", "explosive", "modern-firearm", "automatic-rifle",
-  "laser-pistol", "laser-rifle", "antimatter-rifle"
+  "laser-pistol", "laser-rifle", "antimatter-rifle", "energy-cell", "energy-cells", "power-cell", "power-cells"
 ];
 
 let catalogCache = null;
@@ -357,14 +358,27 @@ export function firearmClassification(entry) {
   const properties = new Set((entry?.properties ?? []).map(value => normalizeText(value).replaceAll("-", "")));
   const subtypeKeys = new Set(entry?.subtypeKeys ?? [entry?.primarySubtypeKey].filter(Boolean));
   const hasFirearmProperty = properties.has("fir") || properties.has("firearm");
-  const firearmWeapon = type === "weapon" && (hasFirearmProperty || includesNormalizedTerm(entry, FIREARM_WEAPON_TERMS));
-  const slingAmmunition = includesNormalizedTerm(entry, ["sling-bullet", "sling-bullets", "bala-de-funda", "balas-de-funda"]);
+  const subtype = normalizeText(entry?.subtype ?? entry?.primarySubtypeKey ?? "");
+  const ammunitionType = normalizeText(entry?.ammunitionType ?? "");
+  const productTaxonomy = normalizeText(`${entry?.craftingProductCategory ?? ""} ${entry?.craftingProductSubcategory ?? ""}`);
+  const firearmTaxonomy = /(?:^|-)(?:firearm|firearms|gun|guns|gunsmith|modern-weapon)(?:-|$)/.test(productTaxonomy);
+  const modernAmmunitionType = /(?:^|-)(?:firearm|bullet|bullets|cartridge|cartridges|energy|laser|modern)(?:-|$)/.test(ammunitionType);
+  const firearmWeapon = type === "weapon" && (hasFirearmProperty || subtype === "firearm" || firearmTaxonomy || includesNormalizedTerm(entry, FIREARM_WEAPON_TERMS));
+  const slingIdentity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""} ${entry?.craftingProductId ?? ""}`);
+  // Some Crafting Core Learn Sources are named "Blueprint — Bullets of Sling".
+  // A generic "bullet" heuristic must never reclassify medieval sling ammo.
+  const slingAmmunition = includesNormalizedTerm(entry, ["sling-bullet", "sling-bullets", "bala-de-funda", "balas-de-funda"])
+    || /(?:^|-)(?:bullet|bullets)(?:-|)(?:of-)?sling(?:-|$)/.test(slingIdentity)
+    || /(?:^|-)sling(?:-|)(?:bullet|bullets)(?:-|$)/.test(slingIdentity);
+  const explicitlyModernAmmo = includesNormalizedTerm(entry, FIREARM_AMMUNITION_TERMS);
+  const identity = normalizeText(`${entry?.identifier ?? ""} ${entry?.name ?? ""}`);
+  const standaloneBullet = /(?:^|-)(?:bullet|bullets|bala|balas)(?:-|$)/.test(identity);
   const firearmAmmunition = ["consumable", "loot", "equipment"].includes(type)
-    && subtypeKeys.has("ammunition")
     && !slingAmmunition
-    && (includesNormalizedTerm(entry, FIREARM_AMMUNITION_TERMS)
-      || includesNormalizedTerm(entry, FIREARM_WEAPON_TERMS)
-      || includesNormalizedTerm(entry, ["bullet", "bullets", "bala", "balas"]));
+    && (modernAmmunitionType || firearmTaxonomy || explicitlyModernAmmo
+      || standaloneBullet
+      || ((subtypeKeys.has("ammunition") || subtype === "ammunition")
+        && includesNormalizedTerm(entry, FIREARM_WEAPON_TERMS)));
   const firearmSupply = includesNormalizedTerm(entry, FIREARM_SUPPLY_TERMS);
   return {
     firearmWeapon,
@@ -397,7 +411,14 @@ export function isAdvancedTechnologyEntry(entry) {
   // alias pass (musket/pistol -> medieval crossbow families). Advanced
   // explosives/launchers are different: they are excluded rather than
   // translated into an unrelated medieval product.
-  return includesNormalizedTerm(entry, ADVANCED_TECHNOLOGY_TERMS);
+  return entry.isAdvancedTechnology === true || includesNormalizedTerm(entry, ADVANCED_TECHNOLOGY_TERMS);
+}
+
+/** Applied to source variants before merge, so an identically named ordinary
+ * item is not incorrectly banned with its firearm counterpart. This World
+ * policy never rewrites documents or Supplier Profiles. */
+export function isGloballyRestrictedTechnology(entry, allowFirearms = supplierAllowsFirearms()) {
+  return !allowFirearms && (isFirearmRelated(entry) || isAdvancedTechnologyEntry(entry));
 }
 
 export function isNaturalSupplierEntry(entry) {
@@ -785,6 +806,10 @@ export async function buildCatalog({ force = false, configurationOverride = null
         identifier: foundry.utils.getProperty(record, "system.identifier") ?? "",
         baseItem: foundry.utils.getProperty(record, "system.type.baseItem") ?? "",
         properties,
+        subtype,
+        ammunitionType: foundry.utils.getProperty(record, "system.ammunition.type") ?? "",
+        craftingProductCategory: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productCategory") ?? "",
+        craftingProductSubcategory: foundry.utils.getProperty(record, "flags.dnd5e-crafting-core.productSubcategory") ?? "",
         primarySubtypeKey,
         subtypeKeys: primarySubtypeKey ? [primarySubtypeKey] : [],
         armorCategory,
@@ -829,6 +854,7 @@ export async function buildCatalog({ force = false, configurationOverride = null
         priceValue: Number(foundry.utils.getProperty(record, "system.price.value") ?? 0),
         priceDenomination: foundry.utils.getProperty(record, "system.price.denomination") ?? "gp",
         properties,
+        ammunitionType: foundry.utils.getProperty(record, "system.ammunition.type") ?? "",
         enhancement,
         isMagical: variantInfo ? true : generatorRule ? generatorRule.magical === true : isMagical,
         isCursed: isCursedRecord(record),
@@ -946,6 +972,11 @@ export async function buildCatalog({ force = false, configurationOverride = null
     entry.craftingProductTier = String(product.craftingProductTier ?? entry.craftingProductTier ?? "");
     entry.craftingProductCategory = String(product.craftingProductCategory ?? entry.craftingProductCategory ?? "");
     entry.craftingProductSubcategory = String(product.craftingProductSubcategory ?? entry.craftingProductSubcategory ?? "");
+    // A Learn Source often has type=loot with no firearm metadata of its own.
+    // Inherit its linked Product's classification, so the World rule cannot
+    // be bypassed through Crafting Core knowledge or similarly named Recipes.
+    entry.isFirearmRelated = entry.isFirearmRelated === true || product.isFirearmRelated === true;
+    entry.isAdvancedTechnology = isAdvancedTechnologyEntry(product);
   }
 
   rawEntries.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
@@ -989,6 +1020,7 @@ export function entriesForProfile(catalog, profile, configuration = getConfigura
   const sourceIds = new Set(profile?.sourceIds ?? []);
   for (const id of craftingCorePackIdsForProfile(profile)) sourceIds.add(id);
   const sourceSnapshot = profile?.sourceSnapshot === true;
+  const allowFirearms = supplierAllowsFirearms();
   const entries = [];
   for (const group of catalog.grouped.values()) {
     const variants = group.filter(entry => {
@@ -996,6 +1028,7 @@ export function entriesForProfile(catalog, profile, configuration = getConfigura
       if (!includeBanned && isBannedEntry(entry, profile, configuration)) return false;
       if (!includeMechanical && isMechanicalItemExcluded(entry, profile, configuration)) return false;
       if (isNaturalSupplierEntry(entry)) return false;
+      if (isGloballyRestrictedTechnology(entry, allowFirearms)) return false;
       return true;
     });
     const merged = mergeEntryGroup(variants);

@@ -19,6 +19,10 @@
         <input type="checkbox" name="supplierEnabled" {{#if supplierEnabled}}checked{{/if}}>
         <span><strong>Enable Supplier Tools</strong><small>Add the separate Supplier button to the World Items Directory and make its configuration available.</small></span>
       </label>
+      <label class="ic-settings-toggle">
+        <input type="checkbox" name="supplierAllowFirearms" {{#if supplierAllowFirearms}}checked{{/if}}>
+        <span><strong>Allow Firearms &amp; Modern Ammunition — World Rule</strong><small>OFF by default. Excludes firearm weapons, bullets, energy cells, related modern supplies and linked Recipes from every Supplier profile. Medieval sling bullets remain available. Existing profile settings are preserved.</small></span>
+      </label>
       {{#if supplierEnabled}}
       <button type="button" data-action="configure-supplier"><i class="fa-solid fa-store"></i> Configure Supplier</button>
       {{else}}

@@ -9,6 +9,7 @@ import {
   RECOMMENDED_PROGRESSION_ID,
   SUPPLIER_CONFIGURATION_KEY,
   SUPPLIER_ENABLED_KEY,
+  SUPPLIER_ALLOW_FIREARMS_KEY,
   createDefaultSettings,
   createHammerHomebrewProgressionProfile,
   createRecommendedProgressionProfile
@@ -25,12 +26,25 @@ export function registerSupplierSettings() {
     default: false
   });
 
+  game.settings.register(MODULE_ID, SUPPLIER_ALLOW_FIREARMS_KEY, {
+    name: "Allow Firearms & Modern Ammunition",
+    hint: "World-wide Supplier policy. When disabled, firearm weapons, modern ammunition, technological supplies and their Crafting Core Recipes are excluded from all Supplier profiles.",
+    scope: "world",
+    config: false,
+    type: Boolean,
+    default: false
+  });
+
   game.settings.register(MODULE_ID, SUPPLIER_CONFIGURATION_KEY, {
     scope: "world",
     config: false,
     type: Object,
     default: createDefaultSettings()
   });
+}
+
+export function supplierAllowsFirearms() {
+  return game.settings.get(MODULE_ID, SUPPLIER_ALLOW_FIREARMS_KEY) === true;
 }
 
 export function isSupplierEnabled() {

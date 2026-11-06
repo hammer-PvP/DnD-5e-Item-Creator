@@ -8,11 +8,13 @@ import {
   saveMaterializationSettings
 } from "../core/materialization/pricing.mjs";
 import {
-  SUPPLIER_ENABLED_KEY
+  SUPPLIER_ENABLED_KEY,
+  SUPPLIER_ALLOW_FIREARMS_KEY
 } from "../features/supplier/constants.mjs";
 import {
   initializeDefaultSources,
-  isSupplierEnabled
+  isSupplierEnabled,
+  supplierAllowsFirearms
 } from "../features/supplier/settings.mjs";
 import { clearCatalogCache } from "../features/supplier/catalog.mjs";
 
@@ -44,6 +46,7 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
     const pricing = getMaterializationSettings();
     return {
       supplierEnabled: isSupplierEnabled(),
+      supplierAllowFirearms: supplierAllowsFirearms(),
       diagnosticsMode: diagnosticMode(),
       pricingProfile: pricing.pricingProfile,
       denomination: pricing.denomination,
@@ -93,6 +96,8 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
     const root = this.element;
     const wasEnabled = isSupplierEnabled();
     const supplierEnabled = root.querySelector('[name="supplierEnabled"]')?.checked === true;
+    const supplierAllowFirearms = root.querySelector('[name="supplierAllowFirearms"]')?.checked === true;
+    const firearmPolicyChanged = supplierAllowFirearms !== supplierAllowsFirearms();
     const current = getMaterializationSettings();
     const customPrices = { ...current.customPrices };
     for (const input of root.querySelectorAll('[data-custom-price]')) {
@@ -106,6 +111,8 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
       customPrices
     });
     await game.settings.set(MODULE_ID, SUPPLIER_ENABLED_KEY, supplierEnabled);
+    await game.settings.set(MODULE_ID, SUPPLIER_ALLOW_FIREARMS_KEY, supplierAllowFirearms);
+    if (firearmPolicyChanged) clearCatalogCache();
     const diagnosticsMode = root.querySelector('[name="diagnosticsMode"]')?.value ?? "errors";
     await game.settings.set(MODULE_ID, DIAGNOSTICS_SETTING, ["off", "errors", "verbose"].includes(diagnosticsMode) ? diagnosticsMode : "errors");
 

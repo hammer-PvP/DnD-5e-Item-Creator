@@ -1,5 +1,5 @@
 import { MODULE_ID } from "./constants.mjs";
-import { banKey, buildCatalog, entriesForProfile, nativeSubtypeLabel, normalizeText } from "./catalog.mjs";
+import { banKey, buildCatalog, entriesForProfile, isGloballyRestrictedTechnology, nativeSubtypeLabel, normalizeText } from "./catalog.mjs";
 import { getConfiguration } from "./settings.mjs";
 
 const { ApplicationV2, HandlebarsApplicationMixin } = foundry.applications.api;
@@ -72,7 +72,7 @@ export class SupplierItemPicker extends HandlebarsApplicationMixin(ApplicationV2
     const entries = (this.rawSourceDocuments
       ? catalog.rawEntries.filter(entry => !sourceIds.size || sourceIds.has(entry.packId))
       : entriesForProfile(catalog, this.profile, configuration, { includeBanned: this.includeBanned }))
-      .filter(entry => entry.type !== "spell")
+      .filter(entry => entry.type !== "spell" && !isGloballyRestrictedTechnology(entry))
       .sort((a, b) => a.name.localeCompare(b.name) || sourceDisplay(a).localeCompare(sourceDisplay(b)));
 
     const types = [...new Set(entries.map(entry => entry.type).filter(Boolean))].sort();

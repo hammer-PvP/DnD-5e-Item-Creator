@@ -3,7 +3,8 @@ import { MODULE_ID, MODULE_VERSION } from "../../constants.mjs";
 export { MODULE_ID, MODULE_VERSION };
 export const SUPPLIER_CONFIGURATION_KEY = "supplierConfiguration";
 export const SUPPLIER_ENABLED_KEY = "supplierEnabled";
-export const SUPPLIER_FEATURE_VERSION = "0.5.3-knowledge-rotation-p0";
+export const SUPPLIER_ALLOW_FIREARMS_KEY = "supplierAllowFirearms";
+export const SUPPLIER_FEATURE_VERSION = "0.5.4-global-firearms-policy";
 export const CONFIGURATION_VERSION = 26;
 
 export const CRAFTING_CORE_MODULE_ID = "dnd5e-crafting-core";

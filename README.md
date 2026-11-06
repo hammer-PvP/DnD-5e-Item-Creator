@@ -1,7 +1,9 @@
 # Item Creator (DnD 5e)
 > **Consumables v2 flow:** Item Type → Base Item → Activities → Granted Effects → Description → Review. Activity activation is configured per Activity; duration/stacking are configured per Granted Effect.
 
-**Version:** 0.8.3 Candidate — Supplier Knowledge Rotation P0
+**Version:** 0.8.4 Candidate — Global Supplier Firearm Policy
+**v0.8.4 World rule:** In Item Creator Configuration, **Allow Firearms & Modern Ammunition** is OFF by default and applies to every Supplier profile. It excludes firearm weapons, cartridges, energy cells, modern explosives and related Crafting Core Recipes; sling bullets, crossbow bolts and arrows remain available. Turning it ON allows those source candidates, subject to the existing per-profile normalization and Item Group configuration. No Supplier Profile data is rewritten.
+
 **Compatibility:** Foundry VTT 14.367+ (verified 14.368) / D&D5e 6.0.1–6.0.999 (verified target: 6.0.5)
 
 > **D&D5e 6.x line:** v0.8.1 refines the native Spell Factory into a practical development workspace with protected drafts, focus-safe native editing, Activity-safe publication, and an in-module Spell Configuration Guide. It builds on the v0.8.0 Spell Factory foundation, v0.7.96 Timing Model v1, and v0.7.95b publication/index stabilization. It is verified against D&D5e 6.0.5; the supported manifest window remains 6.0.1–6.0.999. The v0.7.7c / D&D5e 5.3.3 line is frozen and is no longer developed or supported. Legacy managed Items are normalized only when explicitly rebuilt/updated/published by the GM; no silent World-wide migration is performed.
