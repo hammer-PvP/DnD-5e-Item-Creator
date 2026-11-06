@@ -13,6 +13,7 @@ import { ItemCreatorRuntimeEffectService } from "./services/runtime-effect-servi
 import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-service.mjs";
 import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
 import { ItemCreatorRestoreResourceService } from "./services/restore-resource-service.mjs";
+import { registerChargeDepletionHooks } from "./services/charge-resource-service.mjs";
 import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
@@ -45,6 +46,7 @@ Hooks.once("init", () => {
   ItemCreatorTriggeredEffectService.registerHooks();
   ItemCreatorConsumableEffectService.registerHooks();
   ItemCreatorRestoreResourceService.registerHooks();
+  registerChargeDepletionHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, DIAGNOSTICS_SETTING, {

@@ -1,5 +1,5 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.8.4";
+export const MODULE_VERSION = "0.8.5";
 export const MODULE_STAGE = "Supplier Global Firearms Policy";
 
 export const ITEM_TYPES = Object.freeze([

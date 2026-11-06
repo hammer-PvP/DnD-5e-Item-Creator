@@ -616,11 +616,16 @@ function mergeEntryGroup(group) {
       || Number(a.priority ?? 0) - Number(b.priority ?? 0)
       || a.name.localeCompare(b.name))[0]
     : group[0];
+  // Keep the whole provenance list for inspection, but never combine the
+  // mechanics of different editions of one item. The first enabled source
+  // determines whether it is a ready Item or a native Enchant template.
+  // Variant families intentionally preserve their distinct +1/+2/+3 members.
+  const selectedVariants = group.some(variant => variant.variantFamily) ? group : [primary];
   const subtypeKeys = [];
   const subtypeAliases = [];
   const familyIds = new Set();
   const materializerRarities = new Set();
-  for (const variant of group) {
+  for (const variant of selectedVariants) {
     for (const key of variant.subtypeKeys ?? [variant.primarySubtypeKey]) {
       if (key && !subtypeKeys.includes(key)) subtypeKeys.push(key);
     }
@@ -631,20 +636,20 @@ function mergeEntryGroup(group) {
     if (variant.variantConcrete === true && !["none", "varies"].includes(sourceRarity)) materializerRarities.add(sourceRarity);
   }
 
-  const variantFamily = group.find(entry => entry.variantFamily)?.variantFamily ?? "";
-  const variantRule = group.find(entry => entry.variantFamily)?.variantFamilyInfo ?? null;
-  const concreteVariants = group.filter(entry => entry.variantConcrete === true && Number(entry.enhancement ?? 0) > 0);
-  const placeholderVariant = group.find(entry => entry.variantPlaceholder === true) ?? null;
+  const variantFamily = selectedVariants.find(entry => entry.variantFamily)?.variantFamily ?? "";
+  const variantRule = selectedVariants.find(entry => entry.variantFamily)?.variantFamilyInfo ?? null;
+  const concreteVariants = selectedVariants.filter(entry => entry.variantConcrete === true && Number(entry.enhancement ?? 0) > 0);
+  const placeholderVariant = selectedVariants.find(entry => entry.variantPlaceholder === true) ?? null;
   const isVariant = Boolean(variantFamily);
-  const isMechanicalGroup = group.every(variant => variant.isMechanical === true);
+  const isMechanicalGroup = selectedVariants.every(variant => variant.isMechanical === true);
   const groupNature = isMechanicalGroup
     ? "mechanical"
     : isVariant
       ? "materializer"
-      : group.some(variant => variant.documentNature === "materializer") ? "materializer" : "sellable";
+      : selectedVariants.some(variant => variant.documentNature === "materializer") ? "materializer" : "sellable";
   const groupMaterializerKind = isVariant
     ? "variant"
-    : group.find(variant => variant.materializerKind)?.materializerKind ?? "";
+    : selectedVariants.find(variant => variant.materializerKind)?.materializerKind ?? "";
 
   return {
     ...primary,
@@ -664,28 +669,28 @@ function mergeEntryGroup(group) {
     variantConcrete: false,
     variantPlaceholder: Boolean(placeholderVariant),
     isMechanical: isMechanicalGroup,
-    isCursed: group.some(variant => variant.isCursed === true),
-    mechanicalReason: group.find(variant => variant.mechanicalReason)?.mechanicalReason ?? "",
-    generatorKind: group.find(variant => variant.generatorKind)?.generatorKind ?? "",
-    generatorBaseHint: group.find(variant => variant.generatorBaseHint)?.generatorBaseHint ?? "",
-    generatorMagical: group.some(variant => variant.generatorMagical === true),
-    blueprintCandidate: isVariant ? false : group.some(variant => variant.blueprintCandidate === true),
+    isCursed: selectedVariants.some(variant => variant.isCursed === true),
+    mechanicalReason: selectedVariants.find(variant => variant.mechanicalReason)?.mechanicalReason ?? "",
+    generatorKind: selectedVariants.find(variant => variant.generatorKind)?.generatorKind ?? "",
+    generatorBaseHint: selectedVariants.find(variant => variant.generatorBaseHint)?.generatorBaseHint ?? "",
+    generatorMagical: selectedVariants.some(variant => variant.generatorMagical === true),
+    blueprintCandidate: isVariant ? false : selectedVariants.some(variant => variant.blueprintCandidate === true),
     documentNature: groupNature,
     materializerKind: groupMaterializerKind,
-    materializerFamily: isVariant ? variantFamily : group.find(variant => variant.materializerFamily)?.materializerFamily ?? "",
+    materializerFamily: isVariant ? variantFamily : selectedVariants.find(variant => variant.materializerFamily)?.materializerFamily ?? "",
     materializerSourceUuid: isVariant
       ? (placeholderVariant?.uuid ?? concreteVariants[0]?.uuid ?? "")
-      : group.find(variant => variant.materializerKind)?.uuid ?? "",
+      : selectedVariants.find(variant => variant.materializerKind)?.uuid ?? "",
     materializerSupported: isVariant
       ? (concreteVariants.length > 0 || group.some(variant => variant.recipeSupported === true))
-      : group.some(variant => variant.materializerSupported === true),
+      : selectedVariants.some(variant => variant.materializerSupported === true),
     materializerSupportReason: isVariant
       ? (concreteVariants.length ? "supportedVariantFamily" : group.some(variant => variant.recipeSupported === true) ? "supportedRecipeFallback" : "missingConcreteVariants")
-      : group.find(variant => variant.materializerSupportReason)?.materializerSupportReason ?? "",
-    isFirearmWeapon: group.some(variant => variant.isFirearmWeapon === true),
-    isFirearmAmmunition: group.some(variant => variant.isFirearmAmmunition === true),
-    isFirearmSupply: group.some(variant => variant.isFirearmSupply === true),
-    isFirearmRelated: group.some(variant => variant.isFirearmRelated === true),
+      : selectedVariants.find(variant => variant.materializerSupportReason)?.materializerSupportReason ?? "",
+    isFirearmWeapon: selectedVariants.some(variant => variant.isFirearmWeapon === true),
+    isFirearmAmmunition: selectedVariants.some(variant => variant.isFirearmAmmunition === true),
+    isFirearmSupply: selectedVariants.some(variant => variant.isFirearmSupply === true),
+    isFirearmRelated: selectedVariants.some(variant => variant.isFirearmRelated === true),
     sourceVariants: group.map(variant => ({
       uuid: variant.uuid,
       packId: variant.packId,

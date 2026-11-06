@@ -102,6 +102,33 @@ export function isSelfContainedSellableData(documentOrData) {
   return [...SELF_CONTAINED_ENCHANT_ITEMS].some(term => identity.includes(term));
 }
 
+/** Parse explicit native @UUID links in the introductory classification.
+ * Example: Weapon (@UUID[..]{Longbow} or @UUID[..]{Shortbow}).
+ * Lore links later in the description MUST NOT constrain base selection.
+ */
+export function referencedBaseIdentities(documentOrData) {
+  const data = documentOrData?.toObject ? documentOrData.toObject() : documentOrData ?? {};
+  const html = String(foundry.utils.getProperty(data, "system.description.value") ?? "");
+  const intro = html.match(/<em\b[^>]*>([\s\S]*?)<\/em>/i)?.[1] ?? "";
+  if (!/^\s*(?:weapon|armor|shield)\s*\(/i.test(intro)) return [];
+  const basePart = intro.match(/^\s*(?:weapon|armor|shield)\s*\(([^)]*)\)/i)?.[1] ?? "";
+  const labels = [...basePart.matchAll(/@UUID\[([^\]]+)\]\{([^}]+)\}/g)];
+  // Explicitly require a real Item UUID rather than interpreting arbitrary
+  // references, such as Journal embeds, as a base contract.
+  return labels.filter(match => /(?:^|\.)Item\./.test(match[1]))
+    .map(match => normalizeIdentity(match[2])).filter(Boolean)
+    .filter((entry, index, all) => all.indexOf(entry) === index);
+}
+
+function matchesReferencedBase(blueprint, base) {
+  const permitted = referencedBaseIdentities(blueprint);
+  if (!permitted.length) return true;
+  const identity = [base?.name,
+    foundry.utils.getProperty(base, "system.type.baseItem"),
+    foundry.utils.getProperty(base, "system.identifier")].map(normalizeIdentity);
+  return permitted.some(name => identity.includes(name));
+}
+
 /**
  * Return true/false for a known official family, or null when no special rule
  * exists and native restrictions should be the sole authority.
@@ -110,6 +137,7 @@ export function knownBaseCompatibility(blueprintDocumentOrData, baseDocumentOrDa
   const blueprint = blueprintDocumentOrData?.toObject ? blueprintDocumentOrData.toObject() : blueprintDocumentOrData ?? {};
   const base = baseDocumentOrData?.toObject ? baseDocumentOrData.toObject() : baseDocumentOrData ?? {};
   const identity = identityText(blueprint);
+  if (!matchesReferencedBase(blueprint, base)) return false;
 
   if (identity.includes("efreeti-chain") || identity.includes("efreet-chain")) {
     return base.type === "equipment" && exactBase(base, ["chain-mail", "chainmail"]);

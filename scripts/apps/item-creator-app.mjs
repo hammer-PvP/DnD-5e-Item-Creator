@@ -2,6 +2,8 @@ import { EQUIPMENT_FORMS, ITEM_TYPES, MODULE_ID, MODULE_STAGE, MODULE_VERSION, S
 import { ItemCreatorSourceRegistry } from "../services/source-registry.mjs";
 import { ItemCreatorIconBrowserApp } from "./icon-browser-app.mjs";
 import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
+import { defaultChargeConfig, normalizeChargeConfig, defaultDepletionPolicy,
+  normalizeDepletionPolicy, inferredChargeMode, chargeRecovery } from "../services/charge-resource-service.mjs";
 import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
 import { dnd6EffectPath, primaryItemRarity } from "../utils/dnd6-compat.mjs";
 import { EFFECT_CHANGE_TYPES, normalizeEffectChangeType } from "../utils/effect-change-types.mjs";
@@ -286,6 +288,10 @@ function composedActivityView(entry) {
   const activityUseTarget = consumptionTargets.find(target => target?.type === "activityUses") ?? null;
   const itemUseTarget = consumptionTargets.find(target => target?.type === "itemUses") ?? null;
   const recoveryProfile = source.uses?.recovery?.[0] ?? null;
+  const chargeMode = ["none", "shared", "separate"].includes(source.flags?.[MODULE_ID]?.chargeMode)
+    ? source.flags[MODULE_ID].chargeMode
+    : itemUseTarget ? "shared" : activityUseTarget ? "separate" : "none";
+  const activityDepletion = normalizeDepletionPolicy(source.flags?.[MODULE_ID]?.chargeDepletion);
   const recoveryFormula = recoveryProfile?.type === "recoverAll"
     ? String(source.uses?.max ?? "")
     : String(recoveryProfile?.formula ?? "");
@@ -313,7 +319,12 @@ function composedActivityView(entry) {
     durationUnits: source.duration?.units ?? "inst",
     durationNeedsValue: (source.duration?.units ?? "inst") in (CONFIG.DND5E.scalarTimePeriods ?? {}),
     concentration: Boolean(source.duration?.concentration),
-    usesMax: source.uses?.max ?? "",
+    chargeMode,
+    chargeShared: chargeMode === "shared",
+    chargeSeparate: chargeMode === "separate",
+    chargeCost: (chargeMode === "shared" ? itemUseTarget : activityUseTarget)?.value ?? "1",
+    activityDepletion,
+    depletionIsTest: chargeMode === "separate" && activityDepletion.mode === "test",
     hasLimitedUses: Boolean(String(source.uses?.max ?? "").trim()),
     activityUseCost: activityUseTarget?.value ?? "1",
     itemUseCost: itemUseTarget?.value ?? "1",
@@ -940,6 +951,11 @@ async function grantedSpellFromCastActivity(activity) {
     useLimit: limited ? "limited" : "unlimited",
     maxUses: limited ? useMax : 1,
     recovery: recoveryName(activity),
+    chargeMode: moduleFlags.chargeMode ?? (targets.some(target => target?.type === "itemUses") ? "shared" : limited ? "separate" : "none"),
+    chargeCost: String(moduleFlags.chargeCost ?? targets.find(target => ["itemUses", "activityUses"].includes(target?.type))?.value ?? "1"),
+    separateRecoveryPeriod: String(activity?.uses?.recovery?.[0]?.period ?? "lr"),
+    separateRecoveryFormula: activity?.uses?.recovery?.[0]?.type === "recoverAll" ? "all" : String(activity?.uses?.recovery?.[0]?.formula ?? "1"),
+    depletion: normalizeDepletionPolicy(moduleFlags.chargeDepletion),
     consumeSlot,
     eligibility: moduleFlags.eligibility ?? (consumeSlot ? "compatibleSlot" : "independent"),
     castLevelMode: moduleFlags.castLevelMode ?? (consumeSlot && slotTarget?.scaling?.mode === "level" ? "slot" : castLevel > level ? "fixed" : "base"),
@@ -1398,6 +1414,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.grantedEffectValues = grantedEffectDefaults();
     this.resourceModifications = [];
     this.triggeredEffects = [];
+    this.chargeConfig = defaultChargeConfig();
     this.templateDescription = "";
     this.templateDescriptionRaw = "";
     this.customDescription = "";
@@ -1690,6 +1707,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.selectedIcon = item.img ?? "";
     const flags = item.flags?.[MODULE_ID] ?? {};
     const savedDraft = flags.draft;
+    const nativeUses = item.system?.uses;
+    const nativeRecovery = nativeUses?.recovery?.[0] ?? {};
+    const nativeChargeConfig = String(nativeUses?.max ?? "").trim() ? {
+      enabled: true, max: String(nativeUses.max),
+      recoveryPeriod: String(nativeRecovery.period ?? "none"),
+      recoveryFormula: nativeRecovery.type === "recoverAll" ? "all" : String(nativeRecovery.formula ?? "1"),
+      depletion: flags.chargeDepletion ?? defaultDepletionPolicy()
+    } : {};
+    this.chargeConfig = normalizeChargeConfig(savedDraft?.chargeConfig ?? nativeChargeConfig);
     this.editingManagedItem = Boolean(flags.created && savedDraft);
     this.editingImportedItem = !this.editingManagedItem || Boolean(flags.importedItem) || (item.type === "weapon" && isSelfImportedItem(item, flags));
 
@@ -2162,6 +2188,8 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     }) : [];
 
     const grantedSpellRows = (this.enhancementValues.grantedSpellcasting?.spells ?? []).map((row, index) => {
+      const chargeMode = inferredChargeMode(row);
+      const depletion = normalizeDepletionPolicy(row.depletion);
       const level = Number(row.level ?? 0);
       const isCantrip = level === 0;
       const isLimited = row.useLimit === "limited";
@@ -2170,7 +2198,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         .filter(([value]) => Number(value) >= level && Number(value) <= 9)
         .map(([value, label]) => ({ value: Number(value), label: game.i18n.localize(label), selected: Number(row.fixedCastLevel) === Number(value) }));
       return {
-        ...row, index: index + 1, isCantrip, isLimited, usesFixedSpellcasting,
+        ...row, index: index + 1, isCantrip, isLimited: chargeMode === "separate", usesFixedSpellcasting,
+        chargeMode, chargeShared: chargeMode === "shared", chargeSeparate: chargeMode === "separate",
+        chargeModeOptions: fixedOptions([["none", "No Charge Cost"], ["shared", "Shared Item Charges"], ["separate", "Separate Charges"]], chargeMode),
+        separateRecoveryOptions: fixedOptions([["sr", "Short Rest"], ["lr", "Long Rest"], ["dawn", "Dawn"], ["dusk", "Dusk"], ["none", "No Recharge"]], row.separateRecoveryPeriod ?? "lr"),
+        depletion, depletionIsTest: depletion.mode === "test",
+        depletionModeOptions: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], depletion.mode),
+        depletionTestOptions: fixedOptions([["d20", "Raw d20 (destroy on matching result)"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], depletion.test),
+        depletionSkillOptions: configOptions(CONFIG.DND5E.skills, depletion.skill),
+        depletionAbilityOptions: configOptions(CONFIG.DND5E.abilities, depletion.ability),
         spellLevelLabel: spellLevelLabel(level), schoolLabel: localizedLabel(CONFIG.DND5E.spellSchools?.[row.school], row.school || "Spell"),
         useLimitOptions: fixedOptions([["unlimited", "Unlimited / At Will"], ["limited", "Limited Uses"]], row.useLimit),
         recoveryOptions: fixedOptions([["shortRest", "Short Rest"], ["longRest", "Long Rest"]], row.recovery),
@@ -2517,6 +2553,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         return {
           ...row,
           restoreResourceRows, actorStateRows,
+          chargeModeOptions: fixedOptions([["none", "No Charge Cost"], ["shared", "Shared Item Charges"], ["separate", "Separate Charges"]], row.chargeMode),
+          depletionModeOptions: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], row.activityDepletion.mode),
+          depletionTestOptions: fixedOptions([["d20", "Raw d20"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], row.activityDepletion.test),
+          depletionSkillOptions: configOptions(CONFIG.DND5E.skills, row.activityDepletion.skill),
+          depletionAbilityOptions: configOptions(CONFIG.DND5E.abilities, row.activityDepletion.ability),
           typeOptions: fixedOptions(typeChoices, row.type),
           activationOptions: configOptions(CONFIG.DND5E.activityActivationTypes, row.activationType, { blankValue: "", blankLabel: "No Action" }),
           rangeOptions: [
@@ -2739,6 +2780,13 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       magicalAutoFromGrantedSpellcasting: this.magicalAutoFromGrantedSpellcasting,
       enhancementCount: Object.entries(this.enhancements).filter(([key, enabled]) => enabled && key !== "grantedSpellcasting").length,
       grantedSpellCount: grantedSpellRows.length, grantedSpellRows,
+      chargeConfig: this.chargeConfig,
+      chargeRecoveryOptions: fixedOptions([["dawn", "Dawn"], ["dusk", "Dusk"], ["sr", "Short Rest"], ["lr", "Long Rest"], ["none", "No Recharge"]], this.chargeConfig.recoveryPeriod),
+      chargeDepletionModes: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], this.chargeConfig.depletion.mode),
+      chargeDepletionTests: fixedOptions([["d20", "Raw d20"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], this.chargeConfig.depletion.test),
+      chargeDepletionIsTest: this.chargeConfig.depletion.mode === "test",
+      chargeSkillOptions: configOptions(CONFIG.DND5E.skills, this.chargeConfig.depletion.skill),
+      chargeAbilityOptions: configOptions(CONFIG.DND5E.abilities, this.chargeConfig.depletion.ability),
       resourceModificationCount, resourceModificationRows,
       triggeredEffectCount, triggeredEffectRows,
       spellsResourcesComplete, spellsResourcesErrors: spellsResourcesValidation.errors,
@@ -2919,6 +2967,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     root.querySelector('[data-action="browse-spells"]')?.addEventListener("click", event => this.#openSpellBrowser(event));
     root.querySelectorAll('[data-action="remove-granted-spell"]').forEach(button => button.addEventListener("click", event => this.#removeGrantedSpell(event)));
     root.querySelectorAll('[data-granted-spell-input]').forEach(input => input.addEventListener("change", event => this.#updateGrantedSpell(event)));
+    root.querySelectorAll('[data-charge-config-input]').forEach(input => input.addEventListener("change", event => this.#updateChargeConfig(event)));
     root.querySelector('[data-action="add-resource-modification"]')?.addEventListener("click", event => this.#addResourceModification(event));
     root.querySelectorAll('[data-action="remove-resource-modification"]').forEach(button => button.addEventListener("click", event => this.#removeResourceModification(event)));
     root.querySelectorAll('[data-resource-input]').forEach(input => {
@@ -3278,6 +3327,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       grantedEffects: clone(this.grantedEffects),
       grantedEffectValues: clone(this.grantedEffectValues),
       resourceModifications: clone(this.resourceModifications),
+      chargeConfig: clone(this.chargeConfig),
       triggeredEffects: clone(this.triggeredEffects),
       attackActivities: this.#attackActivityDraftForSave(effective),
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
@@ -5569,6 +5619,45 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       case "durationValue": set("duration.value", value === "" ? "" : value); break;
       case "durationUnits": set("duration.units", value); break;
       case "concentration": set("duration.concentration", Boolean(value)); break;
+      case "chargeMode": {
+        const mode = ["shared", "separate", "none"].includes(value) ? value : "none";
+        const existing = valuesOf(data.consumption?.targets).filter(target => !["itemUses", "activityUses"].includes(target?.type)).map(clone);
+        if (mode === "shared") {
+          this.chargeConfig.enabled = true;
+          existing.push({ type: "itemUses", target: "", value: "1", scaling: {} });
+          set("uses.max", ""); set("uses.recovery", []); set("uses.spent", 0);
+        } else if (mode === "separate") {
+          existing.push({ type: "activityUses", target: "", value: "1", scaling: {} });
+          set("uses.max", String(data.uses?.max || "1"));
+          if (!valuesOf(data.uses?.recovery).length) set("uses.recovery", [{ period: "lr", type: "recoverAll", formula: "" }]);
+        } else { set("uses.max", ""); set("uses.recovery", []); set("uses.spent", 0); }
+        set("consumption.targets", existing);
+        data.flags ??= {}; data.flags[MODULE_ID] ??= {};
+        data.flags[MODULE_ID].chargeMode = mode;
+        this.#renderPreservingScroll();
+        return;
+      }
+      case "chargeCost": {
+        const targets = valuesOf(data.consumption?.targets).map(clone);
+        const target = targets.find(target => ["itemUses", "activityUses"].includes(target?.type));
+        if (target) target.value = String(Math.max(1, Math.floor(Number(value) || 1)));
+        set("consumption.targets", targets);
+        break;
+      }
+      case "depletion.mode":
+      case "depletion.test":
+      case "depletion.target":
+      case "depletion.dc":
+      case "depletion.skill":
+      case "depletion.ability":
+      case "depletion.tool": {
+        data.flags ??= {}; data.flags[MODULE_ID] ??= {};
+        const policy = normalizeDepletionPolicy(data.flags[MODULE_ID].chargeDepletion);
+        policy[part.split(".")[1]] = value;
+        data.flags[MODULE_ID].chargeDepletion = normalizeDepletionPolicy(policy);
+        this.#renderPreservingScroll();
+        return;
+      }
       case "usesMax": {
         set("uses.max", value);
         const targets = valuesOf(data.consumption?.targets).filter(target => target?.type !== "activityUses").map(clone);
@@ -5717,6 +5806,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       if (!['shortRest', 'longRest'].includes(spell.recovery)) return false;
     }
     const activityMode = Boolean(spell.exposeAsActivity);
+    const chargeMode = inferredChargeMode(spell);
+    if (chargeMode === "shared" && !this.chargeConfig.enabled) return false;
+    if (chargeMode !== "none" && (!Number.isInteger(Number(spell.chargeCost ?? 1)) || Number(spell.chargeCost ?? 1) < 1)) return false;
+    if (chargeMode === "separate" && (!Number.isInteger(Number(spell.maxUses)) || Number(spell.maxUses) < 1)) return false;
     if (level === 0 && spell.consumeSlot) return false;
     if (activityMode && spell.consumeSlot) return false;
     if (!['independent', 'spellLevelAccess', 'compatibleSlot'].includes(spell.eligibility)) return false;
@@ -5751,9 +5844,14 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       school: spell.school,
       hasAttack: spell.hasAttack,
       hasSave: spell.hasSave,
-      useLimit: 'unlimited',
+      useLimit: this.chargeConfig.enabled ? 'unlimited' : 'unlimited',
       maxUses: 1,
       recovery: 'longRest',
+      chargeMode: this.chargeConfig.enabled ? 'shared' : 'none',
+      chargeCost: '1',
+      separateRecoveryPeriod: 'lr',
+      separateRecoveryFormula: 'all',
+      depletion: defaultDepletionPolicy(),
       consumeSlot: false,
       eligibility: 'independent',
       castLevelMode: 'base',
@@ -5862,6 +5960,18 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     this.#renderPreservingScroll();
   }
 
+  #updateChargeConfig(event) {
+    const field = String(event.currentTarget.dataset.chargeConfigInput || "");
+    if (!field) return;
+    const value = event.currentTarget.type === "checkbox" ? event.currentTarget.checked : event.currentTarget.value;
+    if (field.startsWith("depletion.")) {
+      this.chargeConfig.depletion[field.split(".")[1]] = value;
+      this.chargeConfig.depletion = normalizeDepletionPolicy(this.chargeConfig.depletion);
+    } else this.chargeConfig[field] = value;
+    this.chargeConfig = normalizeChargeConfig(this.chargeConfig);
+    this.#renderPreservingScroll();
+  }
+
   #updateGrantedSpell(event) {
     if (!this.enhancements.grantedSpellcasting) return;
     const id = event.currentTarget.dataset.spellId;
@@ -5872,7 +5982,21 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (event.currentTarget.type === 'checkbox') value = event.currentTarget.checked;
     else if (event.currentTarget.dataset.valueType === 'number') value = event.currentTarget.value === '' ? 0 : Number(event.currentTarget.value);
     else value = event.currentTarget.value;
-    spell[part] = value;
+    if (part.startsWith("depletion.")) {
+      spell.depletion ??= defaultDepletionPolicy();
+      spell.depletion[part.split(".")[1]] = value;
+      spell.depletion = normalizeDepletionPolicy(spell.depletion);
+    } else spell[part] = value;
+    if (part === "chargeMode") {
+      if (value === "shared") {
+        this.chargeConfig.enabled = true;
+        spell.consumeSlot = false;
+        spell.useLimit = "unlimited";
+      } else if (value === "separate") {
+        spell.useLimit = "limited";
+        spell.consumeSlot = false;
+      } else spell.useLimit = "unlimited";
+    }
 
     if (part === 'useLimit' && value === 'unlimited') {
       spell.maxUses = 1;

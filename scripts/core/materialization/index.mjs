@@ -20,7 +20,7 @@ import {
 import { normalizeDnd6ItemSource, primaryItemRarity, setPrimaryItemRarity } from "../../utils/dnd6-compat.mjs";
 import { normalizeEffectChanges } from "../../utils/effect-change-types.mjs";
 
-export const MATERIALIZATION_ENGINE_VERSION = "0.3.3";
+export const MATERIALIZATION_ENGINE_VERSION = "0.3.5";
 
 /**
  * HAMMER Materialization Core
@@ -949,10 +949,25 @@ export async function materializeNativeBlueprint({
       failures.push("unsupportedItemRiders");
       continue;
     }
-    const riderEffects = cloneRiderEffects(result, blueprintData, stringList(riders.effect));
+    // Some D&D5e templates reference Active Effects from rider Activities
+    // without listing those Effects in profile.riders.effect (Oathbow 2024 is
+    // one example). Copy the transitive dependencies before remapping IDs.
+    const riderActivityIds = stringList(riders.activity);
+    const sourceActivities = foundry.utils.getProperty(blueprintData, "system.activities") ?? {};
+    const knownEffectIds = new Set(effectDataList(blueprintData).map(effect => String(effect?._id ?? "")));
+    const referencedEffects = new Set(stringList(riders.effect));
+    for (const activityId of riderActivityIds) {
+      const source = sourceActivities[activityId]
+        ?? valuesOf(sourceActivities).find(candidate => String(candidate?._id) === String(activityId));
+      for (const reference of valuesOf(source?.effects)) {
+        const effectId = String(reference?._id ?? reference?.id ?? "");
+        if (knownEffectIds.has(effectId)) referencedEffects.add(effectId);
+      }
+    }
+    const riderEffects = cloneRiderEffects(result, blueprintData, [...referencedEffects]);
     const copiedRiders = [
       ...riderEffects.copied,
-      ...cloneRiderActivities(result, blueprintData, stringList(riders.activity), riderEffects.idMap)
+      ...cloneRiderActivities(result, blueprintData, riderActivityIds, riderEffects.idMap)
     ];
 
     let enchantment = applyTableSelectionToEffect(pair.effect, tableResult, blueprintData);

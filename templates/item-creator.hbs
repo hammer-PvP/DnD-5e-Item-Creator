@@ -1678,7 +1678,22 @@
               </section>
 
               <section class="ic-activity-config-section ic-activity-uses-section">
-                <header><strong>Activity Uses &amp; Recharge <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong><small>These are this Activity's own charges and native D&amp;D5e recovery periods. Leave Maximum Uses blank for unlimited use. Combat-bound recovery periods only advance when their native Combat event exists.</small></header>
+                <header><strong>Activity Uses &amp; Recharge <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong><small>Use the shared item pool or an independent Activity counter. All counters and recharge remain native D&amp;D5e.</small></header>
+                <label><span>Charge Source</span><select data-composed-activity-input="chargeMode" data-composed-activity-id="{{id}}">{{#each chargeModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                {{#unless (eq chargeMode "none")}}<label><span>Charges per Activation</span><input type="number" min="1" value="{{chargeCost}}" data-composed-activity-input="chargeCost" data-composed-activity-id="{{id}}"></label>{{/unless}}
+                {{#if chargeSeparate}}
+                  <label><span>At Zero Charges</span><select data-composed-activity-input="depletion.mode" data-composed-activity-id="{{id}}">{{#each depletionModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                  {{#if depletionIsTest}}
+                    <label><span>Conditional Test</span><select data-composed-activity-input="depletion.test" data-composed-activity-id="{{id}}">{{#each depletionTestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if (eq activityDepletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{activityDepletion.target}}" data-composed-activity-input="depletion.target" data-composed-activity-id="{{id}}"></label>
+                    {{else}}<label><span>DC (fail destroys)</span><input type="number" min="1" value="{{activityDepletion.dc}}" data-composed-activity-input="depletion.dc" data-composed-activity-id="{{id}}"></label>
+                    {{#if (eq activityDepletion.test "ability")}}<label><span>Ability ID</span><select data-composed-activity-input="depletion.ability" data-composed-activity-id="{{id}}">{{#each depletionAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                    {{#if (eq activityDepletion.test "skill")}}<label><span>Skill ID</span><select data-composed-activity-input="depletion.skill" data-composed-activity-id="{{id}}">{{#each depletionSkillOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                    {{#if (eq activityDepletion.test "tool")}}<label><span>Tool Item Name</span><input type="text" value="{{activityDepletion.tool}}" data-composed-activity-input="depletion.tool" data-composed-activity-id="{{id}}"></label>{{/if}}
+                    {{/if}}
+                  {{/if}}
+                {{/if}}
+                {{#if chargeSeparate}}
                 <div class="ic-attack-activity-grid">
                   <label><span>Maximum Uses / Charges</span><input type="text" value="{{usesMax}}" data-composed-activity-input="usesMax" data-composed-activity-id="{{id}}" placeholder="Blank = unlimited"></label>
                   <label><span>Uses Spent per Activation</span><input type="text" value="{{activityUseCost}}" data-composed-activity-input="activityUseCost" data-composed-activity-id="{{id}}" placeholder="1" data-composed-activity-requires-uses {{#unless hasLimitedUses}}disabled{{/unless}}></label>
@@ -1686,8 +1701,10 @@
                   {{#if recoveryCombatOnly}}<p class="ic-timing-note combat"><span class="ic-timing-badge combat">COMBAT ONLY</span> This native D&amp;D5e recovery advances only when its Combat event exists.</p>{{/if}}
                   <label><span>{{#if recoveryIsRecharge}}Recharge Roll{{else}}Recharge Amount / Formula{{/if}}</span><input type="text" value="{{recoveryFormula}}" data-composed-activity-input="recoveryFormula" data-composed-activity-id="{{id}}" placeholder="{{#if recoveryIsRecharge}}e.g. 6{{else}}e.g. 1, 1d4, or @prof{{/if}}" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}></label>
                   {{#unless recoveryIsRecharge}}<label class="ic-span-two"><span>Recharge Formula Helper</span><select data-action="insert-composed-formula-token" data-composed-activity-id="{{id}}" data-formula-field="recoveryFormula" data-composed-activity-requires-recovery {{#unless recoveryPeriod}}disabled{{/unless}}>{{#each formulaTokenOptions}}<option value="{{value}}">{{label}}</option>{{/each}}</select></label>{{/unless}}
-                  <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
+
                 </div>
+                {{/if}}
+                  <label class="ic-span-two"><span>Chat Flavor</span><input type="text" value="{{chatFlavor}}" data-composed-activity-input="chatFlavor" data-composed-activity-id="{{id}}" placeholder="Optional text shown with the Activity"></label>
               </section>
 
               {{#if isRestoreResource}}
@@ -1790,10 +1807,33 @@
           <span class="ic-kicker">Granted Magic</span>
           <h3>Granted Spellcasting</h3>
         </header>
+        <section class="ic-enhancement-card ic-span-two ic-shared-charges-card">
+          <header><strong>Shared Item Charges <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></strong>
+            <small>One pool on the item. Every Activity using Shared Charges consumes from this same pool; Separate Charges remain independent.</small></header>
+          <label class="ic-checkbox-line"><input type="checkbox" data-charge-config-input="enabled" {{#if chargeConfig.enabled}}checked{{/if}}>
+            <span><strong>Enable Shared Item Charges</strong><small>Off leaves existing uses and spell configurations unchanged.</small></span></label>
+          {{#if chargeConfig.enabled}}
+          <div class="ic-spell-config-grid">
+            <label><span>Maximum Charges</span><input type="number" min="1" max="999" value="{{chargeConfig.max}}" data-charge-config-input="max"></label>
+            <label><span>Recharge Trigger</span><select data-charge-config-input="recoveryPeriod">{{#each chargeRecoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            {{#unless (eq chargeConfig.recoveryPeriod "none")}}<label><span>Recharge Formula (or "all")</span><input type="text" value="{{chargeConfig.recoveryFormula}}" data-charge-config-input="recoveryFormula" placeholder="1d6 + 4"></label>{{/unless}}
+            <label><span>When Charges Reach Zero</span><select data-charge-config-input="depletion.mode">{{#each chargeDepletionModes}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+            {{#if chargeDepletionIsTest}}
+              <label><span>Conditional Test</span><select data-charge-config-input="depletion.test">{{#each chargeDepletionTests}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+              {{#if (eq chargeConfig.depletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{chargeConfig.depletion.target}}" data-charge-config-input="depletion.target"></label>
+              {{else}}<label><span>DC (destroy on failed check)</span><input type="number" min="1" value="{{chargeConfig.depletion.dc}}" data-charge-config-input="depletion.dc"></label>
+                {{#if (eq chargeConfig.depletion.test "ability")}}<label><span>Ability</span><select data-charge-config-input="depletion.ability">{{#each chargeAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                {{#if (eq chargeConfig.depletion.test "skill")}}<label><span>Skill ID (e.g. arc)</span><select data-charge-config-input="depletion.skill">{{#each chargeSkillOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                {{#if (eq chargeConfig.depletion.test "tool")}}<label><span>Tool Item Name</span><input type="text" value="{{chargeConfig.depletion.tool}}" data-charge-config-input="depletion.tool" placeholder="Smith's Tools"></label>{{/if}}
+              {{/if}}
+            {{/if}}
+          </div>
+          {{/if}}
+        </section>
         <section class="ic-enhancement-card ic-span-two ic-granted-spellcasting-card {{#if enhancement.grantedSpellcasting}}enabled{{/if}} {{#if spellsResourcesErrors.grantedSpellcasting}}invalid{{/if}}">
           <label class="ic-override-heading">
             <input type="checkbox" data-enhancement-toggle="grantedSpellcasting" {{#if enhancement.grantedSpellcasting}}checked{{/if}}>
-            <span><strong>Granted Spellcasting</strong><small>Grant existing Spells through this item or expose them directly as Item Activities. Each Spell keeps independent uses, recovery, cast level, spellcasting calculation, exposure, and availability.</small></span>
+            <span><strong>Granted Spellcasting</strong><small>Grant existing Spells through this item or expose them directly as Item Activities. Each Spell can use Shared Item Charges, Separate Charges, or no charges. Spell costs, cast level, and availability are configured independently.</small></span>
           </label>
 
           <div class="ic-spell-drop-zone {{#unless enhancement.grantedSpellcasting}}disabled{{/unless}}" data-spell-drop-zone>
@@ -1826,19 +1866,33 @@
 
                 <div class="ic-spell-config-grid">
                   <section class="ic-spell-config-panel">
-                    <h4>Uses and Recovery <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></h4>
-                    <label><span>Use Limit</span><select data-granted-spell-input="useLimit" data-spell-id="{{id}}">{{#each useLimitOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                    {{#if isLimited}}
-                    <div class="ic-spell-inline-fields">
-                      <label><span>Maximum Uses</span><input type="number" min="1" max="99" step="1" value="{{maxUses}}" data-granted-spell-input="maxUses" data-spell-id="{{id}}" data-value-type="number"></label>
-                      <label><span>Recovery</span><select data-granted-spell-input="recovery" data-spell-id="{{id}}">{{#each recoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
-                    </div>
-                    {{else}}
-                    <small class="ic-field-note">Unlimited means the item has no charge limit. Spell-slot consumption can still limit actual use.</small>
+                    <h4>Charge Source <em class="ic-timing-badge native">NATIVE D&amp;D5e</em></h4>
+                    <label><span>Resource Mode</span><select data-granted-spell-input="chargeMode" data-spell-id="{{id}}">{{#each chargeModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    {{#if chargeShared}}<small class="ic-field-note">Consumes from the item's global pool above. It never spends this Activity's own Uses.</small>{{/if}}
+                    {{#if chargeSeparate}}<small class="ic-field-note">This Spell owns its charge counter and its own recovery.</small>{{/if}}
+                    {{#unless (eq chargeMode "none")}}
+                      <label><span>Charges per Cast</span><input type="number" min="1" max="999" step="1" value="{{chargeCost}}" data-granted-spell-input="chargeCost" data-spell-id="{{id}}"></label>
+                    {{/unless}}
+                    {{#if chargeSeparate}}
+                      <div class="ic-spell-inline-fields">
+                        <label><span>Maximum Charges</span><input type="number" min="1" max="999" step="1" value="{{maxUses}}" data-granted-spell-input="maxUses" data-spell-id="{{id}}" data-value-type="number"></label>
+                        <label><span>Recharge Trigger</span><select data-granted-spell-input="separateRecoveryPeriod" data-spell-id="{{id}}">{{#each separateRecoveryOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                        <label><span>Recharge Formula (or "all")</span><input type="text" value="{{separateRecoveryFormula}}" data-granted-spell-input="separateRecoveryFormula" data-spell-id="{{id}}" placeholder="all"></label>
+                      </div>
+                      <label><span>On Last Charge</span><select data-granted-spell-input="depletion.mode" data-spell-id="{{id}}">{{#each depletionModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                      {{#if depletionIsTest}}
+                        <label><span>Test</span><select data-granted-spell-input="depletion.test" data-spell-id="{{id}}">{{#each depletionTestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                        {{#if (eq depletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{depletion.target}}" data-granted-spell-input="depletion.target" data-spell-id="{{id}}"></label>
+                        {{else}}<label><span>DC (failed check destroys)</span><input type="number" min="1" value="{{depletion.dc}}" data-granted-spell-input="depletion.dc" data-spell-id="{{id}}"></label>
+                          {{#if (eq depletion.test "ability")}}<label><span>Ability (str/dex/con/int/wis/cha)</span><select data-granted-spell-input="depletion.ability" data-spell-id="{{id}}">{{#each depletionAbilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                          {{#if (eq depletion.test "skill")}}<label><span>Skill ID</span><select data-granted-spell-input="depletion.skill" data-spell-id="{{id}}">{{#each depletionSkillOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>{{/if}}
+                          {{#if (eq depletion.test "tool")}}<label><span>Tool Item Name</span><input type="text" value="{{depletion.tool}}" data-granted-spell-input="depletion.tool" data-spell-id="{{id}}"></label>{{/if}}
+                        {{/if}}
+                      {{/if}}
                     {{/if}}
                     <label class="ic-checkbox-line {{#if isCantrip}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}}">
-                      <input type="checkbox" data-granted-spell-input="consumeSlot" data-spell-id="{{id}}" {{#if consumeSlot}}checked{{/if}} {{#if isCantrip}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}}>
-                      <span><strong>Consume a Spell Slot</strong><small>{{#if isCantrip}}Cantrips never consume spell slots.{{else}}{{#if activityExposure}}Item Activity mode uses only the Activity's own Uses and never falls back to Actor Spell Slots.{{else}}Require and consume a compatible slot for every cast.{{/if}}{{/if}}</small></span>
+                      <input type="checkbox" data-granted-spell-input="consumeSlot" data-spell-id="{{id}}" {{#if consumeSlot}}checked{{/if}} {{#if isCantrip}}disabled{{/if}} {{#if activityExposure}}disabled{{/if}} {{#unless (eq chargeMode "none")}}disabled{{/unless}}>
+                      <span><strong>Consume a Spell Slot</strong><small>Only applies when no charge source is selected and this Spell is not exposed as an Item Activity.</small></span>
                     </label>
                   </section>
 

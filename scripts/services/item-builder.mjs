@@ -1,4 +1,5 @@
 import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
+import { applySharedItemCharges, chargeRecovery, inferredChargeMode, normalizeDepletionPolicy } from "./charge-resource-service.mjs";
 import { EFFECT_CHANGE_TYPES, normalizeEffectChanges } from "../utils/effect-change-types.mjs";
 import { progressionVariants, selectProgressionTier, settingHasProgression, stripProgressionMetadata, variantLevel } from "./level-progression.mjs";
 import { applyRarityPrice, normalizeRarityKey } from "../core/materialization/pricing.mjs";
@@ -670,11 +671,19 @@ function buildAlternativeAttackActivity(setting, primaryAttack, importedCustom, 
 }
 
 function recoveryData(spell) {
-  if (spell.useLimit !== "limited") return { uses: { spent: 0, max: "", recovery: [] }, targets: [] };
-  const period = spell.recovery === "shortRest" ? "sr" : "lr";
+  const mode = inferredChargeMode(spell);
+  const cost = String(Math.max(1, Math.floor(Number(spell.chargeCost) || 1)));
+  if (mode === "shared") return {
+    uses: { spent: 0, max: "", recovery: [] },
+    targets: [{ type: "itemUses", target: "", value: cost, scaling: { mode: "", formula: "" } }]
+  };
+  if (mode !== "separate") return { uses: { spent: 0, max: "", recovery: [] }, targets: [] };
+  const period = spell.separateRecoveryPeriod ?? (spell.recovery === "shortRest" ? "sr" : "lr");
+  const formula = spell.separateRecoveryFormula ?? "all";
+  const max = String(Math.max(1, Math.floor(Number(spell.maxUses) || 1)));
   return {
-    uses: { spent: 0, max: String(Number(spell.maxUses) || 1), recovery: [{ period, type: "recoverAll", formula: "" }] },
-    targets: [{ type: "activityUses", target: "", value: "1", scaling: { mode: "", formula: "" } }]
+    uses: { spent: 0, max, recovery: chargeRecovery(max, period, formula) },
+    targets: [{ type: "activityUses", target: "", value: cost, scaling: { mode: "", formula: "" } }]
   };
 }
 
@@ -751,6 +760,9 @@ async function buildCastActivities(parentItem, spells = [], { reservedIds = [], 
       flags: {
         [MODULE_ID]: {
           grantedSpell: true,
+          chargeMode: inferredChargeMode(spell),
+          chargeCost: String(Math.max(1, Math.floor(Number(spell.chargeCost) || 1))),
+          chargeDepletion: inferredChargeMode(spell) === "separate" ? normalizeDepletionPolicy(spell.depletion) : null,
           sourceSpellUuid: spell.uuid,
           exposeAsActivity: activityMode,
           showInSpellbook: Boolean(!activityMode && spell.showInSpellbook),
@@ -1565,10 +1577,19 @@ function composeGrantedSpellcastingText(data, draft) {
 
 export class ItemCreatorItemBuilder {
   static async build(draft) {
-    if (draft?.itemType === "equipment") return this.#buildEquipment(draft);
-    if (draft?.itemType === "tool") return this.#buildTool(draft);
-    if (draft?.itemType === "consumable") return this.#buildConsumable(draft);
-    return this.#buildWeapon(draft);
+    const built = draft?.itemType === "equipment" ? await this.#buildEquipment(draft)
+      : draft?.itemType === "tool" ? await this.#buildTool(draft)
+      : draft?.itemType === "consumable" ? await this.#buildConsumable(draft)
+      : await this.#buildWeapon(draft);
+    if (draft?.chargeConfig?.enabled !== true) return built;
+    // Item and Activity Uses are native D&D5e, not parallel counters. Apply
+    // resource metadata to the final serialized source before validation.
+    applySharedItemCharges(built.data, draft.chargeConfig, draft);
+    const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
+    const temporary = new ItemClass(normalizeDnd6ItemSource(cleanDocumentSource(built.data)), { temporary: true });
+    const finalData = cleanDocumentSource(temporary.toObject());
+    delete finalData._id;
+    return { data: finalData, temporary };
   }
 
   static async #buildWeapon(draft) {
