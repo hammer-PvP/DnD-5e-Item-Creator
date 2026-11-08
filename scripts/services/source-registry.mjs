@@ -247,12 +247,20 @@ export class ItemCreatorSourceRegistry {
       if (pack.documentName !== "Item") continue;
       if (pack.collection === `world.${PUBLISHED_LIBRARY_PACK_NAME}`) continue;
       let index;
-      try { index = await pack.getIndex({ fields: ["type", "system.type.value"] }); }
+      try { index = await pack.getIndex({ fields: ["type", "system.type.value", "system.type.baseItem", "system.properties", "system.rarities", "system.rarity"] }); }
       catch (error) { console.warn(`${MODULE_ID} | Unable to inspect Item pack ${pack.collection}.`, error); continue; }
       const counts = Object.fromEntries([...SUPPORTED_TYPES].map(type => [type, index.filter(entry => entry.type === type
         && !(type === "equipment" && entry.system?.type?.value === "vehicle")).length]));
       const itemCount = Object.values(counts).reduce((sum, count) => sum + count, 0);
-      if (!itemCount) continue;
+      const spellCount = index.filter(entry => entry.type === "spell").length;
+      const featureCount = index.filter(entry => entry.type === "feat").length;
+      // Shallow metadata is only a hint; the full template classification is
+      // intentionally deferred to Materialization Core after document loading.
+      const templateCount = index.filter(entry => SUPPORTED_TYPES.has(entry.type)
+        && !String(entry.system?.type?.baseItem || "").trim()
+        && (!String(entry.system?.type?.value || "").trim()
+          || propertyValues(entry.system?.properties).includes("mgc"))).length;
+      if (!itemCount && !spellCount && !featureCount) continue;
       const label = packLabel(pack);
       const resolvedSourceLabel = sourceLabel(pack);
       const resolvedPackageTitle = packageTitle(pack);
@@ -261,7 +269,7 @@ export class ItemCreatorSourceRegistry {
         packageId: packageId(pack), packageTitle: resolvedPackageTitle,
         sourceLabel: resolvedSourceLabel, sourceId: sourceId(pack, resolvedSourceLabel),
         sourceOrder: sourceSortOrder(resolvedSourceLabel),
-        itemCount, weaponCount: counts.weapon, equipmentCount: counts.equipment, toolCount: counts.tool, consumableCount: counts.consumable,
+        itemCount, spellCount, featureCount, templateCount, weaponCount: counts.weapon, equipmentCount: counts.equipment, toolCount: counts.tool, consumableCount: counts.consumable,
         search: `${label} ${resolvedSourceLabel} ${resolvedPackageTitle}`.toLowerCase()
       });
     }
@@ -288,12 +296,15 @@ export class ItemCreatorSourceRegistry {
         group = {
           id: pack.sourceId, label: pack.sourceLabel, order: pack.sourceOrder,
           packageTitle: pack.packageTitle, packageTitles: new Set(),
-          itemCount: 0, weaponCount: 0, equipmentCount: 0, toolCount: 0, consumableCount: 0, packs: [], search: ""
+          itemCount: 0, spellCount: 0, featureCount: 0, templateCount: 0, weaponCount: 0, equipmentCount: 0, toolCount: 0, consumableCount: 0, packs: [], search: ""
         };
         groups.set(pack.sourceId, group);
       }
       group.order = Math.min(group.order, pack.sourceOrder);
       group.itemCount += pack.itemCount;
+      group.spellCount += pack.spellCount;
+      group.featureCount += pack.featureCount;
+      group.templateCount += pack.templateCount;
       group.weaponCount += pack.weaponCount;
       group.equipmentCount += pack.equipmentCount;
       group.toolCount += pack.toolCount;
@@ -492,6 +503,15 @@ export class ItemCreatorSourceRegistry {
   findBaseWeaponByIdentifier(identifier) {
     const normalized = normalizeIdentifier(identifier);
     return normalized ? this.weaponByIdentifier.get(normalized)?.[0] ?? null : null;
+  }
+
+  isDocumentSourceAllowed(document) {
+    const source = this.describeDocument(document);
+    if (!source.collection) return true; // Actor and World Items are directly owned selections.
+    if ([`world.${PUBLISHED_LIBRARY_PACK_NAME}`, "world.item-creator-published-spells"].includes(source.collection)) return true;
+    const known = this.sourceSummaries.some(entry => entry.id === source.sourceId);
+    if (!known) return true; // Explicit documents outside the discovered source catalog.
+    return this.isSourceEnabled(source.sourceId);
   }
 
   describeDocument(document) {

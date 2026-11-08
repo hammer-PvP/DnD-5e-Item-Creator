@@ -863,7 +863,7 @@ function cleanTemplateDescription(item) {
   }
   for (const node of Array.from(host.querySelectorAll('section.secret, .secret'))) {
     const label = String(node.textContent ?? "").replace(/\s+/g, " ").trim();
-    if (/^Foundry Note/i.test(label) || /configured with the additional properties of/i.test(label)) node.remove();
+    if (/^Foundry Note\b/i.test(label) && /configured with the additional properties of/i.test(label)) node.remove();
   }
   return host.innerHTML.trim();
 }
@@ -2208,6 +2208,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         separateRecoveryOptions: fixedOptions([["sr", "Short Rest"], ["lr", "Long Rest"], ["dawn", "Dawn"], ["dusk", "Dusk"], ["none", "No Recharge"]], row.separateRecoveryPeriod ?? "lr"),
         depletion, depletionIsTest: depletion.mode === "test",
         depletionModeOptions: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], depletion.mode),
+        depletionResolutionOptions: fixedOptions([["prompt", "Prompt in Chat (Player Rolls)"], ["automatic", "Automatic Roll (GM Confirmation)" ]], depletion.resolution),
         depletionTestOptions: fixedOptions([["d20", "Raw d20 (destroy on matching result)"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], depletion.test),
         depletionSkillOptions: configOptions(CONFIG.DND5E.skills, depletion.skill),
         depletionAbilityOptions: configOptions(CONFIG.DND5E.abilities, depletion.ability),
@@ -2559,6 +2560,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
           restoreResourceRows, actorStateRows,
           chargeModeOptions: fixedOptions([["none", "No Charge Cost"], ["shared", "Shared Item Charges"], ["separate", "Separate Charges"]], row.chargeMode),
           depletionModeOptions: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], row.activityDepletion.mode),
+          depletionResolutionOptions: fixedOptions([["prompt", "Prompt in Chat (Player Rolls)"], ["automatic", "Automatic Roll (GM Confirmation)" ]], row.activityDepletion.resolution),
           depletionTestOptions: fixedOptions([["d20", "Raw d20"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], row.activityDepletion.test),
           depletionSkillOptions: configOptions(CONFIG.DND5E.skills, row.activityDepletion.skill),
           depletionAbilityOptions: configOptions(CONFIG.DND5E.abilities, row.activityDepletion.ability),
@@ -2788,6 +2790,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       chargeRecoveryOptions: fixedOptions([["dawn", "Dawn"], ["dusk", "Dusk"], ["sr", "Short Rest"], ["lr", "Long Rest"], ["none", "No Recharge"]], this.chargeConfig.recoveryPeriod),
       chargeDepletionModes: fixedOptions([["none", "Nothing Happens"], ["destroy", "Destroy Item"], ["test", "Conditional Test"]], this.chargeConfig.depletion.mode),
       chargeDepletionTests: fixedOptions([["d20", "Raw d20"], ["ability", "Ability Check"], ["skill", "Skill Check"], ["tool", "Tool Check"]], this.chargeConfig.depletion.test),
+      chargeResolutionOptions: fixedOptions([["prompt", "Prompt in Chat (Player Rolls)"], ["automatic", "Automatic Roll (GM Confirmation)" ]], this.chargeConfig.depletion.resolution),
       chargeDepletionIsTest: this.chargeConfig.depletion.mode === "test",
       chargeSkillOptions: configOptions(CONFIG.DND5E.skills, this.chargeConfig.depletion.skill),
       chargeAbilityOptions: configOptions(CONFIG.DND5E.abilities, this.chargeConfig.depletion.ability),
@@ -3414,34 +3417,103 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     return data;
   }
 
-  async #replaceActivities(activities) {
-    const currentIds = valuesOf(this.editingItem?.system?.activities)
-      .map(activity => activity?.id ?? activity?._id)
-      .filter(Boolean);
-    for (const id of currentIds) await this.editingItem.deleteActivity(id);
-
-    for (const [key, raw] of Object.entries(activities ?? {})) {
-      const data = clone(raw ?? {});
-      const id = String(data._id ?? data.id ?? key ?? "");
-      if (!id || !data.type) continue;
-      data._id = id;
-      delete data.id;
-      await this.editingItem.createActivity(data.type, data, { renderSheet: false });
-    }
+  #managedActivity(activity) {
+    const flags = activity?.flags?.[MODULE_ID] ?? {};
+    return Boolean(flags.grantedSpell || flags.composedActivity || flags.restoreResource
+      || flags.actorStateChanges || flags.applyGrantedEffects || flags.consumableUse
+      || flags.triggeredEffect || flags.itemCreatorManaged);
   }
 
-  async #replaceEffects(effects) {
-    const existingEffectIds = valuesOf(this.editingItem?.effects).map(effect => effect.id).filter(Boolean);
-    if (existingEffectIds.length) await this.editingItem.deleteEmbeddedDocuments("ActiveEffect", existingEffectIds);
-    if (effects?.length) await this.editingItem.createEmbeddedDocuments("ActiveEffect", clone(effects), { keepId: true });
+  #managedEffect(effect) {
+    const flags = effect?.flags?.[MODULE_ID] ?? {};
+    return Boolean(flags.grantedEffect || flags.itemCreatorManaged || flags.spellEffectImport
+      || flags.runtimeEffect || flags.triggeredEffect || flags.consumableEffect);
+  }
+
+  async #reconcileActivities(activities) {
+    const existing = new Map(valuesOf(this.editingItem?.system?.activities)
+      .filter(Boolean).map(activity => [String(activity.id ?? activity._id), activity.toObject?.() ?? activity]));
+    const desired = new Map(Object.entries(activities ?? {}).map(([key, raw]) => {
+      const source = clone(raw ?? {});
+      const id = String(source._id ?? source.id ?? key);
+      source._id = id;
+      delete source.id;
+      return [id, source];
+    }).filter(([id, source]) => id && source.type));
+
+    const updates = {};
+    const additions = [];
+    const removals = [];
+    for (const [id, activity] of desired) {
+      const previous = existing.get(id);
+      if (!previous) additions.push(activity);
+      else if (previous.type !== activity.type) {
+        // Changing Activity type requires a recreation of that one Activity.
+        removals.push(id);
+        additions.push(activity);
+      } else if (JSON.stringify(previous) !== JSON.stringify(activity)) {
+        updates[`system.activities.${id}`] = activity;
+      }
+    }
+    for (const [id, activity] of existing) {
+      if (!desired.has(id) && this.#managedActivity(activity)) removals.push(id);
+    }
+    for (const id of [...new Set(removals)]) await this.editingItem.deleteActivity(id);
+    if (Object.keys(updates).length) await this.editingItem.update(updates, { render: false });
+    for (const source of additions) await this.editingItem.createActivity(source.type, source, { renderSheet: false });
+    const final = new Map(valuesOf(this.editingItem.system?.activities)
+      .map(activity => [String(activity.id ?? activity._id), activity.toObject?.() ?? activity]));
+    for (const [id, source] of desired) {
+      if (!final.has(id) || final.get(id)?.type !== source.type) {
+        throw new Error(`Activity reconciliation failed for ${source.name || id} (${id}).`);
+      }
+    }
+    return final;
+  }
+
+  async #reconcileEffects(effects) {
+    const existing = new Map(valuesOf(this.editingItem.effects).map(effect => [String(effect.id), effect.toObject?.() ?? effect]));
+    const desired = new Map(valuesOf(effects).filter(Boolean).map(raw => {
+      const source = clone(raw);
+      return [String(source._id ?? source.id), source];
+    }).filter(([id]) => id && id !== "undefined"));
+    const create = [];
+    const update = [];
+    const remove = [];
+    for (const [id, source] of desired) {
+      const previous = existing.get(id);
+      if (!previous) create.push(source);
+      else if (JSON.stringify(previous) !== JSON.stringify(source)) update.push({ ...source, _id: id });
+    }
+    for (const [id, source] of existing) if (!desired.has(id) && this.#managedEffect(source)) remove.push(id);
+    if (remove.length) await this.editingItem.deleteEmbeddedDocuments("ActiveEffect", remove);
+    if (update.length) await this.editingItem.updateEmbeddedDocuments("ActiveEffect", update);
+    if (create.length) await this.editingItem.createEmbeddedDocuments("ActiveEffect", create, { keepId: true });
+    const final = new Set(valuesOf(this.editingItem.effects).map(effect => String(effect.id)));
+    for (const [id] of desired) if (!final.has(id)) throw new Error(`Active Effect reconciliation failed (${id}).`);
+    return final;
+  }
+
+  #validateNativeReferences() {
+    const activityIds = new Set(valuesOf(this.editingItem.system?.activities).map(activity => String(activity.id ?? activity._id)));
+    const effectIds = new Set(valuesOf(this.editingItem.effects).map(effect => String(effect.id ?? effect._id)));
+    const source = this.editingItem.toObject();
+    for (const activity of valuesOf(source.system?.activities)) {
+      for (const linked of valuesOf(activity?.effects)) {
+        const id = String(linked?._id ?? "");
+        // Some native activities link to external UUIDs rather than local effects.
+        if (id && !effectIds.has(id) && !linked?.uuid) throw new Error(`Broken Activity Effect reference: ${activity.name || activity._id} → ${id}`);
+      }
+      for (const id of valuesOf(activity?.effects).flatMap(entry => valuesOf(entry?.riders?.activity))) {
+        if (id && !activityIds.has(String(id))) throw new Error(`Broken Rider Activity reference: ${id}`);
+      }
+    }
   }
 
   async #updateEditingItem(data) {
     if (!this.editingItem || this.editingItem.parent) throw new Error("The original Item is no longer available for updating.");
     if (this.editingItem.pack && !PublishedItemLibraryService.isPublishedItem(this.editingItem)) throw new Error("Only Item Creator publications can be updated from a Compendium.");
     const rollbackSource = clone(this.originalItemSource ?? this.editingItem.toObject());
-    const rollbackEffects = clone(rollbackSource.effects ?? []);
-    const rollbackActivities = clone(rollbackSource.system?.activities ?? {});
     const desiredEffects = clone(data.effects ?? []);
     const desiredActivities = clone(data.system?.activities ?? {});
     const updateData = clone(data);
@@ -3450,24 +3522,22 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
 
     try {
       await this.editingItem.update(updateData, { render: false });
-      await this.#replaceActivities(desiredActivities);
-      await this.#replaceEffects(desiredEffects);
+      await this.#reconcileActivities(desiredActivities);
+      await this.#reconcileEffects(desiredEffects);
+      this.#validateNativeReferences();
       return this.editingItem;
     } catch (error) {
-      console.error(`${MODULE_ID} | Item update failed; attempting rollback.`, error);
+      console.error(`${MODULE_ID} | Item update failed; attempting non-destructive rollback.`, error);
       try {
         const rollbackData = clone(rollbackSource);
-        delete rollbackData._id;
-        delete rollbackData.effects;
-        delete rollbackData.sort;
-        delete rollbackData.ownership;
-        delete rollbackData._stats;
+        delete rollbackData._id; delete rollbackData.effects;
+        delete rollbackData.sort; delete rollbackData.ownership; delete rollbackData._stats;
         if (rollbackData.system) delete rollbackData.system.activities;
         await this.editingItem.update(rollbackData, { render: false });
-        await this.#replaceActivities(rollbackActivities);
-        await this.#replaceEffects(rollbackEffects);
+        await this.#reconcileActivities(rollbackSource.system?.activities ?? {});
+        await this.#reconcileEffects(rollbackSource.effects ?? []);
       } catch (rollbackError) {
-        console.error(`${MODULE_ID} | Item update rollback failed.`, rollbackError);
+        console.error(`${MODULE_ID} | Item update rollback failed; GM review is required.`, rollbackError);
         error.rollbackError = rollbackError;
       }
       throw error;
@@ -5649,6 +5719,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         break;
       }
       case "depletion.mode":
+      case "depletion.resolution":
       case "depletion.test":
       case "depletion.target":
       case "depletion.dc":
@@ -5908,6 +5979,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     catch (error) { console.warn(`${MODULE_ID} | Unable to load spell ${uuid}.`, error); }
     if (!isSpellItemDocument(document)) {
       ui.notifications.warn('Only Spell Items can be added to Granted Spellcasting.');
+      return false;
+    }
+    if (!ItemCreatorSourceRegistry.instance.isDocumentSourceAllowed(document)) {
+      ui.notifications.warn("This Spell's source is disabled in Item Creator Content Sources.");
       return false;
     }
     const spells = this.enhancementValues.grantedSpellcasting.spells ??= [];
@@ -6357,6 +6432,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       const document = await fromUuid(uuid);
       if (document?.documentName !== "Item" || (spell ? document.type !== "spell" : document.type !== "feat")) {
         ui.notifications.warn(spell ? "Select a Spell Item." : "Select a Feature Item.");
+        return;
+      }
+      if (!ItemCreatorSourceRegistry.instance.isDocumentSourceAllowed(document)) {
+        ui.notifications.warn("That source is disabled in Item Creator Content Sources.");
         return;
       }
       if (spell) {

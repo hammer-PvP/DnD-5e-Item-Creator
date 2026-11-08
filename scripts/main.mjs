@@ -14,6 +14,7 @@ import { ItemCreatorTriggeredEffectService } from "./services/triggered-effect-s
 import { ItemCreatorConsumableEffectService } from "./services/consumable-effect-service.mjs";
 import { ItemCreatorRestoreResourceService } from "./services/restore-resource-service.mjs";
 import { registerChargeDepletionHooks } from "./services/charge-resource-service.mjs";
+import { ItemCreatorDepletionLifecycle } from "./services/depletion-lifecycle-service.mjs";
 import { ItemCreatorSourceRegistry } from "./services/source-registry.mjs";
 import { MaterializationCore } from "./core/materialization/index.mjs";
 import {
@@ -47,6 +48,7 @@ Hooks.once("init", () => {
   ItemCreatorConsumableEffectService.registerHooks();
   ItemCreatorRestoreResourceService.registerHooks();
   registerChargeDepletionHooks();
+  ItemCreatorDepletionLifecycle.registerHooks();
   console.log(`${MODULE_ID} | Initializing ${MODULE_VERSION}.`);
 
   game.settings.register(MODULE_ID, DIAGNOSTICS_SETTING, {
@@ -139,11 +141,15 @@ Hooks.once("init", () => {
       get: () => diagnosticMode(),
       set: mode => game.settings.set(MODULE_ID, DIAGNOSTICS_SETTING, ["off", "errors", "verbose"].includes(mode) ? mode : "errors")
     },
+    restoreDestroyedItem: (archive, actor) => ItemCreatorDepletionLifecycle.restoreItem(archive, actor),
     version: MODULE_VERSION
   };
 });
 
 Hooks.once("ready", async () => {
+  ItemCreatorDepletionLifecycle.registerSocket();
+  if (game.user?.isGM) ItemCreatorDepletionLifecycle.reconcilePendingOnReady()
+    .catch(error => console.error(`${MODULE_ID} | Could not reconcile pending depletion cards.`, error));
   if (game.user?.isGM) {
     try {
       await PublishedItemLibraryService.ensurePack();

@@ -1,22 +1,519 @@
-# Item Creator v0.8.5.1 — Description Generator Polish
+# Item Creator (DnD 5e)
 
-## Installation
+**User Guide & Project Manual**
 
-The release archive `item-creator-v0.8.5.1.zip` contains the installable `item-creator.zip`, a standalone `module.json`, and documentation files. Only `item-creator.zip` is meant to be installed as the Foundry module payload.
+Item Creator is a Foundry VTT GM toolkit for designing, normalizing, publishing and stocking native D&D5e Items and Spells. It builds on the D&D5e document system rather than replacing its Activities, Active Effects, Uses or recovery rules. Its workflows include **Item Creator**, **Spell Factory**, **Scroll Factory**, **Supplier**, the shared **Materialization Core**, and the canonical Published Item / Published Spell libraries.
 
-## What changed
+## Requirements and installation
 
-This patch focuses on the automatically generated item description:
+- Foundry VTT 14.367+; manifest verified range 14.368.
+- D&D5e 6.0.1–6.0.999; manifest verified range 6.0.5. Use the compatible installed release of the system.
+- Module ID: `dnd5e-item-creator`.
+- Optional: Crafting Core for semantic Products, Materials and Learn Sources. Its content remains owned by Crafting Core.
 
-- Replaces the fragmented output with a more coherent presentation layer for rules text.
-- Adds a **Charges & Recharge** block describing total charges, recharge cadence/formula, and depletion behavior.
-- Adds a **Granted Spellcasting** block where each granted spell or activity shows its availability, cast behavior, and charge/use cost.
-- Adds a **Magical Properties** block that keeps non-spell properties without duplicating the spell entries.
-- Keeps **Level Progression** as a separate structured section when the item unlocks features by level.
-- Cleans inherited technical template notes like the observed **Foundry Note** helper section.
+**Automatic installation:** Foundry → Add-on Modules → Install Module → paste:
 
-## Scope notes
+`https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
 
-This is a presentation / UX patch on top of v0.8.5. It does not change the underlying shared-charge mechanics, depletion runtime, or source-priority materialization logic that were already functioning.
+**Manual installation:** extract the installable `item-creator.zip` to `FoundryVTT/Data/modules/dnd5e-item-creator/`, with `module.json`, `scripts/`, `styles/`, `templates/` and `lang/` directly inside the folder. Activate the module in the World. The complete `item-creator-v0.8.6.zip` is a GitHub release bundle, not the module folder itself.
 
-The native D&D5e / Foundry item-sheet layout remains authoritative; this patch only improves the generated body text appended by Item Creator.
+**Important:** disabling Item Creator leaves native D&D5e data in Items, but module-controlled conditional effects, charge-depletion prompts and other runtime integrations require the module to remain enabled.
+
+## Quick start — creating a magic item
+
+1. Log in as GM and open the **Items** sidebar. Click **Item Creator**.
+2. Choose **Weapon**, **Equipment**, **Tool**, **Consumable** or one of the factory tools.
+3. Choose a base template from enabled Content Sources or a custom/World Item where supported.
+4. Adjust native Base Item properties: attacks, damage, weapon traits, armor, weight, pricing and icon as appropriate.
+5. Configure Enhancements and Granted Effects. Use the availability selector to control whether a benefit applies while Owned, Equipped, Equipped & Attuned or on use.
+6. Configure Granted Spellcasting, additional Activities and resources as needed. Use native charge pools or Activity Uses, not parallel counters.
+7. In **Description**, keep or edit the narrative text. The unified description renderer appends player-facing rules automatically without replacing your authored lore.
+8. Review the final document. Choose **Publish New** for a canonical Published Item, or create a World copy if you want a local working Item.
+9. Put an Actor copy of the item in a character inventory and activate its native D&D5e Activities through the character sheet.
+
+**Editing an existing Item:** use the World Items Directory / Published Item Library **Edit with Item Creator** entry. Confirm explicitly when saving into a World Item or updating the canonical publication. Existing Actor copies are not silently synchronized.
+
+## Content Sources and source priority
+
+**Items sidebar → Item Creator Configuration → Content Sources** manages the source groups used by the Item Creator. A Source represents a publication or pack family, not a single Item. The screen provides:
+
+- Search by publication and pack name.
+- Filters for **Items & Equipment**, **Magic Template Candidates**, **Spells**, **Features**, and **All Supported Content**. Magic Template counts are conservative metadata hints; the Materializer checks the complete document before use.
+- Counts of supported Weapons, Equipment, Tools, Consumables, Spells and Features; class-only and subclass-only packs are not presented as compatible content.
+- Expandable lists of relevant compendiums inside each Source.
+- Enable/disable and Up/Down priority controls, with explicit Save.
+
+**Filtering is visual only**: it never disables a source or changes Source priority. The native D&D5e Compendium Browser may still list additional Spell/Feature packs; Item Creator checks Content Sources when a selected Spell or triggered source is accepted. World Items and canonical Item Creator Published libraries are available as explicit authoring sources.
+
+When a Supplier or Materializer encounters equivalent versions of one item, the first enabled Source in priority order determines the winning document. Lower-priority entries do not supply spare Activities, Effects or a fallback Item of that same identity. If the winning document is a native enchantment template, Materialization Core must find an eligible concrete base and preserve the template's linked native mechanics. If no valid materialization exists, the choice is rejected rather than silently replaced with another version.
+
+## Charges, Granted Spells and Activity Uses
+
+A parent Item can own a **Shared Item Charges** pool and native D&D5e recharge, while individual Activities or Granted Spells may use one of three modes:
+
+| Charge Mode | What the player spends |
+|---|---|
+| No Charge Cost | No shared or personal charge counter |
+| Shared Item Charges | Cost taken from the parent Item's `system.uses` pool |
+| Separate Charges | Independent native Activity Uses, maximum and recovery |
+
+For a shared pool configure **Maximum Charges**, **Recharge Trigger** (Dawn, Dusk, Short Rest, Long Rest or None), and a formula such as `1d6 + 4` or `all`. A feature that spends shared charges defines its own **Charges per Cast/Activation**. A separate resource defines its own max, cost, recharge and depletion policy. Native D&D5e remains responsible for decrementing counters and performing recharge.
+
+**Example — enchanted staff:** 10 shared charges; `Shield` costs 2, `Mage Armor` costs 3, and the Item regains `1d6 + 4` expended charges at Dawn. The generated description tells the player the maximum, recharge and exact cost for each spell. It does not pretend a charge-consuming spell is usable *At will*.
+
+### What happens when the last charge is expended?
+
+The GM chooses **Nothing Happens**, **Destroy Item** or **Conditional Test**. Conditional Test supports a raw d20 result or a native Ability/Skill/Tool check against a DC. The **Resolution Mode** setting chooses:
+
+- **Prompt in Chat (Player Rolls):** when the relevant counter transitions to zero, a Chat Card announces the risk. An owner of the Actor clicks Roll Test, Advantage or Disadvantage. The native D&D5e roll is posted in Chat. The card then awaits GM judgment.
+- **Automatic Roll (GM Confirmation):** the GM client performs the configured test using native D&D5e Actor rolls when available and posts the result. The GM still has the final decision.
+
+Items created under older versions without a Resolution Mode retain the previous automatic-test preference until explicitly changed. New configuration defaults to Prompt in Chat.
+
+**The player's roll never deletes the Item.** The designated active GM alone chooses **Preserve Item** or **Archive Item (Destroy)**. Preserve closes the card and keeps the item in the Actor inventory. The Destroy policy skips the test and requests GM confirmation. The Nothing policy does not create an unnecessary chat prompt.
+
+### Destroyed Items: safe archive and restore
+
+Every destruction performed through Item Creator Depletion uses a safe archive. The module first creates a full World Item copy under:
+
+**Items → Item Creator → Destroyed Items**
+
+The snapshot preserves native Activities, Effects, charge state, module flags and original Actor information. Only after the archive record is verified does the module remove the original from the Actor's inventory. If archival fails, the original remains; the Chat Card requires GM review. Archiving is reversible, and no Item Creator button performs permanent deletion.
+
+To restore an archived item, open it in **World Items → Item Creator → Destroyed Items**, then click **Restore Item** from the archived Item sheet. The GM chooses the original or another Actor. The Item returns with its archived charge state; it does not recharge automatically. Its archive record remains marked as Restored to prevent double restoration. For advanced GM workflows, use `game.itemCreator.restoreDestroyedItem(archivedWorldItem, targetActor)`.
+
+Permanent deletion, when truly wanted, remains the Foundry's native World Item deletion action under GM control. The safe-archive policy applies to depletion operations performed by Item Creator, not to unrelated modules or Foundry's ordinary delete buttons.
+
+## Unified automatic item descriptions
+
+The Description Composer uses a consistent set of rules-oriented sections across Weapons, Equipment, Tools and Consumables. Sections appear only when relevant:
+
+- **Charges & Recharge / Uses & Recharge:** maximum, recovery formula and timing, depletion consequence.
+- **Granted Spellcasting:** linked spells, casting level, source of charges/uses, cost, eligibility and slot requirement.
+- **Magical Properties:** numeric bonuses, immunities, resistances, movement and other passive or conditional effects.
+- **Level Progression:** properties and spells unlocked at character levels.
+
+The Composer preserves narrative/flavor text and official UUID links, suppresses redundant generic magic rarity lines when the native sheet already shows them, and omits duplicated Spell Activity summaries. Generated blocks are replaced rather than accumulated on subsequent saves. Recognized imported technical helper notes are removed only when they match a known technical pattern; unrelated secret or authored material remains untouched.
+
+The **Chat Summary** is intentionally shorter than the complete Item Description: the character's Item sheet remains the full rules reference. The displayed charges maximum is not a live balance; the live count remains the native D&D5e `Item Uses` value on the Actor copy.
+
+## Published Item and Spell libraries
+
+**Published Items** are stored in the World Compendium **Item Creator — Published Items**, grouped into native folders for Equipment, Armor, Weapons, Tools and Consumables. **Publish New** creates a canonical item; **Update Published** edits the existing publication and increments its revision; **Create Published Copy** makes an independent publication. Archive/Restore and explicit delete actions are available to GMs within the library interface. Existing Actor/World copies do not synchronize automatically with a revision.
+
+**Spell Factory** manages native D&D5e Spell documents and a separate **Item Creator — Published Spells** Compendium. The authoring lifecycle is **Blank/Blueprint → Protected Draft → Edit Spell → Review → Publish**. Drafts are isolated from published content and the native Spell sheet is used for Activities, damage, Saves, targeting, duration, Concentration, scaling and Summons. Publish only after reviewing its Class Spell List metadata. Published Spells are organized by school and can be used from the native Compendium browser.
+
+**Scroll Factory** creates native spell scroll consumables using a chosen Spell, level and applicable template. It is an independent tool within Item Creator rather than an Actor-only wizard.
+
+## Supplier: merchant inventory generator
+
+Enable **Supplier Tools** in **Item Creator Configuration**. The Items sidebar then offers the Supplier action alongside the Item Creator action.
+
+1. Open Supplier and select a preset Profile (e.g. Blacksmith, Alchemist, Herbalist, Tavern, Magic Assortment, General Trade, Stable & Livestock or Siege Engineer), a Blank Profile or a saved customization.
+2. Configure Vendor Access, Party Level/Size, rarity and progression.
+3. Edit **Item Groups**, **Guaranteed Stock** and **Random / Organic Stock**. Variety controls how many different SKUs appear; organic quantity controls stack sizes.
+4. Optionally enable Crafting Core catalog integration for Products, Materials and Knowledge Sources.
+5. Preview the stock and verify eligible categories/quantities; then create a Supplier inventory. Vendor output is organized in World Item folders.
+
+**Recipe knowledge:** when integrated, the Homebrew chance is 50%, yielding 1–2 distinct eligible published Learn Sources. A Learn Source's nonzero native price wins. Only if its source price is zero does Supplier fall back to a configurable percentage of the linked Product. Party Level constrains rarity and Product Tier; Vendor Access does not bypass the enhancement ceiling. Learn Sources are not regular ammunition/gear and cannot leak through ordinary stock selection paths.
+
+**Allow Firearms & Modern Ammunition** is a GM World Setting, OFF by default. It excludes firearms, technological ammunition, energy cells, modern explosives and linked knowledge from every Supplier Profile. Arrows, Bolts, Needles and medieval Sling Bullets remain legal. This global setting overrides a Profile's separate **Normalize Firearms** option. Setting the global option ON merely allows those candidates to be considered; Profile rules still determine final selection.
+
+## Materialization Core
+
+Materialization Core is shared by manual authoring and Supplier stock. It can recognize ready-made Items, enhancement generators, native Enchantment templates and concrete variant families. Native D&D5e enchantments, Activities and Effects remain the primary mechanical authority. Template restrictions and explicit eligible Item references constrain the chosen base Item. Variants unresolved under the active profile are rejected without inventing mechanics or silently combining lower-priority source documents.
+
+## Runtime, settings and documentation
+
+- **Item Creator Configuration:** optional Supplier, Materialization pricing, runtime diagnostic level and the global Firearms policy.
+- **Content Sources:** enable and order publications and filter relevant Item/Spell/Feature sources.
+- **Native item sheets:** mechanics such as Uses and Activities, plus the shorter item Chat card.
+- **Module-active runtime:** triggered/passive Effects, spell visibility, automated depletion and related Actor reconciliation.
+- **README.md:** this long-form manual. **CHANGELOG.md:** cumulative development history. QA notes belong in separate checklists outside the production module ZIP.
+
+---
+
+## Detailed Feature Reference
+
+### World Items Directory entry points
+
+The World Items Directory always receives one GM-only **Item Creator** button. Its start screen provides Weapon, Equipment, Tool, Scroll Factory, and Consumables. Scroll Factory remains inside Item Creator because it creates an individual Spell Scroll loot Item without requiring an Actor sheet.
+
+When **Enable Supplier Tools** is active, **Item Creator** and **Supplier** share one compact directory row. Item Creator remains the wider primary action and Supplier is the smaller complementary action; both retain their established green and epic-purple visual identities. Supplier has its own action because it creates complete vendor stocks rather than an individual reward.
+
+## Item Creator
+
+The assisted Item workflow is:
+
+1. Item Type;
+2. Base Item;
+3. Enhancements;
+4. Granted Effects;
+5. Spells & Resources;
+6. Description;
+7. Review.
+
+For **Consumables v2**, the specialized flow is **Item Type → Base Item → Activities → Granted Effects → Description → Review**. Each Activity owns activation, targeting, and charge cost; each On Use Granted Effect owns its own Activity routing, duration, and stacking. There is no separate global Effect Defaults stage.
+
+Base Items may come from enabled compendiums, existing World Items, or custom data. New authored Items are published canonically to **Item Creator — Published Items** by default. Existing supported World Items can still be reopened through **Edit with Item Creator**, updated in place, copied for testing, or published into the canonical library.
+
+### Activities v2 — Additional Activities Composer
+
+Weapons, Equipment, and Tools can carry independent native D&D5e Activities beyond the established Weapon Attack Activity editor. The **Additional Activities** Composer supports Utility, Restore Resource, Damage, Heal, and Saving Throw Activities. Each Activity owns its own activation, range, targeting, duration, Concentration, uses, recovery, and chat flavor.
+
+Utility Activities can expose a native formula roll, with common d20/ability presets and modifier helpers so GMs do not need to memorize D&D5e roll-data paths. Formula helpers include Strength/Dexterity/Constitution/Intelligence/Wisdom/Charisma, Proficiency, the Actor's Default Spellcasting Modifier, and a Highest Spellcasting Modifier option. Damage Activities roll damage directly and are explicitly distinguished from Weapon Attack Activities; special attack rolls remain in the dedicated Weapon Attack editor. Heal Activities use D&D5e's native healing modes, including normal Healing, Temporary Hit Points, and Maximum Hit Points. Saving Throw Activities can configure ability, native DC calculation/formula, optional damage, damage type, and damage on a successful save. Uses/Cost/Recovery are grouped as one Activity-owned resource block and update reactively as soon as Maximum Uses becomes limited. Disabling **Enabled on Item** only omits that Activity from the final Item and never disables the Item Creator editor itself.
+
+Existing compatible Activities imported from World Items or templates are promoted into this editor while unrepresented native fields remain preserved as passthrough source data. Existing Attack Activities continue to use the dedicated Weapon editor. **Restore Resource** supports native fixed/formula recharge amounts. The editor adds **Expose as Item Activity** to Granted Spellcasting: the linked Spell resolves from the Item at the configured cast level using the Activity's own Uses/Recharge, never falling back to Actor Spell Slots. The established Spellbook path remains available when Activity exposure is disabled. Consumables provide preserve-first Base Items and shared native charges. The editor promotes Base Consumable Activities into the editable composer, adds Actor State Changes, Activity ordering, and Activity-specific routing/lifecycle for Granted Effects. This workflow provides the Apply Granted Effects shell, multi-target Granted Effect routing, persistent Spell-effect imports, and human-readable generated formula text.
+
+The implementation keeps Spell Activity ids stable across rebuilds, orders them deterministically after existing Item Activities, and includes exposed Spell Activities in generated Item Properties summaries.
+
+### Supported Item types
+
+#### Weapon
+
+Supports native weapon data, Base Weapon inheritance, multiple editable Attack Activities, damage, range, properties, Mastery, weapon enchantment, additional damage, Granted Effects, Granted Spellcasting, and character-level progression.
+
+##### Multiple Attack Activities
+
+Weapons may contain more than one native D&D5e **Attack Activity**. The first Activity is the **Primary** attack and defaults to the name **Attack** when the source has no custom name. Additional Activities default to **Alternative Attack** and may be renamed, duplicated, removed, expanded, or collapsed in the Base Item step.
+
+Each Activity independently controls whether it includes the Item's normal base weapon damage and which typed damage parts belong only to that Activity. An Alternative Activity can either inherit the Primary attack configuration or keep its own native attack type, ability, attack bonus, critical threshold, and extra critical-damage formula. Existing native Attack Activities imported from World Items or templates are promoted into this editable model instead of remaining opaque Custom Imported Activities; native Activity fields outside the explicitly managed attack/damage controls are preserved as source passthrough data.
+
+Item Creator does **not** automatically select an Activity from target creature type or hidden adjudication. When D&D5e presents multiple Activities, the player/GM chooses the appropriate attack normally. Versatile one-handed/two-handed weapon damage remains the native weapon's Versatile behavior and is not represented as a separate Activity unless the GM deliberately creates one.
+
+Primary Activity additional-damage progression remains compatible with existing Item Creator Items. The document schema stores managed Attack Activity identities so weapon-local Attack Bonus and Critical progression can remain synchronized with Activities that inherit the Primary attack configuration.
+
+#### Equipment
+
+Supports armor, shields, robes, clothing, cloaks, headwear, amulets, gloves, rings, boots, belts, foci, accessories, and other Equipment. Armor-only fields remain restricted to Armor and Shield forms.
+
+#### Tool
+
+Supports native Tool category, base tool, default ability, proficiency handling, Tool Check Bonus, quantity, weight, price, magical rarity, optional Attunement, Granted Effects, Granted Spellcasting, and character-level progression. A Tool never receives weapon attacks, weapon damage, Mastery, range, Weapon Enhancement, or armor calculation fields.
+
+#### Consumable
+
+Consumables are native D&D5e `consumable` Items intended for potions, food, drinks, poisons, rods, wands, wondrous one-use objects, and other exotic rewards. They can inherit an existing Consumable blueprint or begin as a blank shell, then configure native type/subtype, quantity, shared Item uses, recharge, Auto Destroy, icon, price, rarity, Activities, Granted Effects, and description. Activation is Activity-owned rather than a Consumable-wide field.
+
+The normal Granted Effects library becomes an **on-use effect package** for Consumables. Carrying the Item grants nothing. After D&D5e confirms the managed Activity, Item Creator copies only the effects routed to that Activity onto its resolved recipients. Self Activities apply to the Item owner; targeted Activities can apply to multiple selected Actors. Positive and negative changes can coexist in one use.
+
+Effect duration can be Permanent, until the next Short or Long Rest, until the next Long Rest, a number of rounds, owner turns, minutes, or hours. One round equals six seconds outside Combat. Timed effects use Foundry World Time, so advancing the world clock expires them without real-time browser timers; Combat provides precise round/turn tracking when initiative exists. Permanent effects survive the destruction of the consumed Item.
+
+**Actor State Changes** provides instant condition/status and Exhaustion cleanup as an Activity rather than as a global Consumable setting. An Activity can remove one or more registered statuses and/or a fixed number or all Exhaustion levels. Missing states are safe no-ops.
+
+Stacking can replace an existing dose, refresh its duration, ignore a new persistent dose while one is active, or allow independent stacks.
+
+## Critical Threshold scope
+
+The interface separates two mechanically different features:
+
+- **Weapon Critical Threshold** is a Weapon Enhancement and changes only attacks made with that Weapon;
+- **Actor Critical Threshold** is a Granted Effect and changes the Actor's weapon attacks, spell attacks, or all attacks according to **Applies To** and the configured availability.
+
+This avoids presenting a weapon-local attack property as though it were the same as an Actor-wide passive effect.
+
+## Native Effect and Activity normalization
+
+When a Base Item contains native Active Effects or Activities, Item Creator translates recognized mechanics into its editable data model before building the new Item.
+
+A combined Effect can be separated into independent properties. For example, a single native Effect granting `+1 Armor Class` and `+1 to all Saving Throws` becomes two editable Creator fields. The original embedded document is not copied alongside the normalized result, preventing invisible duplication.
+
+Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. Secondary native Weapon Attack Activities are no longer treated as unknown: they are promoted into the editable Attack Activity list. Activity-to-Effect references are remapped when the normalized Item is created.
+
+## Granted Effects
+
+Weapons, Equipment, and Tools may grant Actor-facing bonuses including:
+
+- Armor Class;
+- Weapon Attack and Damage Rolls;
+- Spell Attack and Spell Save DC;
+- Ability Scores, Saving Throws, Ability Checks, and Skills;
+- fixed or Actor Proficiency Bonus modes for Saving Throw bonuses;
+- Initiative, Proficiency Bonus, and Maximum Hit Points;
+- resistances, immunities, vulnerabilities, and condition immunities;
+- movement, senses, passive scores, and critical thresholds;
+- Conditional Advantage and Ignore Resistance.
+
+Granted Spellcasting and structural resource changes are configured in the separate **Spells & Resources** step.
+
+**Conditional Advantage** is repeatable. Each entry can use an Item Creator Runtime-supported Attack condition, a **Condition Save** declaration, or custom rule text. Condition Save exposes the D&D5e system condition list and writes the selected conditions into the generated Item information as Advantage on saving throws to avoid or end those conditions. It is intentionally descriptive rather than a save interceptor: the Advantage applies only when the originating rule actually calls for a saving throw, so conditions such as Cursed, Exhaustion, Bleeding, or homebrew/system-provided conditions remain valid declarations without Item Creator inventing a save where none exists. Multiple Conditional Advantage entries can coexist on the same Item, including runtime Attack rules and descriptive Condition Save rules.
+
+### Triggered Effects
+
+Granted Effects also contains a repeatable **Triggered Effects** builder for temporary combat effects. A row combines:
+
+1. an event such as an attack roll, successful hit, threshold-aware Critical Hit, exact Natural 20, spell use, feature use, resource or Spell Slot consumption, damage/healing application, or combat boundary;
+2. activation counting such as once per Activity, attack roll, successful attack roll, trigger target, turn, or round;
+3. an application mode, including the existing stack/duration models or a non-stacking **Single Activation** lifetime;
+4. one or more generic effects, each assigned to the Item owner or the trigger target(s).
+
+`Critical Hit` and `Natural 20` are separate events. Critical Hit uses the attack's configured critical threshold, while Natural 20 requires the active d20 result to equal 20. Spell triggers now distinguish **Any Spell Matching Filters** from **Specific Spell Cast**. The former requires no selected Spell and accepts any Spell matching the chosen level and school; the latter requires one selected Spell, with level and school remaining optional additional filters. Older trigger configurations saved as Specific Spell Cast without a selected Spell use Any Spell Matching Filters so their existing school/level intent works instead of silently matching nothing.
+
+Generated Item descriptions now state the trigger, filtered Spell/attack/resource, applied effects, activation frequency and limits, application mode, stack behavior, and expiration instead of reducing the rule to a generic stack count. For example, a movement trigger can state that casting any Enchantment Spell grants +15 ft Walking speed, once per Activity, with its exact turn boundary and retrigger behavior.
+
+The existing stack behaviors remain available unchanged: refresh a single effect, share one duration across stacks, track independent stack durations, decay continuously, begin decaying only after inactivity, or use **Single Attack — Remove After Damage Roll**. The single-attack mode remains available for Attack Hit, Critical Hit, and Natural 20; it keeps the effect through the next damage roll from the same Activity and then removes it, with end-of-current-turn cleanup as a fallback.
+
+**Single Activation** is available for every trigger category and applies one non-stacking temporary effect. It can expire at the end of the source Actor's current turn, the start of the source Actor's next turn, the end of the source Actor's next turn, or the equivalent current/next-turn boundary of the **Effect Recipient**. A new trigger may refresh that lifetime or be ignored while the effect is active. Stacked lifetimes use **Duration Follows** to choose Source Actor Turns, Effect Recipient Turns, every Combat turn, or Combat rounds. Target-bound effects default to Effect Recipient Turns unless the GM explicitly selects another clock, and each recipient is counted independently. If the selected Actor is not currently taking a turn, the next matching turn boundary is used. A recipient-turn lifetime whose recipient is not a Combatant has no turn boundary and therefore remains until another cleanup condition or Combat end. Ending or deleting the Combat immediately removes every temporary Item Creator effect and its ledger state.
+
+Every Applied Effect chooses an **Effect Recipient**: **Item Owner** preserves the original behavior, while **Trigger Target(s)** applies the payload to the Actor targets recorded by the D&D5e Activity or attack. Damage and healing events use the Actor that actually received the change. A missing target skips only target-bound payloads and never falls back to the Item owner. Normal effect formulas are evaluated from the recipient Actor's roll data.
+
+Applied effects include Spell Attack, Spell Save DC, weapon and spell attack/damage bonuses, AC, Saving Throws, Concentration, Initiative, maximum HP, movement, resistances, immunities, Actor critical threshold, and **Apply Effects from Selected Spell**. Selecting a Spell snapshots its transferable Active Effects and conditions. The Trigger copies those effects directly to the chosen recipient; it does not cast the Spell, spend a slot or action, execute targeting or saving throws, preserve the Spell's original duration, or create concentration. Duration and retrigger behavior remain controlled by the Triggered Effect. Spells without transferable Active Effects are rejected with a clear warning.
+
+**Restore Hit Points (Instant)** adds a non-persistent healing action to Triggered Effects. It is intended for patterns such as “when the wielder heals a creature, restore additional HP to that creature” or “when the wielder heals a creature, also restore HP to the Item owner.” Use **Healing Applied by the Wielder** with **Trigger Target(s)** to heal the original healing recipient, or **Item Owner** to heal the healer. Healing can be a free Roll formula such as `1d4`, `2d6 + 2`, or another valid D&D5e formula; a flat number; or the **Triggering Healer Spellcasting Modifier**. Formula data and the spellcasting modifier come from the Actor that caused the triggering healing when available, with the triggering Activity's spellcasting ability preferred. Instant Healing updates HP immediately, creates no Active Effect, ignores duration/stacks for that payload, cannot use Save-Gated application, and is marked internally so its secondary healing cannot recursively retrigger Item Creator healing events.
+
+**Contextual Roll Modifier** stores a roll declaration on the active effect instead of permanently changing the roller. The first supported roll types are Attack Roll, Saving Throw, and Ability Check. A modifier can affect a roll made by the Effect Recipient, or an Attack Roll made against the Effect Recipient when that Actor is the attacker's single current target. Supported operations are Add Dice, Subtract Dice, Add Flat, and Subtract Flat. The runtime injects the formula only into the matching native D&D5e roll and never identifies a specific Item or Spell by name. Contextual modifiers use the Triggered Effect's normal duration and stack lifecycle; Remove When Consumed is intentionally not combined with them in this first implementation.
+
+**Effect Application** can remain **Immediate** or use **Saving Throw → GM Applies Effect**. Save-Gated application creates a native D&D5e Saving Throw/chat workflow with the configured ability and fixed DC or formula. Item Creator does not inspect a hidden save and auto-apply the debuff. The GM uses the native D&D5e Effects tray to apply the configured target effects to the creatures that should receive them. Once applied, the effect is adopted into the originating Item Creator Triggered Effect ledger and follows that Item's configured duration/stack lifecycle. A copied Spell still does not become a cast Spell and concentration is not inferred from its name or original Spell data. Normal Item Creator save-gated effects are Item Creator-lifecycle effects; native D&D5e/Character Builder concentration remains under the native D&D5e authority. Remove When Consumed is not combined with Save-Gated application in this first implementation. The synthetic Usage Message stores its source Item data and exposes the configured Active Effects through the native D&D5e UsageMessage `system.effects` path, so the tray remains generic for any compatible configured effect rather than depending on a named Spell such as Bane.
+
+Normal numeric effects may be flat, based on Proficiency Bonus or an ability modifier, use the recipient Actor's spellcasting modifier, roll dice, or use a custom D&D5e formula. Each normal effect can be fixed while active or multiplied per stack.
+
+**Remove When Consumed** is an additional lifetime condition and never replaces the configured duration. The GM chooses a number of uses, an eligible roll type (Attack Roll, Ability Check, Saving Throw, any D20 Test, Damage Roll, or Healing Roll), a decision mode, and **Ask / Use Timing**. The managed effect therefore lasts until its normal duration ends **or** its use counter reaches zero, whichever happens first. A configuration such as `10 Effect Recipient Turns / 1 use` expires after ten recipient turns if unused or immediately after its confirmed use. A new matching Trigger activation reapplies the effect and restores its configured use pool.
+
+The recipient immediately receives an enabled, visible Item Creator Active Effect showing the benefit and its remaining uses. Roll-changing payload documents are kept dormant between uses so an optional bonus cannot affect unrelated rolls. **Before the Roll** asks or activates before the native roll, enables the payload only for that roll, consumes one use only after a completed roll, and preserves the use when the roll is cancelled. **After the Roll** is privacy-neutral: every eligible Attack Roll, Ability Check, Skill/Tool Check, or Saving Throw offers the available effect regardless of hidden AC/DC or success/failure. The player sees only the current roll total, the available modifier, and **Use / Keep**. If used, Item Creator rolls the modifier, applies it to the existing total without rerolling the d20, and reports only the new total. Damage and Healing Rolls continue to use pre-roll timing. Declining always preserves the effect.
+
+Application, refresh, and confirmed consumption generate one chat notice for the managed Trigger application, including recipient, source Item, lifetime, uses, and the public roll-total adjustment when applicable. Item Creator never publishes hidden AC/DC, Success, Failure, or equivalent adjudication in its player-facing consumption prompt or chat notice. Multiple Active Effects copied from one Spell remain one managed application and consume only one use together.
+
+Consumable Applied Effects also support **Add Dice to Eligible Roll** and **Subtract Dice from Eligible Roll** without requiring a Spell document. The GM chooses the dice, recipient, duration, number of uses, eligible Attack Roll / Ability Check / Saving Throw / Any D20 Test, decision mode, and timing. Either modifier may be used **Before the Roll** or **After the Roll** for supported D20 rolls. Post-roll offers are shown on every eligible roll and never depend on hidden adjudication. These payloads use the existing consumption controls and do not add a second Damage Roll or Healing Roll layer.
+
+Post-roll Item Creator effects use Character Builder's **Shared Roll Resolution Queue v3** when the active API reports `version >= 3`, `discoveryBarrier === true`, and `dynamicPriorityDrain === true`. Item Creator claims discovery synchronously from the native D&D5e roll hook, enqueues its provider in phase `items` / priority `300`, releases the discovery claim, and lets the queued Promise remain open through the complete neutral **Use / Keep** decision. The provider begins from the queue's latest `currentTotal`, returns only its updated total and adjustments, and never calls global finalization. The canonical order is **D&D5e native → Character Builder 200 → Item Creator 300 → lifecycle**. For Concentration Saves, Item Creator still evaluates Saving Throw eligibility but preserves Character Builder's shared `concentration` roll identity, allowing lifecycle to decide concentration only after Item providers settle. Player-facing eligibility never depends on hidden AC/DC/Success/Failure. If no conforming Queue v3 API exists, the prior structured/legacy integration remains available as fallback.
+
+When Character Builder exposes `game.modules.get("dnd5e-character-builder").api.resourceEvents` with protocol `dnd5e-resource-events` v1, that feed is authoritative for **Resource Consumed** triggers. `payload.resource` is the pool/slot/use that actually changed; `payload.cause` is the Item/Activity that caused it. Item Creator correlates the semantic consumption with native `postUseActivity` only to recover message/target context, never to re-infer the resource. This means **Specific Resource Spent** and **Specific Feature Used** are intentionally different concepts—for example, a Feature may consume another Feature's resource without becoming that Feature. Without the compatible Character Builder protocol, Item Creator preserves its standalone legacy consumption detector.
+
+
+Triggered Effects can apply Active Effect-compatible bonuses, penalties, conditions, resistances, immunities, copied Spell effects, and immediate Restore Hit Points actions to the configured recipient. They do not summon creatures, execute Activities automatically, reproduce a selected Spell's full casting workflow, persist stacks after combat, or temporarily rewrite structural Resource Modification pools.
+
+Availability can be configured as:
+
+- **Owned**;
+- **Equipped**;
+- **Equipped and Attuned**.
+
+`Equipped` may also be used as a simple manual switch for roleplay-controlled effects.
+
+## Level-based Item progression
+
+Weapons, Equipment, and Tools can unlock or improve mechanics according to the owning Actor's **total character level**, including multiclass characters.
+
+Example:
+
+```text
+Level 3  — +1 to attack rolls
+Level 7  — +2 to attack rolls
+Level 13 — +3 to attack rolls
+```
+
+Progression tiers in the same group replace earlier tiers rather than stacking with them. At level 7, the example grants a total of `+2`, not `+3`.
+
+The runtime reconciles progression when levels, Items, equipment state, Attunement, or the world state changes. Progression also works downward when an Actor's level is reduced.
+
+The GM's flavor text remains at the top of the Item description. Item Creator maintains generated **Item Properties** and **Level Progression** sections below it without duplicating them during later edits.
+
+## Spells & Resources
+
+The dedicated **Spells & Resources** step contains two independent systems.
+
+
+### Restore Resource Activities
+
+A **Restore Resource** Activity is a native Utility Activity with Item Creator recovery metadata. It can restore the Item owner's Spell Slots, Pact Magic, Hit Dice, or a known class/subclass resource located through the same registry used by Resource Modifications. Each Activity may restore multiple resources and may use a flat amount, a formula, or Recover All.
+
+Recovery is bounded: slot values never exceed their native maximum, and spent-use/Hit-Die counters never go below zero. Activity Uses and their Short Rest/Long Rest/Dawn/etc. recovery remain native D&D5e Activity data.
+
+Recovery follows the native D&D5e Activity resource model; unsupported raw data paths are not silently guessed. Spell-as-Activity is available through Granted Spellcasting and remains separate from Restore Resource.
+
+### Granted Spellcasting
+
+Items can grant existing Spells with independent uses, recovery, slot consumption, cast level, spellcasting calculation, Spellbook visibility, availability, and level requirements.
+
+Adding the first granted Spell marks the Item as magical. It does not automatically add a `+1`, `+2`, or `+3` enchantment and does not require Attunement unless the GM chooses those options separately.
+
+Each granted Spell can be exposed directly as an **Item Activity**. In that mode the Spell does not need to appear in the Actor Spellbook, its own Activity Uses/Recharge are authoritative, and it never falls back to Actor Spell Slots. Cast Level controls how the linked Spell resolves rather than which Actor slot is spent.
+
+### Resource Modifications
+
+An Item can contain any number of resource rows. Each row has its own availability and optional **Unlock on Character Level**, which always reads the Actor's total level. The GM controls balance; Item Creator focuses on applying and removing the configuration safely.
+
+Supported categories include:
+
+- existing class and subclass feature pools such as Rage, Bardic Inspiration, Channel Divinity, Wild Shape, Second Wind, Action Surge, Indomitable, Focus Points, Lay on Hands, Sorcery Points, Superiority Dice, and Psionic Energy Dice;
+- resource-die size changes through die steps, minimum dice, or exact dice;
+- additional normal Spell Slots selected from a closed 1st–9th-level list;
+- additional Pact Magic slots.
+
+Class and subclass resources are never created on an Actor who does not own the matching feature. Global Spell Slot rows can add a slot maximum directly but do not grant known or prepared Spells. Lay on Hands treats each configured +1 as +5 points. Multiple rows and multiple active Items stack.
+
+The runtime changes only maximum capacity. It preserves spent uses and does not refill a feature or Spell Slot when an Item is equipped, unequipped, attuned, or removed. Spending and recovery remain controlled by the original D&D5e feature.
+
+Resource reconciliation is idempotent. Item Creator records the unmodified baseline, aggregates the currently active rows once, restores that baseline when bonuses become inactive, and preserves it across reloads. Repeated equip/unequip cycles therefore never turn a previous Item bonus into the new permanent maximum.
+
+Runtime diagnostics are available through `game.itemCreator.auditResources(actor)`, `game.itemCreator.syncResources(actor)`, `game.itemCreator.auditTriggeredEffects(actor)`, and `game.itemCreator.syncTriggeredEffects(actor)`.
+
+## Rarity and pricing
+
+The selected Rarity is written to the native `system.rarity` field and appears in the final D&D5e Item header and Review.
+
+The shared Materialization Core provides two world-level pricing profiles:
+
+- **Official 2024 Template**: Common 100 GP, Uncommon 400 GP, Rare 4,000 GP, Very Rare 40,000 GP, Legendary 200,000 GP, and Artifact as Priceless;
+- **Custom World Values**: GM-defined values and denomination.
+
+A newly created magical Item can receive the configured rarity price automatically. A manual price entered by the GM takes priority. Existing official or source-specific magic Item prices are preserved unless the GM explicitly replaces them through Item editing. Scroll Factory keeps the native price generated by D&D5e.
+
+## Scroll Factory
+
+Scroll Factory accepts a Spell dropped from a compendium, World Items, or an Actor, and also supports selection through the native D&D5e Compendium Browser.
+
+The factory calls the native D&D5e Spell Scroll generator. D&D5e remains responsible for the Scroll structure, embedded Cast Activity, Save DC, Spell Attack Bonus, uses, properties, and price. The result is created directly in the World Items Directory rather than an Actor inventory.
+
+Scrolls use the Spell's base level and do not offer upcasting. Generated Scrolls remain compatible with native D&D5e use and supported Scribe Spell workflows.
+
+## Supplier Profile System v2
+
+Supplier uses an explicit Profile System v2 language. A Profile created from **Blank**, a protected Preset, or a duplicated Homebrew Profile uses the same visible settings and the same generator path. Presets are starting configurations, not hidden runtime archetypes.
+
+> **Breaking change:** Supplier Profiles from the older pre-v2 model are not silently migrated. The Profile architecture changed substantially and old custom Profiles must be recreated in the new Profile Builder after updating. Compendium Sources and **Level, Quality & Price** configuration remain independent of that Profile reset.
+
+The acceptance rule for the new system is simple: if a manually built Profile has the same visible settings as a Preset, both must behave mechanically the same.
+
+## Optional Supplier
+
+Supplier is integrated but disabled by default. Enable it through:
+
+**Configure Settings → Item Creator Configuration → Enable Supplier Tools**
+
+When disabled, the Supplier directory button is hidden, Supplier compendiums are not indexed, and Supplier generation/output services do not run. Item Creator and Scroll Factory continue to work normally.
+
+When enabled, the Item Directory places **Item Creator** and the GM-only epic-purple **Supplier** action on the same compact row, with Item Creator slightly wider. Inside Supplier, the gear beside **Supplier Profiles** opens the Profile Builder and **Level, Quality & Price** configuration.
+
+Supplier separates two responsibilities:
+
+- **Level, Quality & Price** remains the sole authority for party-level rarity access, rarity weighting, enchantment quality, Spell limits, and prices. Supplier does not add a second rarity ceiling or a parallel progression engine.
+- **Supplier Profiles** explicitly describe what the vendor trades, how guaranteed and rotating inventory is assembled, what can be used as a magic-item base, and how stock quantity scales.
+
+### Compendium Sources and priority
+
+Profiles use the enabled Supplier Compendium Sources as their content universe. Source priority can now be reorganized directly by **drag-and-drop** using the row handle; enabled state and existing priority semantics are preserved. The saved priority array remains the same Supplier source model used by generation.
+
+A newly created Profile receives the currently enabled source set and can then use those sources explicitly in its Item Groups. Changes to the global source list do not silently rewrite an existing Profile's intended groups.
+
+### Item Groups
+
+An **Item Group** is the reusable definition of a merchandise family. Guaranteed, Random/Organic, and Materialized Stock can reference the same groups so the vendor's mundane and special inventory stay thematically related.
+
+A group can filter by Compendium source, Item type/subtype, rarity, magical state, document nature, search/identity terms, exclusions, and live Crafting Core metadata. Crafting-aware filters include Material family/nature/category/tags/requires/biomes and Product category/subcategory/culture/meal type. Recipe Knowledge Sources remain excluded by default and become candidates only when the GM explicitly opts into Knowledge content.
+
+The Item Group picker supports search, visible-result selection, **Select All**, individual exclusions, and two persistence modes:
+
+- **Dynamic Filter** keeps the filter contract, allowing future matching content from the same sources to become eligible automatically while preserving explicit exclusions.
+- **Explicit Selection** stores exactly the checked Item UUIDs.
+
+Each group also has an **Affinity Weight**. When several groups feed one rotating-stock rule, higher-weight groups are selected more often without creating a hidden vendor-specific reservation.
+
+### Guaranteed Stock
+
+Guaranteed Stock is built from one or more Item Groups/Sets. Each rule can use:
+
+- **All Eligible Items** — every currently eligible Item in the attached groups is stocked;
+- **Pick N From Eligible** — the attached groups define the guaranteed pool and the configured number of selections is made from it.
+
+Quantity uses a simple base plus party scaling: none, party size, `floor(players / 2)`, or `floor(players / 3)`. This supports stock such as one mundane weapon/armor copy per party member or a smaller guaranteed selection of consumables.
+
+**Limit Guaranteed Items by Level Range** optionally sends the guaranteed pool through the existing Level, Quality & Price eligibility rules. This is useful for complete tiered families such as Healing Potions: the family can be selected once while the existing progression determines which rarities are currently available. Turning the option off means the GM's explicit guarantee takes precedence over level eligibility.
+
+### Random / Organic Stock
+
+Random Stock separates **variety** from **quantity**. Variety determines how many distinct SKUs appear; Organic Quantity determines how many units of each selected SKU are stocked. Duplicate lottery slots are not used as a substitute for quantity.
+
+Quantity presets are **Sparse**, **Normal**, **Abundant**, and **Custom**. Common merchandise naturally supports larger stacks while increasingly rare merchandise trends toward smaller stacks. Party size and Vendor Access can expand availability without replacing the existing rarity/progression rules; Access primarily broadens commercial reach and variety.
+
+Rules can expose weight, minimum/maximum picks, appearance chance, and minimum/maximum Vendor Access. This makes narrow vendors such as Hunter intentionally carry a small rotating selection while still allowing several units of a material they happened to obtain in quantity.
+
+### Existing special Items and Materialized stock
+
+Special stock has two explicit paths:
+
+- **Existing Special Items** selects ready-made/named magical documents already present in enabled sources.
+- **Materialized Special Items** selects visible Base Item Groups and routes only those bases through the existing Materialization Core and its curated recipe registry. Optional Template/Materializer Groups and an explicit Materialization Recipe can further constrain the rule.
+
+Materialized Stock does not escape to unrelated Profile merchandise if the configured base groups cannot produce a valid result. The visible Base Item Groups are authoritative. The Materialization Core continues to resolve enhancement generators, blueprints, concrete variants, enchanted ammunition, and its validated recipe families.
+
+This allows the same merchandise definition to keep magical stock coherent with the vendor: a sword specialist can materialize from sword bases, a bowyer from bows/crossbows/ammunition, and a Blacksmith from its configured weapon/armor bases without a hidden `if Blacksmith` rule.
+
+### Scroll Stock
+
+Scroll configuration is intentionally simple. A Profile only enables **This Vendor Sells Scrolls** and sets a base quantity plus party scaling. The existing Supplier/Materialization scroll path continues to perform the hard work of choosing valid Spells and creating native Scrolls. **Level, Quality & Price** remains authoritative for the party's allowed Spell level and progression.
+
+### Supplier catalog normalization
+
+Natural Weapon and Natural Armor documents are not merchandise and are excluded from Supplier candidate pools, including Blank/Homebrew Profiles. Siege weapons remain valid merchandise but broad weapon groups do not absorb them unless the `siege` subtype is explicitly requested; the canonical **Siege Engineer** Preset demonstrates that path.
+
+Profiles also expose **Normalize Firearms & Firearm Ammunition**, subordinate to the global World Setting. When enabled, firearm-oriented candidate groups are normalized inside Supplier to deduplicated medieval ranged families such as crossbows and compatible arrows/bolts/needles before stock selection/materialization. Source Compendium documents are never edited. The global **Allow Firearms & Modern Ammunition** World Setting must also be ON for firearms to enter any Supplier Profile. Canonical medieval Presets enable normalization by default.
+
+### Crafting Core semantic stock
+
+
+The canonical Presets currently include **Blacksmith**, **Alchemist**, **Herbalist**, **Hunter**, **Butcher**, **Mundane/Common Tavern**, **Dwarven Tavern**, **Elven Tavern**, **Magic Assortment**, **General Trade**, **Stable & Livestock**, and **Siege Engineer**. There is no canonical Gunsmith Preset; technology is controlled by the global World Setting and each Profile normalization option.
+
+- **Blacksmith** guarantees ordinary simple/martial weapons, armor/shields, and ammunition, rotates smithing materials, and uses explicit weapon/armor/ammunition bases for special/materialized stock.
+- **Alchemist** combines guaranteed tools/remedies/level-eligible Healing Potions with rotating alchemical, botanical, creature, fluid, and Essence reagents.
+- **Herbalist** focuses on kits, containers, flora, roots, fungi, forage, and field remedies.
+- **Hunter** keeps intentionally narrow rotating game/animal-harvest stock with higher affinity than its secondary field-forage group.
+- **Butcher** focuses on meat and food-grade creature flesh/products with more abundant stack quantities.
+- **Mundane/Common**, **Dwarven**, and **Elven Tavern** Presets select live culinary Products by culture/category rather than fixed names, allowing the available menu variety to grow with the Crafting Core catalog.
+- **Magic Assortment** combines mundane arcane supplies, existing named magic, explicit materialization bases/templates, scarce supernatural components, and simple Scroll Stock.
+- **General Trade** guarantees broad mundane utility goods and rotates ordinary Crafting commodities.
+- **Stable & Livestock** expresses livestock, standard/premium/exotic mounts, stable equipment, and Access gates through visible groups/rules.
+- **Siege Engineer** isolates siege weapons and dedicated supplies from ordinary Blacksmith stock.
+
+### Stock Preview and diagnostics
+
+The Profile Builder can generate a stock preview using Party Level, Party Size, and Vendor Access. Preview calls the same Supplier generation path used for real stock rather than a separate simulation engine, so it can be used to tune Item Groups, affinities, Organic Quantity, and Access behavior before generating a vendor.
+
+Supplier diagnostics remain available for generation audits, and the existing Materialization audit API remains available for recipe/family testing.
+
+### Cumulative HAMMER rarity distribution
+
+The protected HAMMER preset keeps all unlocked lower rarities eligible and weights magical slots as follows:
+
+| Party level | Common | Uncommon | Rare | Very Rare | Legendary |
+|---|---:|---:|---:|---:|---:|
+| 1–4 | 70% | 25% | 5% | 0% | 0% |
+| 5–8 | 35% | 45% | 18% | 2% | 0% |
+| 9–12 | 15% | 35% | 35% | 14% | 1% |
+| 13–16 | 5% | 25% | 35% | 30% | 5% |
+| 17–20 | 5% | 20% | 30% | 35% | 10% |
+
+These percentages weight magical selections; they do not remove the deterministic mundane catalog.
+
+### Cursed merchandise
+
+Protected Official and HAMMER vendor presets exclude cursed Items by default. The recipe layer can still resolve cursed families for manual Item creation or explicitly customized vendor profiles. When a cursed Item is allowed, the Core writes a safe unidentified name based on the mundane target, such as `Plate Armor` instead of revealing `Plate Armor of Vulnerability`.
+
+Adaptable families compete as families rather than receiving one lottery ticket for every installed concrete variant. Per-family caps and weighted selection reduce repeated Vicious weapons, shields, giant-strength belts, Feather Tokens, and similar variant-heavy groups.
+
+Supplier diagnostics are printed for every generation. Advanced GMs may inspect generation statistics with `game.itemCreator.auditSupplier({ profileId, level, players, runs })` and resolved recipes with `game.itemCreator.auditMaterialization({ profileId, level, families })`.
+
+## Materialization Core
+
+The internal Core is headless: it receives a source, a compatible Base Item when required, resolved choices, and progression constraints, then returns validated Item data and diagnostics without directly creating a World document.
+
+It distinguishes:
+
+- sellable Items;
+- enhancement generators;
+- Base Item blueprints;
+- concrete variant families;
+- mechanical documents that should not normally enter merchant stock.
+
+The Materialization Core uses a staged resolver. Native D&D5e Enchantment activities and profiles remain authoritative for ordinary templates. If that native path cannot produce a complete validated result, the Core consults a versioned internal **Materialization Recipe Registry** for known stable official families. Recipes declare canonical source aliases, compatible targets, variant choices, naming, rarity, pricing, mechanics, description cleanup, and final validation.
+
+Current focused recipes cover Armor of Resistance, Demon Armor, Dragon Scale Mail, Adamantine Armor, Mithral Armor, Elven Chain, Armor of Vulnerability, Armor of Etherealness, Efreeti Chain, Wand of the War Mage, enchanted ammunition, and Oil of Sharpness. Adamantine and Mithral preserve the mundane armor price and add the active magical price component through a global recipe price finalizer that runs across every vendor and source path; the HAMMER Homebrew Adamantine recipe uses a fixed +1,500 GP magical surcharge. Elven Chain is restricted to Chain Shirt or Chain Mail targets. Oil of Sharpness is treated as a complete consumable and keeps its native use activity without requiring a concrete target during stock generation. Equivalent SRD and PHB 2024 documents converge on the same canonical family. For Supplier Profile System v2, Materialized Stock uses only the Base Item Groups explicitly attached to that rule; it does not fall back to unrelated merchandise elsewhere in the Profile. Unknown or incomplete templates are rejected/rerolled within the configured rule rather than guessed.
+
+The Supplier preview identifies Core output with **Enhanced item**, **Generated model**, **Blueprint resolved**, and **Variant resolved** badges. Ready-made source Items remain unbadged.
+
+## Runtime dependency
+
+Created Items remain valid native D&D5e documents when Item Creator is disabled. Names, images, descriptions, properties, damage, Activities, uses, recovery, rarity, and price remain stored.
+
+The module must remain active for dynamic behavior such as level progression, conditional Spellbook visibility, runtime Granted Effects, Ignore Resistance, Conditional Advantage, and Actor-copy reconciliation. Disabling the module may leave the last reconciled Actor state in place until it is enabled again.
+

@@ -1577,7 +1577,18 @@ function composeGrantedSpellcastingText(data, draft) {
 
 
 function stripGeneratedSections(html, keys = []) {
-  return valuesOf(keys).reduce((value, key) => stripGeneratedSection(value, key), String(html ?? "")).trim();
+  const source = String(html ?? "");
+  const host = globalThis.document?.createElement?.("div");
+  if (!host) return valuesOf(keys).reduce((value, key) => stripGeneratedSection(value, key), source).trim();
+  host.innerHTML = source;
+  host.querySelectorAll("[data-item-creator-generated], .item-creator-runtime-rules").forEach(node => node.remove());
+  // Only strip recognizable imported technical helper notes; never remove
+  // unrelated secret content, notes or authored descriptions.
+  for (const node of host.querySelectorAll("section.secret")) {
+    const label = String(node.textContent || "").replace(/\s+/g, " ").trim();
+    if (/^Foundry Note\b/i.test(label) && /configured with the additional properties of/i.test(label)) node.remove();
+  }
+  return host.innerHTML.trim();
 }
 
 function recoveryPeriodLabel(period) {
@@ -1603,13 +1614,13 @@ function recoverySummaryFromArray(recovery = [], max = "") {
 
 function depletionPolicySentence(policy, subject = "item") {
   const normalized = normalizeDepletionPolicy(policy);
-  if (normalized.mode === "destroy") return `If the last charge is expended, the ${subject} is destroyed.`;
+  if (normalized.mode === "destroy") return `If the last charge is expended, the GM confirms the ${subject}'s destruction and safe archival.`;
   if (normalized.mode !== "test") return "Nothing happens automatically when the last charge is expended.";
-  if (normalized.test === "d20") return `If the last charge is expended, roll a d20. On ${normalized.target}, the ${subject} is destroyed.`;
-  if (normalized.test === "ability") return `If the last charge is expended, make a ${abilityLabel(normalized.ability)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
-  if (normalized.test === "skill") return `If the last charge is expended, make a ${skillLabel(normalized.skill)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
+  if (normalized.test === "d20") return `If the last charge is expended, roll a d20. On ${normalized.target}, the ${subject} risks destruction. The GM confirms its fate.`;
+  if (normalized.test === "ability") return `If the last charge is expended, make a ${abilityLabel(normalized.ability)} check against DC ${normalized.dc}. On a failure, the ${subject} risks destruction. The GM confirms its fate.`;
+  if (normalized.test === "skill") return `If the last charge is expended, make a ${skillLabel(normalized.skill)} check against DC ${normalized.dc}. On a failure, the ${subject} risks destruction. The GM confirms its fate.`;
   const tool = String(normalized.tool || "the configured tool").trim();
-  return `If the last charge is expended, make a ${escapeHtml(tool)} check against DC ${normalized.dc}. On a failure, the ${subject} is destroyed.`;
+  return `If the last charge is expended, make a ${escapeHtml(tool)} check against DC ${normalized.dc}. On a failure, the ${subject} risks destruction. The GM confirms its fate.`;
 }
 
 function sharedChargeSummary(config = {}) {
@@ -1635,7 +1646,21 @@ function grantedSpellIntro(spells = []) {
   return "This item grants access to the following spells and spell activities.";
 }
 
-function spellChargeUsageSummary(spell, draft) {
+function spellChargeUsageSummary(spell, draft, itemData = null) {
+  // Native Activity consumption wins over stale draft state. Draft only
+  // supplies the editorial fallback for items not yet materialized.
+  const activities = valuesOf(itemData?.system?.activities);
+  const native = activities.find(a => (spell.activityId && String(a._id ?? a.id) === String(spell.activityId))
+    || (a.flags?.[MODULE_ID]?.grantedSpell && a.spell?.uuid === spell.uuid));
+  const nativeTarget = valuesOf(native?.consumption?.targets)
+    .find(target => ["itemUses", "activityUses"].includes(target?.type));
+  if (nativeTarget) {
+    const cost = String(nativeTarget.value || "1");
+    if (nativeTarget.type === "itemUses") return `${cost} shared charge${cost === "1" ? "" : "s"}`;
+    const max = native?.uses?.max ?? spell.maxUses;
+    const recovery = recoverySummaryFromArray(native?.uses?.recovery ?? [], max);
+    return `${cost} use${cost === "1" ? "" : "s"} per cast · ${max} max · ${recovery}`;
+  }
   const mode = inferredChargeMode(spell);
   const cost = Math.max(1, Math.floor(Number(spell?.chargeCost) || 1));
   if (mode === "shared" && draft?.chargeConfig?.enabled) return `${cost} shared charge${cost === 1 ? "" : "s"}`;
@@ -1650,16 +1675,18 @@ function spellChargeUsageSummary(spell, draft) {
   return spell?.consumeSlot && Number(spell?.level) > 0 ? "Consumes a compatible spell slot" : "At will";
 }
 
-function spellMechanicsSummary(spell) {
+function spellMechanicsSummary(spell, { omitAvailability = false } = {}) {
   const pieces = [];
   const level = Number(spell?.level) || 0;
   if (level === 0) pieces.push("Cantrip");
   else if (spell?.castLevelMode === "fixed") pieces.push(`Cast at ${ordinalLevel(Number(spell?.fixedCastLevel) || level)}`);
   else if (spell?.castLevelMode === "slot") pieces.push("Cast using slot level");
   else pieces.push(`Cast at ${ordinalLevel(level)}`);
-  if (spell?.availability === "owned") pieces.push("While owned");
-  else if (spell?.availability === "equippedAttuned") pieces.push("While equipped and attuned");
-  else pieces.push("While equipped");
+  if (!omitAvailability) {
+    if (spell?.availability === "owned") pieces.push("While owned");
+    else if (spell?.availability === "equippedAttuned") pieces.push("While equipped and attuned");
+    else pieces.push("While equipped");
+  }
   if (!spell?.exposeAsActivity && spell?.showInSpellbook) pieces.push("Shown in spellbook");
   return pieces.join(" · ");
 }
@@ -1693,13 +1720,14 @@ function unifiedPropertyGroupsHtml(entries = [], draft) {
   return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-properties"><h3>Magical Properties</h3>${groups.map(group => `<div class="item-creator-unified-subsection"><h4>${escapeHtml(group.label)}</h4><ul>${group.entries.map(entry => `<li><strong>${escapeHtml(entry.label)}.</strong> ${escapeHtml(entry.value)}</li>`).join("")}</ul></div>`).join("")}</section>`;
 }
 
-function unifiedGrantedSpellcastingHtml(draft) {
+function unifiedGrantedSpellcastingHtml(draft, itemData) {
   if (!draft?.enhancements?.grantedSpellcasting) return "";
   const spells = draft?.enhancementValues?.grantedSpellcasting?.spells ?? [];
   if (!spells.length) return "";
+  const sameAvailability = new Set(spells.map(spell => spell.availability || "equipped")).size === 1;
   const cards = spells.map(spell => {
-    const usage = spellChargeUsageSummary(spell, draft);
-    const details = spellMechanicsSummary(spell);
+    const usage = spellChargeUsageSummary(spell, draft, itemData);
+    const details = spellMechanicsSummary(spell, { omitAvailability: sameAvailability });
     const slot = !spell.exposeAsActivity && spell.consumeSlot && Number(spell.level) > 0
       ? `Requires ${ordinalLevel(Math.max(1, Number(spell.fixedCastLevel) || Number(spell.level) || 1))} or higher spell slot.`
       : "Does not expend a spell slot.";
@@ -1727,6 +1755,23 @@ function unifiedLevelProgressionHtml(draft) {
   return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-progression"><h3>Level Progression</h3>${body}</section>`;
 }
 
+function unifiedNativeUsesHtml(data) {
+  const uses = data?.system?.uses;
+  const max = String(uses?.max ?? "").trim();
+  const activities = valuesOf(data?.system?.activities);
+  const entries = [];
+  for (const activity of activities) {
+    const cost = valuesOf(activity?.consumption?.targets).find(row => row?.type === "itemUses" || row?.type === "activityUses");
+    if (!cost && !String(activity?.uses?.max ?? "").trim()) continue;
+    const nativeUse = activityUsesSummary(activity);
+    if (nativeUse) entries.push(`<li><strong>${escapeHtml(activity.name || "Activity")}.</strong> ${escapeHtml(nativeUse)}</li>`);
+  }
+  if (!max && !entries.length) return "";
+  const text = max ? `<p><strong>${escapeHtml(max)} use${max === "1" ? "" : "s"}.</strong> ${escapeHtml(recoverySummaryFromArray(uses?.recovery, max))}</p>` : "";
+  const depletion = uses?.autoDestroy ? "The item is automatically consumed when its final use is expended." : "";
+  return `<section class="item-creator-generated item-creator-unified-section" data-item-creator-generated="item-creator-unified-native-uses"><h3>Uses &amp; Recharge</h3>${text}${depletion ? `<p>${escapeHtml(depletion)}</p>` : ""}${entries.length ? `<ul>${entries.join("")}</ul>` : ""}</section>`;
+}
+
 function composeUnifiedGeneratedDescription(data, draft) {
   data.system ??= {};
   data.system.description ??= {};
@@ -1735,8 +1780,8 @@ function composeUnifiedGeneratedDescription(data, draft) {
     "item-creator-unified-spellcasting", "item-creator-unified-charges", "item-creator-unified-progression"
   ]);
   const sections = [
-    unifiedChargeSectionHtml(draft),
-    unifiedGrantedSpellcastingHtml(draft),
+    draft?.itemType === "consumable" ? unifiedNativeUsesHtml(data) : unifiedChargeSectionHtml(draft),
+    unifiedGrantedSpellcastingHtml(draft, data),
     unifiedPropertyGroupsHtml(itemPropertyEntries(draft), draft),
     unifiedLevelProgressionHtml(draft)
   ].filter(Boolean).join("");
@@ -1746,10 +1791,14 @@ function composeUnifiedGeneratedDescription(data, draft) {
 function composeUnifiedChatDescription(data, draft) {
   data.system ??= {};
   data.system.description ??= {};
-  const lines = compactChatSummaryLines(draft);
+  const spellNames = new Set((draft?.enhancementValues?.grantedSpellcasting?.spells ?? []).map(spell => String(spell.name || "")));
+  const lines = compactChatSummaryLines(draft).filter(line => !spellNames.has(line));
   if (draft?.chargeConfig?.enabled) lines.unshift(sharedChargeSummary(draft.chargeConfig).text);
+  if (draft?.itemType === "consumable" && data.system?.uses?.max) {
+    lines.unshift(`${data.system.uses.max} uses. ${recoverySummaryFromArray(data.system.uses.recovery, data.system.uses.max)}`);
+  }
   for (const spell of draft?.enhancementValues?.grantedSpellcasting?.spells ?? []) {
-    lines.push(`${spell.name || "Granted Spell"}: ${spellChargeUsageSummary(spell, draft)}.`);
+    lines.push(`${spell.name || "Granted Spell"}: ${spellChargeUsageSummary(spell, draft, data)}.`);
   }
   const unique = [];
   const seen = new Set();
@@ -2520,30 +2569,10 @@ export class ItemCreatorItemBuilder {
       })
     };
 
-    // Make the non-runtime semantics visible on the Item itself. The Active
-    // Effect blueprints are described as On Use instead of While Owned.
-    composeItemPropertiesText(data, { ...draft, itemType: "consumable" });
-    const current = stripGeneratedSection(data.system.description.value, "consumable-runtime");
-    const currentChat = stripGeneratedSection(data.system.description.chat, "consumable-runtime");
-    const useRecovery = valuesOf(data.system.uses?.recovery)[0] ?? null;
-    const recoveryText = useRecovery
-      ? useRecovery.type === "recoverAll"
-        ? `Recover all charges on ${titleCase(useRecovery.period)}`
-        : `Recover ${humanizeFormula(useRecovery.formula || "1")} charge(s) on ${titleCase(useRecovery.period)}`
-      : "No recharge";
-    const depletionText = data.system.uses?.autoDestroy
-      ? "Destroy/decrement stack when depleted"
-      : "Remain at 0 charges when depleted";
-    const activityCount = valuesOf(data.system.activities).length;
-    const effectCount = addedEffects.length;
-    const legacyExhaustion = config.removeExhaustion
-      ? `<li><strong>Legacy Instant State Change:</strong> Remove ${escapeHtml(String(config.removeExhaustionAmount ?? "1"))} Exhaustion level(s), minimum 0.</li>`
-      : "";
-    const runtimeSection = `<section class="item-creator-generated" data-item-creator-generated="consumable-runtime"><h3>Consumable Use</h3><ul><li><strong>Charges:</strong> ${escapeHtml(String(data.system.uses?.max ?? "1"))}. ${escapeHtml(recoveryText)}. ${escapeHtml(depletionText)}.</li><li><strong>Activities:</strong> ${activityCount} configured. Activation, targeting, resolution, and charge cost are defined by each Activity.</li>${effectCount ? `<li><strong>On-use Granted Effects:</strong> ${effectCount}. Activity routing, duration, and stacking are configured per effect.</li>` : ""}${legacyExhaustion}</ul></section>`;
-    data.system.description.value = appendGeneratedSection(current, runtimeSection);
-    data.system.description.chat = appendGeneratedSection(currentChat, runtimeSection);
-
-    composeCompactChatDescription(data, draft);
+    // Consumables use the same semantic renderer as other Item types. Source
+    // data and native uses/activities supply the player-facing rules.
+    composeUnifiedGeneratedDescription(data, { ...draft, itemType: "consumable" });
+    composeUnifiedChatDescription(data, { ...draft, itemType: "consumable" });
     const finalSource = normalizeDnd6ItemSource(cleanDocumentSource(data));
     const temporary = new ItemClass(finalSource, { temporary: true });
     const finalData = cleanDocumentSource(temporary.toObject());

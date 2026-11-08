@@ -9,6 +9,7 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
     this.draftEnabled = null;
     this.draftOrder = null;
     this.search = "";
+    this.category = "items";
     this.restoreScrollTop = null;
   }
 
@@ -51,7 +52,14 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
         position: index + 1,
         canMoveUp: index > 0,
         canMoveDown: index < this.draftOrder.length - 1,
-        packageSummary: source.packageTitles.join(" · ")
+        packageSummary: source.packageTitles.join(" · "),
+        hasItems: source.itemCount > 0,
+        hasTemplates: source.templateCount > 0,
+        hasSpells: source.spellCount > 0,
+        hasFeatures: source.featureCount > 0,
+        packageDetails: source.packs.map(pack => ({ ...pack, hasItems: pack.itemCount > 0,
+          hasTemplates: pack.templateCount > 0,
+          hasSpells: pack.spellCount > 0, hasFeatures: pack.featureCount > 0 }))
       };
     }).filter(Boolean);
 
@@ -59,7 +67,13 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
       sources: rows,
       sourceCount: rows.length,
       enabledCount: this.draftEnabled.size,
-      search: this.search
+      search: this.search,
+      category: this.category,
+      categoryItems: this.category === "items",
+      categoryTemplates: this.category === "templates",
+      categorySpells: this.category === "spells",
+      categoryFeatures: this.category === "features",
+      categoryAll: this.category === "all"
     };
   }
 
@@ -72,6 +86,10 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
     root.querySelector('[data-action="select-all"]')?.addEventListener("click", event => this.#setAll(event, true));
     root.querySelector('[data-action="clear-all"]')?.addEventListener("click", event => this.#setAll(event, false));
     root.querySelector('[data-source-search]')?.addEventListener("input", event => this.#filter(event));
+    root.querySelector('[data-source-category]')?.addEventListener("change", event => {
+      this.category = event.currentTarget.value;
+      this.#applySearchFilter();
+    });
     root.querySelector('[data-action="save"]')?.addEventListener("click", event => this.#save(event));
     root.querySelectorAll('[data-action="move-source"]').forEach(button => button.addEventListener("click", event => this.#moveSource(event)));
     root.querySelectorAll('[name="enabledSources"]').forEach(input => input.addEventListener("change", event => this.#toggleSource(event)));
@@ -135,7 +153,12 @@ export class ItemCreatorSettingsApp extends HandlebarsApplicationMixin(Applicati
   #applySearchFilter() {
     const query = this.search;
     for (const row of this.element?.querySelectorAll("[data-source-row]") ?? []) {
-      row.hidden = Boolean(query) && !String(row.dataset.search ?? "").includes(query);
+      const textMismatch = Boolean(query) && !String(row.dataset.search ?? "").includes(query);
+      const categoryMismatch = this.category === "items" && row.dataset.hasItems !== "true"
+        || this.category === "templates" && row.dataset.hasTemplates !== "true"
+        || this.category === "spells" && row.dataset.hasSpells !== "true"
+        || this.category === "features" && row.dataset.hasFeatures !== "true";
+      row.hidden = textMismatch || categoryMismatch;
     }
   }
 

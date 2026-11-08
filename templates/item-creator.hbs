@@ -1684,6 +1684,7 @@
                 {{#if chargeSeparate}}
                   <label><span>At Zero Charges</span><select data-composed-activity-input="depletion.mode" data-composed-activity-id="{{id}}">{{#each depletionModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                   {{#if depletionIsTest}}
+                    <label><span>Resolution Mode</span><select data-composed-activity-input="depletion.resolution" data-composed-activity-id="{{id}}">{{#each depletionResolutionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     <label><span>Conditional Test</span><select data-composed-activity-input="depletion.test" data-composed-activity-id="{{id}}">{{#each depletionTestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     {{#if (eq activityDepletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{activityDepletion.target}}" data-composed-activity-input="depletion.target" data-composed-activity-id="{{id}}"></label>
                     {{else}}<label><span>DC (fail destroys)</span><input type="number" min="1" value="{{activityDepletion.dc}}" data-composed-activity-input="depletion.dc" data-composed-activity-id="{{id}}"></label>
@@ -1819,6 +1820,7 @@
             {{#unless (eq chargeConfig.recoveryPeriod "none")}}<label><span>Recharge Formula (or "all")</span><input type="text" value="{{chargeConfig.recoveryFormula}}" data-charge-config-input="recoveryFormula" placeholder="1d6 + 4"></label>{{/unless}}
             <label><span>When Charges Reach Zero</span><select data-charge-config-input="depletion.mode">{{#each chargeDepletionModes}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
             {{#if chargeDepletionIsTest}}
+              <label><span>Resolution Mode</span><select data-charge-config-input="depletion.resolution">{{#each chargeResolutionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               <label><span>Conditional Test</span><select data-charge-config-input="depletion.test">{{#each chargeDepletionTests}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
               {{#if (eq chargeConfig.depletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{chargeConfig.depletion.target}}" data-charge-config-input="depletion.target"></label>
               {{else}}<label><span>DC (destroy on failed check)</span><input type="number" min="1" value="{{chargeConfig.depletion.dc}}" data-charge-config-input="depletion.dc"></label>
@@ -1881,6 +1883,7 @@
                       </div>
                       <label><span>On Last Charge</span><select data-granted-spell-input="depletion.mode" data-spell-id="{{id}}">{{#each depletionModeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                       {{#if depletionIsTest}}
+                        <label><span>Resolution Mode</span><select data-granted-spell-input="depletion.resolution" data-spell-id="{{id}}">{{#each depletionResolutionOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                         <label><span>Test</span><select data-granted-spell-input="depletion.test" data-spell-id="{{id}}">{{#each depletionTestOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                         {{#if (eq depletion.test "d20")}}<label><span>Destroy on d20 Result</span><input type="number" min="1" max="20" value="{{depletion.target}}" data-granted-spell-input="depletion.target" data-spell-id="{{id}}"></label>
                         {{else}}<label><span>DC (failed check destroys)</span><input type="number" min="1" value="{{depletion.dc}}" data-granted-spell-input="depletion.dc" data-spell-id="{{id}}"></label>

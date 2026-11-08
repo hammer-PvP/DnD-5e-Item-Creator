@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.8.5";
-export const MODULE_STAGE = "Supplier Global Firearms Policy";
+export const MODULE_VERSION = "0.8.6";
+export const MODULE_STAGE = "Quality & Item Lifecycle";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },

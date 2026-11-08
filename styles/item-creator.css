@@ -3946,3 +3946,51 @@ body.ic-protected-active { overflow: hidden; }
     align-self: flex-start;
   }
 }
+
+/* v0.8.6 Content Sources relevance filters and per-pack breakdown. */
+.ic-settings-toolbar .ic-source-filters { display:flex;flex-wrap:wrap;align-items:end;justify-content:end;gap:6px; }
+.ic-settings-toolbar .ic-source-filters label { display:grid;gap:2px;min-width:155px;font-size:10px; }
+.ic-settings-toolbar .ic-source-filters select { max-width:210px; }
+.ic-source-pack-details { grid-column:1 / -1; margin-left:40px; border-top:1px solid rgba(209,176,107,.14);font-size:10px;opacity:.82; }
+.ic-source-pack-details summary { cursor:pointer; padding:3px 0; color:var(--ic-gold); }
+.ic-source-pack-details ul { margin:.3rem 0; padding-left:1.1rem; }
+.ic-source-pack-details li { margin-bottom:.18rem; }
+
+/* v0.8.6 native chat message integration: Depletion, GM review, safe archival. */
+.chat-message .ic-depletion-card {
+  margin: .3rem 0;
+  padding: 0;
+  border: 1px solid var(--dnd5e-color-card, rgba(125,108,78,.55));
+  border-radius: 6px;
+  overflow: hidden;
+  color: inherit;
+  background: var(--dnd5e-color-parchment, rgba(0,0,0,.07));
+}
+.chat-message .ic-depletion-card > header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: .65rem .75rem;
+  border-bottom: 1px solid rgba(125,108,78,.36);
+  background: rgba(125,108,78,.08);
+}
+.chat-message .ic-depletion-card > header strong {
+  font-family: var(--dnd5e-font-roboto-slab, serif);
+  font-weight: 700;
+}
+.chat-message .ic-depletion-card > header i { margin-right:.35rem; color: #b16d38; }
+.chat-message .ic-depletion-card > header small { font-size: .85em; opacity: .82; }
+.chat-message .ic-depletion-rule { padding: .7rem .75rem; }
+.chat-message .ic-depletion-rule p { margin: .35rem 0; line-height: 1.35; }
+.chat-message .ic-depletion-result { padding: .45rem .5rem; margin-top: .5rem;
+  background: rgba(65,76,94,.11); border-left: 3px solid rgba(125,108,78,.6); }
+.chat-message .ic-depletion-error { color: #a85858; }
+.chat-message .ic-depletion-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: .35rem;
+  padding: .5rem; border-top: 1px solid rgba(125,108,78,.35); }
+.chat-message .ic-depletion-button { min-height: 30px; padding: .3rem .45rem; margin: 0;
+  border-radius: 4px; font: inherit; cursor: pointer; }
+.chat-message .ic-depletion-button.ic-primary { grid-column: 1 / -1; font-weight: 700;
+  border-color: rgba(120,91,49,.7); background: rgba(209,176,107,.14); }
+.chat-message .ic-depletion-button.ic-danger { border-color: rgba(151,53,53,.6); }
+.chat-message .ic-depletion-button:disabled { opacity: .55; cursor: wait; }
+.ic-restore-archived-item { display: inline-flex; align-items:center; gap:5px; white-space:nowrap; }
