@@ -1,4 +1,4 @@
-import { MODULE_ID } from "../constants.mjs";
+import { MODULE_ID, MODULE_VERSION } from "../constants.mjs";
 import { DIAGNOSTICS_SETTING, diagnosticMode } from "../utils/diagnostics.mjs";
 import {
   MATERIALIZATION_CORE_VERSION,
@@ -44,7 +44,13 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
 
   async _prepareContext() {
     const pricing = getMaterializationSettings();
+    const foundryVersion = String(game.version ?? game.release?.version ?? "unknown");
+    const systemVersion = String(game.system?.version ?? "unknown");
+    const phbVersion = String(game.modules.get("dnd-players-handbook")?.version ?? "not installed");
+    const newerThanVerified = Boolean(foundry.utils.isNewerVersion?.(systemVersion, "6.1.1")
+      || foundry.utils.isNewerVersion?.(foundryVersion, "14.370"));
     return {
+      moduleVersion: MODULE_VERSION, foundryVersion, systemVersion, phbVersion, newerThanVerified,
       supplierEnabled: isSupplierEnabled(),
       supplierAllowFirearms: supplierAllowsFirearms(),
       diagnosticsMode: diagnosticMode(),
@@ -76,6 +82,31 @@ export class ItemCreatorModuleSettingsApp extends HandlebarsApplicationMixin(App
     root.querySelector('[data-action="configure-sources"]')?.addEventListener("click", event => {
       event.preventDefault();
       game.itemCreator?.configureSources?.();
+    });
+    root.querySelector('[data-action="copy-compatibility"]')?.addEventListener("click", async event => {
+      event.preventDefault();
+      try {
+        const report = [
+          `Item Creator: ${MODULE_VERSION}`,
+          `Foundry VTT: ${game.version ?? game.release?.version ?? "unknown"}`,
+          `D&D5e Game System: ${game.system?.version ?? "unknown"}`,
+          `Player's Handbook (2024): ${game.modules.get("dnd-players-handbook")?.version ?? "not installed"}`,
+          `Crafting Core: ${game.modules.get("dnd5e-crafting-core")?.version ?? "not installed"}`,
+          `Item Creator diagnostics: ${diagnosticMode()}`,
+          `Reported issue: [describe the action and the error here]`
+        ].join("\n");
+        if (typeof game.clipboard?.copyPlainText === "function") await game.clipboard.copyPlainText(report);
+        else if (typeof navigator?.clipboard?.writeText === "function") await navigator.clipboard.writeText(report);
+        else throw new Error("Clipboard API is unavailable. Open the developer console to read the report.");
+        ui.notifications?.info?.("Item Creator compatibility details copied. Paste them into your GitHub issue.");
+      } catch (error) {
+        console.info("Item Creator compatibility information", {
+          itemCreator: MODULE_VERSION,
+          foundry: game.version, dnd5e: game.system?.version,
+          phb: game.modules.get("dnd-players-handbook")?.version
+        });
+        ui.notifications?.warn?.(`Unable to copy diagnostics: ${error.message}`);
+      }
     });
     root.querySelector('[data-action="reset-prices"]')?.addEventListener("click", event => {
       event.preventDefault();

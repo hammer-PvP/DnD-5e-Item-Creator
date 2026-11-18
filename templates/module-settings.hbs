@@ -49,6 +49,25 @@
 
     <section class="ic-settings-card">
       <header>
+        <span class="ic-kicker">Compatibility &amp; Bug Reports</span>
+        <h2>Installed Versions</h2>
+        <p>Newer D&amp;D5e or Foundry builds are not blocked by Item Creator. A version beyond the last tested build may require a compatibility patch.</p>
+      </header>
+      <div class="ic-core-version-row">
+        <span>Item Creator <strong>{{moduleVersion}}</strong></span>
+        <span>Foundry <strong>{{foundryVersion}}</strong></span>
+        <span>D&amp;D5e <strong>{{systemVersion}}</strong></span>
+        <span>Player's Handbook <strong>{{phbVersion}}</strong></span>
+      </div>
+      {{#if newerThanVerified}}
+      <p class="ic-mechanical-note"><i class="fa-solid fa-triangle-exclamation"></i> A more recent game-system or Foundry release was detected. Item Creator will keep loading, but this combination has not yet been fully tested.</p>
+      {{/if}}
+      <button type="button" data-action="copy-compatibility"><i class="fa-solid fa-copy"></i> Copy Compatibility Information for GitHub Issue</button>
+      <p class="ic-mechanical-note">This copies version numbers and the diagnostic mode only. It does not copy Actor data, Items, Chat logs or world secrets.</p>
+    </section>
+
+    <section class="ic-settings-card">
+      <header>
         <span class="ic-kicker">Shared Library</span>
         <h2>Materialization Core</h2>
         <p>Defines the default rarity-price profile used by newly created magic Items and by Supplier fallbacks unless a Supplier progression profile overrides it.</p>

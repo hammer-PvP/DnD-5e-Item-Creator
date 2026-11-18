@@ -6,8 +6,9 @@ Item Creator is a Foundry VTT GM toolkit for designing, normalizing, publishing 
 
 ## Requirements and installation
 
-- Foundry VTT 14.367+; manifest verified range 14.368.
-- D&D5e 6.0.1–6.0.999; manifest verified range 6.0.5. Use the compatible installed release of the system.
+- Foundry VTT **14.367 or later**. The v0.8.6.1 compatibility target is **Foundry 14.370**. No `maximum` cap is declared; newer major versions are not guaranteed to work.
+- D&D5e **6.0.1 or later**. The v0.8.6.1 compatibility target is **D&D5e 6.1.1**, with no `maximum` cap in the system relationship. This permits activation on newer system builds but does not guarantee that all future D&D5e APIs remain compatible.
+- Player's Handbook 2024 **3.0.0** is supported as an optional Content Source when installed and enabled; the module does not require it. Full live tests of its latest native data are still being collected.
 - Module ID: `dnd5e-item-creator`.
 - Optional: Crafting Core for semantic Products, Materials and Learn Sources. Its content remains owned by Crafting Core.
 
@@ -15,9 +16,21 @@ Item Creator is a Foundry VTT GM toolkit for designing, normalizing, publishing 
 
 `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
 
-**Manual installation:** extract the installable `item-creator.zip` to `FoundryVTT/Data/modules/dnd5e-item-creator/`, with `module.json`, `scripts/`, `styles/`, `templates/` and `lang/` directly inside the folder. Activate the module in the World. The complete `item-creator-v0.8.6.zip` is a GitHub release bundle, not the module folder itself.
+**Manual installation:** extract the installable `item-creator.zip` to `FoundryVTT/Data/modules/dnd5e-item-creator/`, with `module.json`, `scripts/`, `styles/`, `templates/` and `lang/` directly inside the folder. Activate the module in the World. The complete `item-creator-v0.8.6.1.zip` is a GitHub release bundle, not the module folder itself.
 
 **Important:** disabling Item Creator leaves native D&D5e data in Items, but module-controlled conditional effects, charge-depletion prompts and other runtime integrations require the module to remain enabled.
+
+## Compatibility, diagnostics and reporting an issue (v0.8.6.1)
+
+Item Creator does **not** enforce a maximum Foundry or D&D5e version. If a newer system build changes its APIs, the module should remain selectable and the GM can report a runtime bug. The manifest's `verified` fields reflect the current 14.370 / 6.1.1 compatibility target; they are not a guarantee that all game combinations have passed live QA.
+
+**How to attach useful versions to a GitHub Issue:** open **Item Creator Configuration → Compatibility & Bug Reports**, then click **Copy Compatibility Information for GitHub Issue**. Paste into [the Issue form](https://github.com/hammer-PvP/DnD-5e-Item-Creator/issues/new), add reproduction steps and the relevant console message. The generated text contains only versions and Item Creator's diagnostic mode; it deliberately excludes Actor, Item and Chat contents. The in-app diagnostics setting may be switched between Off / Errors / Verbose as required.
+
+The module warns *without blocking* when Foundry or D&D5e is newer than the currently targeted release. Do not ignore warnings when migrating a live World: first make a Foundry backup. As a compatibility candidate, the following still need **live regression testing** under Foundry 14.370 / D&D5e 6.1.1 / PHB 3.0.0: Published Item Edit/Save with rider Effects, native Cast Activities, multi-rarity templates, player depletion rolls, GM Archive/Restore and official PHB content source ordering. Supplier had a successful user smoke test in this environment and its implementation was preserved unmodified.
+
+**Description toggle fix:** when cancelling the "Restore Template Description" prompt, the customized description remains selected and the form is re-rendered from draft state, avoiding a stale `event.currentTarget` reference.
+
+**Depletion result verification:** the GM reads and validates the actual native ChatMessage Roll, computes the destruction risk from its d20/result, and rejects unverified client totals. If a native roll is unavailable or was already used for another depletion event, no archive is permitted; the item remains safe for player retry/GM preservation. The GM alone controls the final Preserve or Archive action. Automatic checks also require verifiable roll data before an archive can proceed.
 
 ## Quick start — creating a magic item
 

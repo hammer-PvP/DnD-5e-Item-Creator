@@ -1,5 +1,6 @@
 import { MODULE_ID } from "../constants.mjs";
 import { normalizeDepletionPolicy } from "./charge-resource-service.mjs";
+import { verifyDepletionRoll } from "../utils/depletion-roll-proof.mjs";
 
 const CHANNEL = `module.${MODULE_ID}`;
 const RECORD = "depletionRecord";
@@ -105,6 +106,23 @@ export class ItemCreatorDepletionLifecycle {
           continue;
         }
       }
+      // A player can have rolled while no GM was connected. On reconnect,
+      // verify the recorded native roll before moving to the GM decision.
+      if (record.state === "pending-roll" && record.pendingRoll) {
+        const claimedUser = game.users.get(record.pendingRoll.userId);
+        if (claimedUser) await this.#acceptRoll({
+          messageId: message.id, roll: record.pendingRoll, module: MODULE_ID
+        }, claimedUser);
+        if (currentRecord(message)?.state === "awaiting-gm") continue;
+      }
+      // Cards from older versions may contain unverified client outcomes.
+      // Keep the Item and allow a fresh roll instead of accepting them.
+      if (record.state === "awaiting-gm" && record.policy?.mode === "test"
+        && record.policy?.resolution === "prompt" && record.roll?.verified !== true) {
+        await updateCard(message, { state: "pending-roll", roll: null,
+          error: "Previous roll was not verified against a native Chat message. Roll again." });
+        continue;
+      }
       if (record.state === "archiving") {
         const item = itemByRecord(record);
         const archive = game.items.find(world => world.flags?.[MODULE_ID]?.destroyedArchive?.eventId === record.id);
@@ -114,7 +132,8 @@ export class ItemCreatorDepletionLifecycle {
       } else if (record.state === "pending-roll" && record.policy?.resolution === "automatic") {
         try {
           const result = await this.#rollForRecord(message, "normal");
-          if (result) await updateCard(message, { state: "awaiting-gm", roll: result });
+          if (result?.verified) await updateCard(message, { state: "awaiting-gm", roll: result });
+          else await updateCard(message, { state: "awaiting-gm", error: "Native roll message could not be verified. GM may preserve the item; archival is disabled." });
         } catch (error) {
           await updateCard(message, { state: "awaiting-gm", error: "Automatic roll could not be resumed. GM review required." });
         }
@@ -205,8 +224,9 @@ export class ItemCreatorDepletionLifecycle {
       if (record.policy.mode === "test" && record.policy.resolution === "automatic") {
         try {
           const result = await this.#rollForRecord(message, "normal");
-          if (result) await updateCard(message, { state: "awaiting-gm", roll: result });
-          else await updateCard(message, { state: "awaiting-gm", error: "Automatic roll was cancelled. GM review required." });
+          if (result?.verified) await updateCard(message, { state: "awaiting-gm", roll: result });
+          else await updateCard(message, { state: "awaiting-gm", error: "Native roll message could not be verified. GM may preserve the item; archival is disabled." });
+
         } catch (error) {
           console.error(`${MODULE_ID} | Automatic depletion roll failed`, error);
           await updateCard(message, { state: "awaiting-gm", error: "Native test could not be rolled. GM review required." });
@@ -222,6 +242,7 @@ export class ItemCreatorDepletionLifecycle {
     if (!actor) return;
     const policy = normalizeDepletionPolicy(record.policy);
     const config = { advantage: mode === "advantage", disadvantage: mode === "disadvantage" };
+    const startedAt = Date.now();
     let roll;
     if (policy.test === "skill") roll = (await actor.rollSkill({ skill: policy.skill, ...config }, { configure: false }))?.[0];
     else if (policy.test === "ability") roll = (await actor.rollAbilityCheck({ ability: policy.ability, ...config }, { configure: false }))?.[0];
@@ -239,15 +260,26 @@ export class ItemCreatorDepletionLifecycle {
       await roll.toMessage({ speaker: ChatMessage.getSpeaker({ actor }), flavor: `${record.itemName}: depletion d20` });
     }
     if (!roll) return;
-    const relevantMessages = (game.messages?.contents ?? [...(game.messages ?? [])]).filter(chat =>
-      String(chat.user?.id ?? chat.user ?? "") === String(game.user.id)
-      && String(chat.speaker?.actor ?? "") === String(actor.id)
-      && Number(chat.timestamp ?? 0) >= Number(record.createdAt ?? 0) - 1000);
-    const rollMessage = relevantMessages.reverse().find(chat => (chat.rolls ?? []).some(r => Number(r.total) === Number(roll.total)));
-    const natural = roll.dice?.find(die => die.faces === 20)?.results?.find(r => r.active !== false)?.result ?? roll.total;
-    const risk = policy.test === "d20" ? Number(natural) === Number(policy.target) : Number(roll.total) < Number(policy.dc);
-    return { total: Number(roll.total), natural: Number(natural), risk, mode,
-      rollMessageId: rollMessage?.id ?? null, verified: Boolean(rollMessage) };
+    const natural = roll.dice?.find(die => die.faces === 20)?.results?.find(r => r.active !== false)?.result;
+    if (!Number.isFinite(Number(roll.total)) || !Number.isInteger(Number(natural))) {
+      throw new Error("D&D5e returned no usable d20 roll. The item remains untouched.");
+    }
+    // ChatMessage propagation can lag behind the native roll resolution.
+    let rollMessage = null;
+    for (let attempt = 0; attempt < 8 && !rollMessage; attempt++) {
+      const candidates = (game.messages?.contents ?? [...(game.messages ?? [])]).filter(chat =>
+        String(chat.user?.id ?? chat.user ?? "") === String(game.user.id)
+        && String(chat.speaker?.actor ?? "") === String(actor.id)
+        && Number(chat.timestamp ?? 0) >= startedAt - 1500);
+      rollMessage = candidates.reverse().find(chat => (chat.rolls ?? []).some(r =>
+        Number(r.total) === Number(roll.total) &&
+        Number(r.dice?.find(die => die.faces === 20)?.results?.find(entry => entry.active !== false)?.result) === Number(natural)));
+      if (!rollMessage && attempt < 7) await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    const claim = { total: Number(roll.total), natural: Number(natural), mode, rollMessageId: rollMessage?.id ?? null };
+    const verified = verifyDepletionRoll({ nativeMessage: rollMessage, record, userId: game.user.id,
+      actorId: actor.id, claim });
+    return verified ?? { ...claim, verified: false };
   }
 
   static async #acceptRoll(payload, user) {
@@ -265,14 +297,27 @@ export class ItemCreatorDepletionLifecycle {
       // Player rolls a native D&D5e check in their client and posts a separate
       // visible roll message. GM receives its result, then decides the outcome.
       const result = payload.roll;
-      if (!result || !Number.isFinite(result.total) || !Number.isFinite(result.natural)
-        || !["normal", "advantage", "disadvantage"].includes(result.mode)) return;
-      const native = result.rollMessageId ? game.messages.get(result.rollMessageId) : null;
-      const verified = Boolean(native && String(native.user?.id ?? native.user ?? "") === String(user.id)
-        && String(native.speaker?.actor ?? "") === String(actor.id)
-        && Number(native.timestamp ?? 0) >= Number(record.createdAt ?? 0) - 1000
-        && (native.rolls ?? []).some(roll => Number(roll.total) === Number(result.total)));
-      await updateCard(message, { state: "awaiting-gm", roll: { ...result, verified } });
+      if (!result || !["normal", "advantage", "disadvantage"].includes(result.mode)) return;
+      let verified = null;
+      for (let attempt = 0; attempt < 8 && !verified; attempt++) {
+        const native = result.rollMessageId ? game.messages.get(result.rollMessageId) : null;
+        verified = verifyDepletionRoll({ nativeMessage: native, record, userId: user.id, actorId: actor.id, claim: result });
+        if (!verified && attempt < 7) await new Promise(resolve => setTimeout(resolve, 150));
+      }
+      if (!verified) {
+        await updateCard(message, { state: "pending-roll", roll: null,
+          error: "The native Chat roll could not be verified. Roll again; no item was removed." });
+        return;
+      }
+      // Reject using the same native roll to resolve multiple depletion events.
+      const reused = [...(game.messages ?? [])].some(chat => chat.id !== message.id
+        && currentRecord(chat)?.roll?.rollMessageId === verified.rollMessageId);
+      if (reused) {
+        await updateCard(message, { state: "pending-roll", roll: null,
+          error: "This roll was already used by another depletion event. Roll again." });
+        return;
+      }
+      await updateCard(message, { state: "awaiting-gm", roll: verified, pendingRoll: null, error: null });
     } finally { pendingOperations.delete(key); }
   }
 
@@ -310,7 +355,8 @@ export class ItemCreatorDepletionLifecycle {
     }
     if (isAuthority() && ["pending-roll", "awaiting-gm", "error"].includes(record.state)) {
       button("Preserve Item", "preserve");
-      if (record.state === "awaiting-gm") button("Archive Item (Destroy)", "archive", "ic-danger");
+      if (record.state === "awaiting-gm" && (record.policy?.mode === "destroy" || record.roll?.verified === true))
+        button("Archive Item (Destroy)", "archive", "ic-danger");
     }
   }
 
@@ -328,7 +374,9 @@ export class ItemCreatorDepletionLifecycle {
       const payload = { module: MODULE_ID, action: "rollResult", messageId: message.id, userId: game.user.id, roll };
       if (isAuthority()) await this.#acceptRoll(payload, game.user);
       else if (activeGM()) game.socket.emit(CHANNEL, payload);
-      else if (message.isOwner) await updateCard(message, { state: "awaiting-gm", roll });
+      else if (message.isOwner) await updateCard(message, { state: "pending-roll",
+        pendingRoll: { ...roll, userId: game.user.id },
+        error: "GM is offline. Native roll recorded; awaiting GM verification." });
       else ui.notifications?.warn?.("Roll posted; a GM must reconnect to confirm the result and resolve the card.");
     } finally { perItemOperations.delete(pendingKey); }
   }
@@ -338,7 +386,8 @@ export class ItemCreatorDepletionLifecycle {
     if (!isAuthority()) return ui.notifications?.warn?.("Only the active primary GM may finalize an Item Creator depletion event.");
     const record = currentRecord(message);
     if (!record || !["pending-roll", "awaiting-gm", "error"].includes(record.state)) return;
-    if (action === "archive" && record.state !== "awaiting-gm") return;
+    if (action === "archive" && (record.state !== "awaiting-gm" ||
+      (record.policy?.mode === "test" && record.roll?.verified !== true))) return;
     const key = `decision:${record.actorId}:${record.itemId}`;
     if (pendingOperations.has(key)) return;
     pendingOperations.add(key);

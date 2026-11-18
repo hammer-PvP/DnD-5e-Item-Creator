@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.8.6.1 — Compatibility & Stability Update (Release Candidate)
+
+### Compatibility policy
+- Removed the maximum D&D5e system version (`6.0.999`) from the manifest; retained minimum `6.0.1` and system ID `dnd5e`.
+- Kept Foundry minimum `14.367` and no Foundry maximum. Updated manifest compatibility targets to Foundry 14.370 and D&D5e 6.1.1. Package is still a Release Candidate pending live regression tests.
+- Updated internal `MODULE_VERSION`, GitHub asset download link and cumulative user manual.
+
+### Editor reliability
+- Fixed an asynchronous Customize Description cancellation where `event.currentTarget` became null after `DialogV2.confirm`.
+- Restored checkbox state from Item Creator draft and requested a render instead of mutating a stale DOM event.
+- Reviewed other async UI handlers for the same event-currentTarget pattern; no other instance of the same post-confirmation bug was reproduced in this patch.
+
+### Depletion safety
+- Added native ChatMessage proof validation for player-initiated tests: owner identity, Actor speaker, timestamp, Roll total and active d20 result must agree.
+- The GM derives the risk of destruction from the native roll and the saved depletion policy, not client-supplied risk flags.
+- Unverified outcomes and reused native Roll messages cannot authorize archival. Players may roll again; the GM can preserve the Item.
+- GM-offline rolls remain pending for later native-roll verification. Automatic checks require a verifiable native Chat result before Archive is exposed.
+- Existing archive-first and no-permanent-deletion protections remain unchanged.
+
+### Support and regression
+- Added version information for Foundry, D&D5e, PHB and Item Creator in the module settings, with a copyable privacy-conscious Issue report template.
+- Kept all Supplier source files byte-identical to v0.8.6; no stock generation, ammo or Crafting Core integration logic was changed.
+- Static syntax and isolated native Roll proof tests passed. Full runtime testing of PHB 3.0.0, Cast Activities, Materializer, Source priority, Published Item edits, and Archive/Restore on Foundry 14.370 / D&D5e 6.1.1 remains a live QA requirement.
+
+---
+
 ## 0.8.6 — Quality, Depletion & Lifecycle Update (Release Candidate)
 
 ### P0.1 — Edit/Save integrity

@@ -4350,7 +4350,11 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         no: { label: "Keep Custom Description", icon: "fa-solid fa-xmark" }
       });
       if (!confirmed) {
-        event.currentTarget.checked = true;
+        // The event dispatch has finished while the confirmation dialog was
+        // open. currentTarget is null after an await; let the persistent draft
+        // state drive a fresh checkbox instead of mutating the old event.
+        this.descriptionCustomized = true;
+        this.#renderPreservingScroll();
         return;
       }
     }
