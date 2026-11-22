@@ -6,8 +6,8 @@ Item Creator is a Foundry VTT GM toolkit for designing, normalizing, publishing 
 
 ## Requirements and installation
 
-- Foundry VTT **14.367 or later**. The v0.8.6.1 compatibility target is **Foundry 14.370**. No `maximum` cap is declared; newer major versions are not guaranteed to work.
-- D&D5e **6.0.1 or later**. The v0.8.6.1 compatibility target is **D&D5e 6.1.1**, with no `maximum` cap in the system relationship. This permits activation on newer system builds but does not guarantee that all future D&D5e APIs remain compatible.
+- Foundry VTT **14.367 or later**. The v0.8.6.2 compatibility target is **Foundry 14.370**. No `maximum` cap is declared; newer major versions are not guaranteed to work.
+- D&D5e **6.0.1 or later**. The v0.8.6.2 compatibility target is **D&D5e 6.1.1**, with no `maximum` cap in the system relationship. This permits activation on newer system builds but does not guarantee that all future D&D5e APIs remain compatible.
 - Player's Handbook 2024 **3.0.0** is supported as an optional Content Source when installed and enabled; the module does not require it. Full live tests of its latest native data are still being collected.
 - Module ID: `dnd5e-item-creator`.
 - Optional: Crafting Core for semantic Products, Materials and Learn Sources. Its content remains owned by Crafting Core.
@@ -16,11 +16,11 @@ Item Creator is a Foundry VTT GM toolkit for designing, normalizing, publishing 
 
 `https://github.com/hammer-PvP/DnD-5e-Item-Creator/releases/latest/download/module.json`
 
-**Manual installation:** extract the installable `item-creator.zip` to `FoundryVTT/Data/modules/dnd5e-item-creator/`, with `module.json`, `scripts/`, `styles/`, `templates/` and `lang/` directly inside the folder. Activate the module in the World. The complete `item-creator-v0.8.6.1.zip` is a GitHub release bundle, not the module folder itself.
+**Manual installation:** extract the installable `item-creator.zip` to `FoundryVTT/Data/modules/dnd5e-item-creator/`, with `module.json`, `scripts/`, `styles/`, `templates/` and `lang/` directly inside the folder. Activate the module in the World. The complete `item-creator-v0.8.6.2.zip` is a GitHub release bundle, not the module folder itself.
 
 **Important:** disabling Item Creator leaves native D&D5e data in Items, but module-controlled conditional effects, charge-depletion prompts and other runtime integrations require the module to remain enabled.
 
-## Compatibility, diagnostics and reporting an issue (v0.8.6.1)
+## Compatibility, diagnostics and reporting an issue (v0.8.6.2)
 
 Item Creator does **not** enforce a maximum Foundry or D&D5e version. If a newer system build changes its APIs, the module should remain selectable and the GM can report a runtime bug. The manifest's `verified` fields reflect the current 14.370 / 6.1.1 compatibility target; they are not a guarantee that all game combinations have passed live QA.
 
@@ -190,7 +190,7 @@ Supports native weapon data, Base Weapon inheritance, multiple editable Attack A
 
 Weapons may contain more than one native D&D5e **Attack Activity**. The first Activity is the **Primary** attack and defaults to the name **Attack** when the source has no custom name. Additional Activities default to **Alternative Attack** and may be renamed, duplicated, removed, expanded, or collapsed in the Base Item step.
 
-Each Activity independently controls whether it includes the Item's normal base weapon damage and which typed damage parts belong only to that Activity. An Alternative Activity can either inherit the Primary attack configuration or keep its own native attack type, ability, attack bonus, critical threshold, and extra critical-damage formula. Existing native Attack Activities imported from World Items or templates are promoted into this editable model instead of remaining opaque Custom Imported Activities; native Activity fields outside the explicitly managed attack/damage controls are preserved as source passthrough data.
+Each Activity independently controls whether it includes the Item's normal base weapon damage and which typed damage parts belong only to that Activity. An Alternative Activity can either inherit the Primary attack configuration or keep its own native attack type, ability, attack bonus, critical threshold, and extra critical-damage formula. When editing a native D&D5e weapon, **Attack Type → Automatic (native weapon default)** is valid: a blank native `attack.type.value` is inherited from the Weapon and should not block continuation. This preserves imported alternative Attacks (for example, the Ashbringer's extra attack against Undead) without forcing an incorrect Melee/Ranged value. Existing native Attack Activities imported from World Items or templates are promoted into this editable model instead of remaining opaque Custom Imported Activities; native Activity fields outside the explicitly managed attack/damage controls are preserved as source passthrough data.
 
 Item Creator does **not** automatically select an Activity from target creature type or hidden adjudication. When D&D5e presents multiple Activities, the player/GM chooses the appropriate attack normally. Versatile one-handed/two-handed weapon damage remains the native weapon's Versatile behavior and is not represented as a separate Activity unless the GM deliberately creates one.
 
@@ -231,7 +231,7 @@ When a Base Item contains native Active Effects or Activities, Item Creator tran
 
 A combined Effect can be separated into independent properties. For example, a single native Effect granting `+1 Armor Class` and `+1 to all Saving Throws` becomes two editable Creator fields. The original embedded document is not copied alongside the normalized result, preventing invisible duplication.
 
-Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. Secondary native Weapon Attack Activities are no longer treated as unknown: they are promoted into the editable Attack Activity list. Activity-to-Effect references are remapped when the normalized Item is created.
+Unknown mechanics are preserved as **Custom Imported Effects** or **Custom Imported Activities**. They can be reviewed, kept, disabled where supported, or explicitly removed. The v0.8.6.2 compatibility fix retains the original embedded IDs of imported native Activities and Active Effects, including zero-change condition Riders referenced by native Activities, so the links remain valid during Edit/Save and new copies. Pass-through fields in existing Attack Activities remain intact where unmodified. Secondary native Weapon Attack Activities are no longer treated as unknown: they are promoted into the editable Attack Activity list. Activity-to-Effect references are remapped when the normalized Item is created.
 
 ## Granted Effects
 

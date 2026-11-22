@@ -167,7 +167,12 @@ function recognizeEffects(item, protectedEffectIds = new Set(), ignoreEffectIds 
     if (ignoreEffectIds.has(effectId)) continue;
     if (effectId) managedEffectIds.push(effectId);
     const changes = effectChanges(effect);
-    if (!changes.length) continue;
+    // Even an Effect with no numeric changes can be a native condition rider
+    // (e.g. an Activity that applies Blinded). Keep referenced Effect IDs.
+    if (!changes.length) {
+      if (protectedEffectIds.has(effectId)) customEffects.push(importedCustomEffect(effect, []));
+      continue;
+    }
 
     if (protectedEffectIds.has(effectId)) {
       customEffects.push(importedCustomEffect(effect, changes));

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.8.6.2 — Native Activities & Hook Compatibility Fix (Release Candidate)
+
+### IC-0862-02 — Native Attack Activities (P0)
+- Fixed the editor preventing progression when an imported alternative Attack has native `attack.type.value: ""`. Empty now means **Automatic (native Weapon default)** and is a valid choice in both validation and the Attack Type selector.
+- Kept editor error indicators and the Continue validator in sync, and added a per-Activity explanation for genuine invalid names, damage configurations, custom type values, or critical thresholds.
+- Removed the old silent `"melee"` coercion when generating an imported native alternative Attack with an automatic attack type. Preserve the source classification, consumption contract, sort, and unchanged damage-part metadata.
+- Retained native blank primary Attack names and source classification during unmodified imported-item edits, rather than unnecessarily rewriting them.
+- Preserve original embedded Active Effect IDs when building imported content and include referenced condition-only Effects even if they contain no `system.changes`. This prevents duplicate enchantments and broken Effect/Activity Rider references during imported Item Edit/Save or copy generation.
+- Ashbringer (official D&D × World of Warcraft export, Foundry 14.370 / D&D5e 6.1.1) headless reconstruction passed with 5 native Activities, 3 Effects, all 5 Activity IDs and 3 Effect IDs, the Undead attack, nested Rider links, and the source D&D5e Rider flag IDs preserved.
+
+### IC-0862-01 — Deprecated Chat rendering hook (P1)
+- Removed the legacy `renderChatMessage` subscription from Depletion Lifecycle. Retained only Foundry V14's `renderChatMessageHTML`, with direct `HTMLElement` handling and the existing `dataset.bound` guard.
+- Tested in isolation that a card binds controls once per DOM instance, and a newly rendered Chat DOM instance receives controls again. Actual player/GM round-trip remains a live Foundry test.
+
+### IC-0862-03 — Item Sheet hook audit (P2)
+- Retained `renderItemSheetV2` and `renderItemSheet` for the different sheet families supported by the module. Their shared `enhanceArchiveItemSheet` routine is idempotent against the mounted DOM and refuses to insert a duplicate Restore button.
+- No global hook removal from unrelated module features; Supplier, Crafting Core integration, Sources and Materializer were not touched.
+
+### QA and distribution
+- All `.mjs` scripts passed Node syntax verification. Pure validation, Ashbringer headless build and simulated Chat/Sheet render idempotence passed.
+- Live acceptance tests are still required on Foundry 14.370 / D&D5e 6.1.1 / PHB 3.0.0, especially editing a real Ashbringer, publishing, and lifecycle decisions across different clients.
+- Kept README as the cumulative user manual, CHANGELOG cumulative, QA checklist external to the installable, and manifests synchronized at v0.8.6.2.
+
+---
+
 ## 0.8.6.1 — Compatibility & Stability Update (Release Candidate)
 
 ### Compatibility policy

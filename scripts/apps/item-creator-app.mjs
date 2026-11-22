@@ -5,6 +5,7 @@ import { ItemCreatorItemBuilder } from "../services/item-builder.mjs";
 import { defaultChargeConfig, normalizeChargeConfig, defaultDepletionPolicy,
   normalizeDepletionPolicy, inferredChargeMode, chargeRecovery } from "../services/charge-resource-service.mjs";
 import { normalizeBaseItemMechanics } from "../services/base-item-normalizer.mjs";
+import { attackActivityValidationError } from "../utils/native-attack-compat.mjs";
 import { dnd6EffectPath, primaryItemRarity } from "../utils/dnd6-compat.mjs";
 import { EFFECT_CHANGE_TYPES, normalizeEffectChangeType } from "../utils/effect-change-types.mjs";
 import { ProtectedTransactionDialogService } from "../services/protected-transaction-dialog-service.mjs";
@@ -2178,16 +2179,15 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
         damageParts,
         damagePartCount: damageParts.length,
         attackTypeOptions: [
+          { value: "", label: "Automatic (native weapon default)", selected: !String(row.attackType ?? "") },
           { value: "melee", label: "Melee", selected: row.attackType === "melee" },
-          { value: "ranged", label: "Ranged", selected: row.attackType === "ranged" }
+          { value: "ranged", label: "Ranged", selected: row.attackType === "ranged" },
+          ...(!["", "melee", "ranged"].includes(String(row.attackType ?? ""))
+            ? [{ value: row.attackType, label: `Imported native type (${row.attackType})`, selected: true }] : [])
         ],
         abilityOptions: configOptions(CONFIG.DND5E.abilities, row.attackAbility, { blankValue: "", blankLabel: "Automatic" }),
-        invalid: !String(row.name ?? "").trim()
-          || damageParts.some(part => !this.#validateAdditionalDamageRow(part))
-          || (index > 0 && row.inheritPrimaryAttack === false && !["melee", "ranged"].includes(String(row.attackType ?? "")))
-          || (index > 0 && row.inheritPrimaryAttack === false && row.criticalThreshold !== ""
-            && row.criticalThreshold !== null && row.criticalThreshold !== undefined
-            && (!Number.isInteger(Number(row.criticalThreshold)) || Number(row.criticalThreshold) < 1 || Number(row.criticalThreshold) > 20))
+        invalidReason: attackActivityValidationError(row, index, damageParts, part => this.#validateAdditionalDamageRow(part)),
+        invalid: Boolean(attackActivityValidationError(row, index, damageParts, part => this.#validateAdditionalDamageRow(part)))
       };
     }) : [];
 
@@ -3337,6 +3337,7 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
       chargeConfig: clone(this.chargeConfig),
       triggeredEffects: clone(this.triggeredEffects),
       attackActivities: this.#attackActivityDraftForSave(effective),
+      attackActivitiesDirty: this.attackActivitiesDirty,
       description: this.descriptionCustomized ? this.customDescription : this.templateDescription,
       descriptionCustomized: this.descriptionCustomized,
       editingSourceUuid: this.editingItem?.uuid ?? null,
@@ -4810,19 +4811,10 @@ export class ItemCreatorApp extends HandlebarsApplicationMixin(ApplicationV2) {
     if (!rows.length) return false;
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index];
-      if (!String(row?.name ?? "").trim()) return false;
       const parts = index === 0
         ? (this.customized.additionalDamage ? (effective?.additionalDamage ?? []) : [])
         : valuesOf(row?.damageParts);
-      if (parts.some(part => !this.#validateAdditionalDamageRow(part))) return false;
-      if (index > 0 && row?.inheritPrimaryAttack === false) {
-        if (!['melee', 'ranged'].includes(String(row.attackType ?? ''))) return false;
-        const threshold = row.criticalThreshold;
-        if (threshold !== '' && threshold !== null && threshold !== undefined) {
-          const numeric = Number(threshold);
-          if (!Number.isInteger(numeric) || numeric < 1 || numeric > 20) return false;
-        }
-      }
+      if (attackActivityValidationError(row, index, parts, part => this.#validateAdditionalDamageRow(part))) return false;
     }
     return true;
   }

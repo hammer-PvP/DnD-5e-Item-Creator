@@ -3994,3 +3994,6 @@ body.ic-protected-active { overflow: hidden; }
 .chat-message .ic-depletion-button.ic-danger { border-color: rgba(151,53,53,.6); }
 .chat-message .ic-depletion-button:disabled { opacity: .55; cursor: wait; }
 .ic-restore-archived-item { display: inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+
+/* v0.8.6.2: show the exact validation error on imported native attacks. */
+.ic-activity-validation-error { grid-column: 1 / -1; color: var(--color-level-error, #b43d3d); margin: .35rem 0; }

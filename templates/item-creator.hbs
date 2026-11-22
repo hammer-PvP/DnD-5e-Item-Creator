@@ -440,7 +440,7 @@
                       <span><strong>Inherit Primary Attack Configuration</strong><small>Copies the Primary Activity's attack type, ability, attack bonus, critical configuration, and other native attack fields. Damage parts remain specific to this Activity.</small></span>
                     </label>
                     {{#unless inheritPrimaryAttack}}
-                    <label><span>Attack Type</span><select data-attack-activity-input="attackType" data-attack-activity-id="{{id}}">{{#each attackTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
+                    <label><span>Attack Type</span><select data-attack-activity-input="attackType" data-attack-activity-id="{{id}}">{{#each attackTypeOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select><small>Automatic preserves the native empty Attack Type; D&amp;D5e resolves it from the weapon.</small></label>
                     <label><span>Attack Ability</span><select data-attack-activity-input="attackAbility" data-attack-activity-id="{{id}}">{{#each abilityOptions}}<option value="{{value}}" {{#if selected}}selected{{/if}}>{{label}}</option>{{/each}}</select></label>
                     <label><span>Attack Bonus</span><input type="text" value="{{attackBonus}}" data-attack-activity-input="attackBonus" data-attack-activity-id="{{id}}" placeholder="0 or formula"></label>
                     <label><span>Critical Threshold</span><input type="number" min="1" max="20" step="1" value="{{criticalThreshold}}" data-attack-activity-input="criticalThreshold" data-attack-activity-id="{{id}}" data-value-type="number" placeholder="Default"></label>
@@ -451,6 +451,7 @@
                     {{/unless}}
                   </div>
 
+                  {{#if invalidReason}}<p class="ic-mechanical-note ic-activity-validation-error"><i class="fa-solid fa-triangle-exclamation"></i> {{invalidReason}}</p>{{/if}}
                   {{#if primary}}
                   <section class="ic-activity-damage-section {{#unless ../additionalDamageValid}}invalid{{/unless}}">
                     <label class="ic-override-heading">

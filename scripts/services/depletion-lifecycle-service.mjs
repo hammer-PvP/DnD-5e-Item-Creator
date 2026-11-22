@@ -64,8 +64,11 @@ function ensureWorldFolder(name, parent = null) {
 
 export class ItemCreatorDepletionLifecycle {
   static registerHooks() {
+    // V14 native HTML hook; the legacy renderChatMessage hook is deprecated
+    // and causes warnings for unrelated Chat messages (e.g. Long Rest).
     Hooks.on("renderChatMessageHTML", (message, html) => this.enhanceCard(message, html));
-    Hooks.on("renderChatMessage", (message, html) => this.enhanceCard(message, html));
+    // Both sheet generations may still be in use in supported D&D5e worlds.
+    // enhanceArchiveItemSheet deduplicates against the actual mounted DOM.
     Hooks.on("renderItemSheetV2", (app, html) => this.enhanceArchiveItemSheet(app, html));
     Hooks.on("renderItemSheet", (app, html) => this.enhanceArchiveItemSheet(app, html));
     Hooks.on("updateItem", item => {
@@ -325,7 +328,8 @@ export class ItemCreatorDepletionLifecycle {
     const record = currentRecord(message);
     if (!record) return;
     const root = html instanceof HTMLElement ? html : html?.[0] ?? html?.element ?? null;
-    const target = root?.querySelector?.("[data-ic-depletion-actions]");
+    const target = root?.matches?.("[data-ic-depletion-actions]")
+      ? root : root?.querySelector?.("[data-ic-depletion-actions]");
     if (!target || target.dataset.bound === "true") return;
     target.dataset.bound = "true";
     const actor = game.actors.get(record.actorId);

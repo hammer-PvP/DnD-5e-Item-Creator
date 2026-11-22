@@ -1,6 +1,6 @@
 export const MODULE_ID = "dnd5e-item-creator";
-export const MODULE_VERSION = "0.8.6.1";
-export const MODULE_STAGE = "Compatibility & Stability";
+export const MODULE_VERSION = "0.8.6.2";
+export const MODULE_STAGE = "Native Activities & Hook Compatibility";
 
 export const ITEM_TYPES = Object.freeze([
   { id: "weapon", label: "Weapon", icon: "fa-khanda", available: true },

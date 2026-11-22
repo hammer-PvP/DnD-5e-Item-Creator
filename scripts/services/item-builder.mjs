@@ -7,6 +7,7 @@ import { MATERIALIZATION_ENGINE_VERSION, canonicalizeItemName } from "../core/ma
 import { getResourceDefinition, resourceModificationLabel } from "./resource-modification-registry.mjs";
 import { triggeredEffectSummary } from "./triggered-effect-registry.mjs";
 import { dnd6EffectPath, normalizeDnd6ItemSource, primaryItemRarity } from "../utils/dnd6-compat.mjs";
+import { nativeDamagePartsUnchanged } from "../utils/native-attack-compat.mjs";
 
 const MODES = () => EFFECT_CHANGE_TYPES;
 
@@ -221,9 +222,10 @@ function effectData({ key, label, availability, changes, description = "", progr
   };
 }
 
-function buildImportedCustomContent(customEffects = [], customActivities = []) {
+function buildImportedCustomContent(customEffects = [], customActivities = [], { preserveSourceIds = true } = {}) {
   const effectIdMap = new Map();
   const effects = [];
+  const usedEffectIds = new Set();
   for (const entry of customEffects ?? []) {
     if (entry?.included === false || !entry?.data) continue;
     const effect = cleanDocumentSource(entry.data);
@@ -231,7 +233,10 @@ function buildImportedCustomContent(customEffects = [], customActivities = []) {
     const importedChanges = effect.system.changes ?? effect.changes ?? [];
     effect.system.changes = normalizeEffectChanges(importedChanges);
     delete effect.changes;
-    const id = foundry.utils.randomID();
+    const originalId = String(entry.sourceId ?? "").trim();
+    const id = preserveSourceIds && originalId && !usedEffectIds.has(originalId)
+      ? originalId : foundry.utils.randomID();
+    usedEffectIds.add(id);
     if (entry.sourceId) effectIdMap.set(entry.sourceId, id);
     effect._id = id;
     delete effect.origin;
@@ -604,7 +609,7 @@ function primaryAttackData(baseWeapon, template) {
   return source;
 }
 
-function ensureAttackActivitySource(source = {}) {
+function ensureAttackActivitySource(source = {}, { preserveNative = false } = {}) {
   const activity = cleanDocumentSource(source ?? {});
   activity._id ||= foundry.utils.randomID();
   activity.type = "attack";
@@ -612,14 +617,16 @@ function ensureAttackActivitySource(source = {}) {
   activity.attack ??= {};
   activity.attack.critical ??= {};
   activity.attack.type ??= {};
-  activity.attack.type.classification = "weapon";
+  if (!preserveNative) activity.attack.type.classification = "weapon";
   activity.damage ??= {};
   activity.damage.critical ??= {};
   activity.damage.parts ??= [];
   activity.damage.includeBase = activity.damage.includeBase !== false;
   activity.consumption ??= {};
-  activity.consumption.spellSlot = false;
-  activity.consumption.targets = (activity.consumption.targets ?? []).filter(target => target?.type !== "spellSlots");
+  if (!preserveNative) {
+    activity.consumption.spellSlot = false;
+    activity.consumption.targets = (activity.consumption.targets ?? []).filter(target => target?.type !== "spellSlots");
+  }
   return activity;
 }
 
@@ -635,21 +642,25 @@ function remapActivityEffectReferences(activity, effectIdMap) {
 function buildAlternativeAttackActivity(setting, primaryAttack, importedCustom, index = 1) {
   const inheritPrimary = setting?.inheritPrimaryAttack !== false;
   const hasSource = setting?.sourceData && Object.keys(setting.sourceData).length > 0;
+  const preserveNative = Boolean(!inheritPrimary && hasSource && setting?.sourceId);
   let activity = inheritPrimary
     ? clone(primaryAttack)
-    : ensureAttackActivitySource(hasSource ? setting.sourceData : clone(primaryAttack));
+    : ensureAttackActivitySource(hasSource ? setting.sourceData : clone(primaryAttack), { preserveNative });
 
-  activity = ensureAttackActivitySource(activity);
+  activity = ensureAttackActivitySource(activity, { preserveNative });
   activity._id = setting?.sourceId || setting?.id || foundry.utils.randomID();
   activity.name = String(setting?.name ?? "Alternative Attack").trim() || "Alternative Attack";
   const sourceSort = Number(setting?.sourceData?.sort);
   activity.sort = setting?.sourceId && Number.isFinite(sourceSort) ? sourceSort : index * 100000;
   activity.damage.includeBase = setting?.includeBase !== false;
-  activity.damage.parts = [];
+  const nativeParts = preserveNative ? valuesOf(setting.sourceData.damage?.parts) : [];
+  const preserveParts = preserveNative && nativeDamagePartsUnchanged(nativeParts, setting?.damageParts ?? []);
+  activity.damage.parts = preserveParts ? clone(nativeParts) : [];
 
   if (!inheritPrimary) {
-    activity.attack.type.value = String(setting?.attackType ?? activity.attack.type.value ?? "melee") || "melee";
-    activity.attack.type.classification = "weapon";
+    // Empty is an intentional native D&D5e "Automatic" attack mode.
+    activity.attack.type.value = String(setting?.attackType ?? activity.attack.type.value ?? "");
+    if (!preserveNative) activity.attack.type.classification = "weapon";
     activity.attack.ability = String(setting?.attackAbility ?? "");
     activity.attack.bonus = String(setting?.attackBonus ?? "");
     const threshold = setting?.criticalThreshold;
@@ -659,7 +670,7 @@ function buildAlternativeAttackActivity(setting, primaryAttack, importedCustom, 
     remapActivityEffectReferences(activity, importedCustom.effectIdMap);
   }
 
-  for (const row of setting?.damageParts ?? []) {
+  if (!preserveParts) for (const row of setting?.damageParts ?? []) {
     const tier = selectProgressionTier(row, null);
     if (!tier) continue;
     activity.damage.parts.push(damagePart({
@@ -1908,15 +1919,26 @@ export class ItemCreatorItemBuilder {
       data.system.damage.base.bonus = appendFormula(weaponStructuralBase.damageBaseBonus, damageBonusTier.bonus);
     }
 
-    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities, { preserveSourceIds: true });
     const activitySettings = valuesOf(draft.attackActivities);
     const primarySetting = activitySettings[0] ?? null;
     const attack = primaryAttackData(draft.baseWeapon, draft.template);
+    if (draft.editingSourceUuid && primarySetting?.sourceData?.consumption) {
+      // Item Creator edits should not silently normalize a native imported
+      // Activity's existing consumption contract (especially spellSlot).
+      attack.consumption = clone(primarySetting.sourceData.consumption);
+    }
     remapActivityEffectReferences(attack, importedCustom.effectIdMap);
     if (primarySetting) {
       attack._id = primarySetting.sourceId || primarySetting.id || attack._id;
       attack.name = String(primarySetting.name ?? "Attack").trim() || "Attack";
       attack.damage.includeBase = primarySetting.includeBase !== false;
+      if (draft.editingSourceUuid && !draft.attackActivitiesDirty &&
+        primarySetting?.sourceData?.name === "" && primarySetting.name === "Attack") {
+        // An unnamed native primary Attack displays the Item's name in D&D5e.
+        // The editor shows "Attack" for readability; don't rename it on save.
+        attack.name = "";
+      }
     }
     attack.attack.ability = effective.attackAbility || "";
     attack.attack.type.value = effective.attackType || "";
@@ -1957,6 +1979,19 @@ export class ItemCreatorItemBuilder {
         }));
       }
     }
+    if (draft.editingSourceUuid && !draft.attackActivitiesDirty && primarySetting?.sourceData) {
+      // Preserve opaque native Attack metadata and per-part modifiers when the
+      // edited primary Attack still has the same effective damage rows.
+      const native = primarySetting.sourceData;
+      if (native.attack?.type?.classification !== undefined) {
+        attack.attack.type.classification = native.attack.type.classification;
+      }
+      const nativeParts = valuesOf(native.damage?.parts);
+      if (nativeDamagePartsUnchanged(nativeParts, attack.damage.parts.map(part => ({
+        number: part.number, denomination: part.denomination,
+        damageType: valuesOf(part.types)[0] ?? "", bonus: part.bonus
+      })))) attack.damage.parts = clone(nativeParts);
+    }
 
     // D&D5e's Activity chooser respects native sort values. Keep the Primary
     // weapon attack first, managed alternative attacks next, and composed
@@ -1965,7 +2000,7 @@ export class ItemCreatorItemBuilder {
     const managedAttackActivities = [attack];
     for (const [index, setting] of activitySettings.slice(1).entries()) {
       const alternative = buildAlternativeAttackActivity(setting, attack, importedCustom, index + 1);
-      alternative.sort = (index + 1) * 100000;
+      if (!setting?.sourceId) alternative.sort = (index + 1) * 100000;
       managedAttackActivities.push(alternative);
     }
     const provisionalActivities = [...managedAttackActivities, ...importedCustom.activities];
@@ -2145,7 +2180,7 @@ export class ItemCreatorItemBuilder {
     if (removeStealthTier) data.system.properties = data.system.properties.filter(property => property !== "stealthDisadvantage");
     data.system.properties = [...new Set(data.system.properties)];
 
-    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities, { preserveSourceIds: true });
     data.system.activities = Object.fromEntries(importedCustom.activities.map(activity => [activity._id, activity]));
 
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
@@ -2291,7 +2326,7 @@ export class ItemCreatorItemBuilder {
     }
     data.system.properties = [...new Set(data.system.properties)];
 
-    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities, { preserveSourceIds: true });
     data.system.activities = Object.fromEntries(importedCustom.activities.map(activity => [activity._id, activity]));
 
     const ItemClass = Item.implementation ?? CONFIG.Item.documentClass;
@@ -2461,7 +2496,7 @@ export class ItemCreatorItemBuilder {
       .map(effect => cleanDocumentSource(effect))
       .filter(effect => !rebuildingSelf || !this.#isCreatorGeneratedConsumableEffect(effect));
 
-    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities);
+    const importedCustom = buildImportedCustomContent(draft.customImportedEffects, draft.customImportedActivities, { preserveSourceIds: true });
     for (const activity of importedCustom.activities) {
       activity.flags ??= {};
       activity.flags[MODULE_ID] = {
